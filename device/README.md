@@ -9,7 +9,7 @@ MicroPython code to be placed on the device to enable OTA functionality.
 ## Installation
 
 1. Ensure the device has MicroPython installed and running correctly.
-1. Install `urst-mpy` with:
+1. Install `urst-mpy` onto the device with:
 
    ```bash
    mpremote mip install github:simonl65/URST-mpy

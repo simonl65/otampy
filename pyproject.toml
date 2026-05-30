@@ -7,7 +7,7 @@ license = "SUL-1.0"
 license-files = ["LICENSE.md"]
 authors = [{ name = "Simon R. Lincoln", email = "oss@codeability.co.uk" }]
 requires-python = ">=3.12"
-dependencies = ["pyserial>=3.5", "urst>=1.0.0,<2.0.0"]
+dependencies = ["pyserial>=3.5", "urst>=1.0.0,<2.0.0", "click>=8.0.0", "rich>=13.0.0"]
 
 
 # Install the package with `uv tool install -e .` to make these script commands available (`-e` is optional for editable install)
@@ -55,7 +55,7 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
-addopts = "--cov=sertran --cov-report=term-missing"
+addopts = "--cov=otampy --cov-report=term-missing"
 
 [tool.uv.sources]
 urst = { git = "https://github.com/simonl65/urst-mpy.git" }

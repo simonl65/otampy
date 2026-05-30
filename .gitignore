@@ -13,3 +13,5 @@ config.py
 .agents
 .antigravity*
 TODO.md
+.coverage
+*.log

@@ -57,7 +57,11 @@ def logging_formatter(
     """
     if handler is None:
         handler = logging.StreamHandler()
-    handler.setFormatter(FixedLevelFormatter(fmt=fmt, level_width=level_width, name_width=name_width))
+    handler.setFormatter(
+        FixedLevelFormatter(
+            fmt=fmt, level_width=level_width, name_width=name_width
+        )
+    )
 
     if name is not None:
         # When configuring a named logger, suppress all other loggers

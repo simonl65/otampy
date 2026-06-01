@@ -191,3 +191,46 @@ def test_delete_log_file(tmp_path):
 
     logger.close()
 
+
+def test_logger_without_filepath(capsys):
+    logger = Logger()
+
+    logger.debug("Debug message", source="test_logger_without_filepath")
+    # Assert that the message is printed to stdout
+    captured = capsys.readouterr().out
+    assert "[DEBUG] [test_logger_without_filepath] Debug message\n" in captured
+
+    logger.close()
+
+
+def test_logger_with_incorrect_log_level(capsys):
+    # Test that providing incorrect parameters does not raise an exception and the message is printed to stdout
+    logger = Logger("/test.log")
+
+    try:
+        logger.debug("Debug message", source="my_module")
+    except Exception as e:
+        raise AssertionError(
+            f"Logger raised an exception with invalid parameters: {e}"
+        ) from None
+
+    captured = capsys.readouterr().out
+    assert "Invalid log level string provided to Logger." in captured
+
+    logger.close()
+
+
+def test_logger_with_missing_filepath(capsys):
+    logger = Logger("INFO", log_file="/missing_path/test.log")
+
+    try:
+        logger.info("Info message", source="my_module")
+    except Exception as e:
+        raise AssertionError(
+            f"Logger raised an exception with invalid parameters: {e}"
+        ) from None
+
+    captured = capsys.readouterr().out
+    assert "Failed to open log file:" in captured
+
+    logger.close()

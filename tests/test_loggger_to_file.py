@@ -17,27 +17,27 @@ def test_file_logger_explicit_source(tmp_path):
     logger.debug("Debug message", source="custom_debug")
     with open(log_file) as f:
         content = f.read()
-    assert "[DEBUG] [custom_debug] Debug message\n" in content
+    assert "[DEBUG   ] [custom_debug        ] Debug message\n" in content
 
     logger.info("Info message", source="custom_info")
     with open(log_file) as f:
         content = f.read()
-    assert "[INFO ] [custom_info] Info message\n" in content
+    assert "[INFO    ] [custom_info         ] Info message\n" in content
 
     logger.warn("Warning message", source="custom_warn")
     with open(log_file) as f:
         content = f.read()
-    assert "[WARN ] [custom_warn] Warning message\n" in content
+    assert "[WARN    ] [custom_warn         ] Warning message\n" in content
 
     logger.error("Error message", source="custom_error")
     with open(log_file) as f:
         content = f.read()
-    assert "[ERROR] [custom_error] Error message\n" in content
+    assert "[ERROR   ] [custom_error        ] Error message\n" in content
 
     logger.critical("Critical message", source="custom_critical")
     with open(log_file) as f:
         content = f.read()
-    assert "[CRITICAL] [custom_critical] Critical message\n" in content
+    assert "[CRITICAL] [custom_critical     ] Critical message\n" in content
 
     logger.close()
 
@@ -53,22 +53,22 @@ def test_file_logger_omitted_source_same_module(tmp_path):
     logger.debug("Debug message")
     with open(log_file) as f:
         content = f.read()
-    assert f"[DEBUG] [{expected_module}] Debug message\n" in content
+    assert f"[DEBUG   ] [{expected_module}] Debug message\n" in content
 
     logger.info("Info message")
     with open(log_file) as f:
         content = f.read()
-    assert f"[INFO ] [{expected_module}] Info message\n" in content
+    assert f"[INFO    ] [{expected_module}] Info message\n" in content
 
     logger.warn("Warning message")
     with open(log_file) as f:
         content = f.read()
-    assert f"[WARN ] [{expected_module}] Warning message\n" in content
+    assert f"[WARN    ] [{expected_module}] Warning message\n" in content
 
     logger.error("Error message")
     with open(log_file) as f:
         content = f.read()
-    assert f"[ERROR] [{expected_module}] Error message\n" in content
+    assert f"[ERROR   ] [{expected_module}] Error message\n" in content
 
     logger.critical("Critical message")
     with open(log_file) as f:
@@ -104,7 +104,7 @@ def test_file_logger_omitted_source_different_module(tmp_path):
     with open(log_file) as f:
         content = f.read()
     assert (
-        "[DEBUG] [mock_external_module] Debug message from different module\n"
+        "[DEBUG   ] [mock_external_module] Debug message from different module\n"
         in content
     )
 
@@ -112,7 +112,7 @@ def test_file_logger_omitted_source_different_module(tmp_path):
     with open(log_file) as f:
         content = f.read()
     assert (
-        "[INFO ] [mock_external_module] Info message from different module\n"
+        "[INFO    ] [mock_external_module] Info message from different module\n"
         in content
     )
 
@@ -120,7 +120,7 @@ def test_file_logger_omitted_source_different_module(tmp_path):
     with open(log_file) as f:
         content = f.read()
     assert (
-        "[WARN ] [mock_external_module] Warning message from different module\n"
+        "[WARN    ] [mock_external_module] Warning message from different module\n"
         in content
     )
 
@@ -128,7 +128,7 @@ def test_file_logger_omitted_source_different_module(tmp_path):
     with open(log_file) as f:
         content = f.read()
     assert (
-        "[ERROR] [mock_external_module] Error message from different module\n"
+        "[ERROR   ] [mock_external_module] Error message from different module\n"
         in content
     )
 
@@ -160,7 +160,7 @@ def test_file_logger_omitted_source_main_module(tmp_path):
     namespace["log_info"]()
     with open(log_file) as f:
         content = f.read()
-    assert "[INFO ] [mock_temp_script.py] Message from main\n" in content
+    assert "[INFO    ] [mock_temp_script.py ] Message from main\n" in content
 
     logger.close()
 
@@ -198,7 +198,9 @@ def test_logger_without_filepath(capsys):
     logger.debug("Debug message", source="test_logger_without_filepath")
     # Assert that the message is printed to stdout
     captured = capsys.readouterr().out
-    assert "[DEBUG] [test_logger_without_filepath] Debug message\n" in captured
+    assert (
+        "[DEBUG   ] [test_logger_without_filepath] Debug message\n" in captured
+    )
 
     logger.close()
 

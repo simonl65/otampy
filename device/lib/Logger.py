@@ -100,9 +100,9 @@ class Logger:
         if self._log_file and not self._log_file.closed:
             self._log_file.close()
         try:
-            self._log_file = open(file_path, "a")
+            self._log_file = open(file_path, "a")  # noqa: SIM115
             self._log_file_path = file_path
-        except IOError as e:
+        except IOError as e:  # noqa: UP024
             self._log_file = None
             self._log_file_path = None
             self.error(f"Failed to open log file: {e}")
@@ -149,14 +149,18 @@ class Logger:
         @return str: The formatted log message string.
         """
         level_str = {
-            DEBUG: "DEBUG",
-            INFO: "INFO ",
-            WARN: "WARN ",
-            ERROR: "ERROR",
+            DEBUG: "DEBUG   ",
+            INFO: "INFO    ",
+            WARN: "WARN    ",
+            ERROR: "ERROR   ",
             CRITICAL: "CRITICAL",
-            ALWAYS: "ALWAY",
+            ALWAYS: "ALWAYS  ",
             NONE: "DISABLED",
-        }.get(level, "INFO ")
+        }.get(level, "INFO    ")
+
+        # if source string is less than 20 characters, pad it to 20 characters for alignment
+        if len(source) < 20:
+            source = source.ljust(20)
 
         return f"[{level_str}] [{source}] {message}"
 

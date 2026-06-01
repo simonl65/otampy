@@ -6,7 +6,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../device/lib"))
 )
 
-from logger import Logger
+from logger import Logger  # pyright: ignore[reportMissingImports]
 
 
 def test_logger_explicit_source(capsys):
@@ -19,11 +19,11 @@ def test_logger_explicit_source(capsys):
 
     logger.info("Info message", source="custom_info")
     captured = capsys.readouterr().out
-    assert "[INFO] [custom_info] Info message\n" in captured
+    assert "[INFO ] [custom_info] Info message\n" in captured
 
     logger.warn("Warning message", source="custom_warn")
     captured = capsys.readouterr().out
-    assert "[WARN] [custom_warn] Warning message\n" in captured
+    assert "[WARN ] [custom_warn] Warning message\n" in captured
 
     logger.error("Error message", source="custom_error")
     captured = capsys.readouterr().out
@@ -47,11 +47,11 @@ def test_logger_omitted_source_same_module(capsys):
 
     logger.info("Info message")
     captured = capsys.readouterr().out
-    assert f"[INFO] [{expected_module}] Info message\n" in captured
+    assert f"[INFO ] [{expected_module}] Info message\n" in captured
 
     logger.warn("Warning message")
     captured = capsys.readouterr().out
-    assert f"[WARN] [{expected_module}] Warning message\n" in captured
+    assert f"[WARN ] [{expected_module}] Warning message\n" in captured
 
     logger.error("Error message")
     captured = capsys.readouterr().out
@@ -93,14 +93,14 @@ def test_logger_omitted_source_different_module(capsys):
     namespace["log_info"]()
     captured = capsys.readouterr().out
     assert (
-        "[INFO] [mock_external_module] Info message from different module\n"
+        "[INFO ] [mock_external_module] Info message from different module\n"
         in captured
     )
 
     namespace["log_warn"]()
     captured = capsys.readouterr().out
     assert (
-        "[WARN] [mock_external_module] Warning message from different module\n"
+        "[WARN ] [mock_external_module] Warning message from different module\n"
         in captured
     )
 
@@ -134,4 +134,4 @@ def test_logger_omitted_source_main_module(capsys):
 
     namespace["log_info"]()
     captured = capsys.readouterr().out
-    assert "[INFO] [mock_temp_script.py] Message from main\n" in captured
+    assert "[INFO ] [mock_temp_script.py] Message from main\n" in captured

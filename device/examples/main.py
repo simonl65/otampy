@@ -1,5 +1,5 @@
 import device.examples.config as config
-from lib.Logger import Logger
+from device.lib.Log_to_file import Logger
 from lib.otampy.ota import OTAManager
 
 try:

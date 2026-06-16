@@ -101,7 +101,7 @@ class OTAManager:
         except Exception:
             return
 
-        try:  # noqa: SIM105
+        try:
             self.logger.info(f"Update request flag found: {flag}")
         except Exception:
             pass
@@ -110,7 +110,7 @@ class OTAManager:
             try:
                 callback()
             except Exception as exc:
-                try:  # noqa: SIM105
+                try:
                     self.logger.error(f"Application callback raised: {exc}")
                 except Exception:
                     pass
@@ -121,7 +121,7 @@ class OTAManager:
             try:
                 getattr(_os, "unlink", lambda _p: None)(flag)
             except Exception:
-                try:  # noqa: SIM105
+                try:
                     self.logger.debug(f"Could not remove update flag: {flag}")
                 except Exception:
                     pass

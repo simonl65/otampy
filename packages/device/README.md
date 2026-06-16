@@ -5,6 +5,7 @@ MicroPython code to be placed on the device to enable OTA functionality.
 ## Dependencies
 
 - **urst-mpy** MicroPython implementation of the Universal Reliable Serial Transport protocol (Currently available on my [GitHub](https://github.com/simonl65/URST-mpy)).
+- **log-to-file** [GitHub](https://github.com/simonl65/log-to-file)
 
 ## Installation
 
@@ -15,6 +16,6 @@ MicroPython code to be placed on the device to enable OTA functionality.
    mpremote mip install github:simonl65/URST-mpy
    ```
 
-1. Copy all folders and files in this `/device` folder to the root of the device.
-1. Update `main.py` with with the OTAmpy specific code shown in `main-example.py`).
+1. Copy all folders and files in `packages/device` to the root of the device.
+1. Update `main.py` with the OTAmpy specific code shown in `examples/main.py`.
 1. Reboot the device.

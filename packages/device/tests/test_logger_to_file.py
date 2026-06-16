@@ -1,13 +1,15 @@
+import importlib
 import os
 import sys
 
-# Add device/lib to sys.path so we can import logger
+import pytest
+
+# Add packages/device/lib to sys.path so we can import logger
 sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../device/lib"))
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../lib"))
 )
 
-import pytest
-from Logger import Logger  # pyright: ignore[reportMissingImports]
+Logger = importlib.import_module("Log_to_file").Logger
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +65,7 @@ def test_file_logger_omitted_source_same_module(tmp_path):
     logger = Logger(level="DEBUG", log_file=str(log_file))
 
     # In this test, the calling module's name is the current module's __name__
-    expected_module = __name__
+    expected_module = __name__.ljust(20)
 
     logger.debug("Debug message")
     with open(log_file) as f:
@@ -166,7 +168,7 @@ def test_file_logger_omitted_source_main_module(tmp_path):
     namespace = {"logger": logger}
     code = compile(
         "def log_info():\n    logger.info('Message from main')\n",
-        "/home/simon/Documents/_ELECTRONICS/otampy/device/mock_temp_script.py",
+        "/home/simon/Documents/_ELECTRONICS/otampy/packages/device/mock_temp_script.py",
         "exec",
     )
     exec(code, namespace)
@@ -234,7 +236,7 @@ def test_logger_with_incorrect_log_level(capsys):
 
     captured = capsys.readouterr().out
     assert (
-        "[ERROR   ] [test_loggger_to_file] Invalid log level string provided to Logger.\n"
+        "[ERROR   ] [test_logger_to_file ] Invalid log level string provided to Logger.\n"
         in captured
     )
 
@@ -311,7 +313,7 @@ def test_logger_none_level(tmp_path):
         content = f.read()
 
     assert (
-        "[ALWAYS  ] [test_loggger_to_file] This message SHOULD be logged"
+        "[ALWAYS  ] [test_logger_to_file ] This message SHOULD be logged"
         in content
     )
     assert "This debug message should not be logged" not in content

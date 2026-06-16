@@ -16,5 +16,5 @@ TODO: Add usage details
 1. Install as a tool using UV:
 
    ```bash
-   uv tool install -e .
+   uv tool install -e packages/cli
    ```

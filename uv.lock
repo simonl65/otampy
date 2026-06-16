@@ -2,6 +2,18 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "otampy",
+]
+
+[manifest.dependency-groups]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "ruff", specifier = ">=0.4" },
+]
+
 [[package]]
 name = "click"
 version = "8.4.1"
@@ -140,7 +152,7 @@ wheels = [
 [[package]]
 name = "otampy"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "packages/cli" }
 dependencies = [
     { name = "click" },
     { name = "pyserial" },
@@ -148,39 +160,12 @@ dependencies = [
     { name = "urst" },
 ]
 
-[package.optional-dependencies]
-serial = [
-    { name = "pyserial" },
-]
-urst = [
-    { name = "urst" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pyserial" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
     { name = "pyserial", specifier = ">=3.5" },
-    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "urst", git = "https://github.com/simonl65/urst-mpy.git" },
-    { name = "urst", marker = "extra == 'urst'", git = "https://github.com/simonl65/urst-mpy.git" },
-]
-provides-extras = ["serial", "urst"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pyserial", specifier = ">=3.5" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "ruff", specifier = ">=0.4" },
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 
-from otampy.OTAmpy import cli
+from otampy.cli import cli
 
 
 def test_cli_help():

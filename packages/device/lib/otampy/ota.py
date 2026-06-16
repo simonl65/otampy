@@ -1,11 +1,8 @@
 """
-This module is the corrolary to the `otampy` CLI tool. It provides device-side functionality for performing over-the-air updates on MicroPython devices. The OTAManager class is responsible for managing the update process, including handling the update logic and communicating with the device. This module is designed to be used in conjunction with the `otampy` CLI tool to facilitate seamless OTA updates for MicroPython devices.
+This module is the corrolary to the `otampy` CLI tool. It provides device-side functionality for performing over-the-air updates on MicroPython devices.
+The OTAManager class is responsible for managing the update process, including handling the update logic and communicating with the device.
+This module is designed to be used in conjunction with the `otampy` CLI tool to facilitate seamless OTA updates for MicroPython devices.
 """
-
-try:
-    from ..Log_to_file import Logger
-except ImportError:
-    from .OTALogger import Logger
 
 
 class OTAManager:

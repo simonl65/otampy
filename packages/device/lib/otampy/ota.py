@@ -4,11 +4,38 @@ The OTAManager class is responsible for managing the update process, including h
 This module is designed to be used in conjunction with the `otampy` CLI tool to facilitate seamless OTA updates for MicroPython devices.
 """
 
+from time import time
+
+
+class _NullLogger:
+    __slots__ = ()
+
+    def _log(self, level, *args):
+        print("[{}] [{:8}] {}".format(time(), level, " ".join(map(str, args))))
+
+    def debug(self, *args, **kwargs):
+        self._log("DEBUG", *args)
+
+    def info(self, *args, **kwargs):
+        self._log("INFO", *args)
+
+    def warning(self, *args, **kwargs):
+        self._log("WARNING", *args)
+
+    def error(self, *args, **kwargs):
+        self._log("ERROR", *args)
+
+    def critical(self, *args, **kwargs):
+        self._log("CRITICAL", *args)
+
+    def exception(self, *args, **kwargs):
+        self._log("ERROR", *args)
+
 
 class OTAManager:
     """The OTAManager class provides methods for performing over-the-air updates on devices."""
 
-    def __init__(self, uart, config=None):
+    def __init__(self, uart, config=None, logger=None):
         try:
             from urst import Urst
 
@@ -23,7 +50,7 @@ class OTAManager:
                 config["LOG_FILE"] = "/logs/ota.log"
             self.config = config
 
-            self.logger = Logger(self.config.LOG_LEVEL, self.config.LOG_FILE)
+            self.logger = logger if logger is not None else _NullLogger()
 
             # Initialise the UART connection to the device
             self.uart = uart

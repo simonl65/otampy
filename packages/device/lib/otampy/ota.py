@@ -92,7 +92,7 @@ class OTAManager:
         except Exception:
             import os as _os  # type: ignore
 
-        flag = self.config.get("UPDATE_REQUEST_FLAG_FILE")
+        flag = self.config.UPDATE_REQUEST_FLAG_FILE
         if not flag:
             return
 

@@ -1,6 +1,7 @@
-import packages.device.examples.config as config
-from packages.device.lib.Log_to_file import Logger
-from packages.device.lib.otampy.ota import OTAManager
+import config
+from log_to_file import Logger  # type: ignore
+
+from otampy.ota import OTAManager  # type: ignore
 
 try:
     import utime as time  # pyright: ignore[reportMissingImports]

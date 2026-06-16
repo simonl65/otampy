@@ -40,8 +40,17 @@ class FakeLogger:
     def debug(self, msg):
         self.messages.append(("debug", msg))
 
+    def info(self, msg):
+        self.messages.append(("info", msg))
+
     def warning(self, msg):
         self.messages.append(("warning", msg))
+
+    def error(self, msg):
+        self.messages.append(("error", msg))
+
+    def critical(self, msg):
+        self.messages.append(("critical", msg))
 
 
 def test_has_uart_interface_accepts_uart_like_object(monkeypatch):
@@ -107,4 +116,23 @@ def test_check_for_update_logs_check(monkeypatch):
 
     assert logger.messages == [
         ("debug", "Checking for update request flag file...")
+    ]
+
+
+def test_check_for_update_logs_flag_found(monkeypatch, tmp_path):
+    ota = load_ota_module(monkeypatch)
+    logger = FakeLogger()
+    manager = ota.OTAManager(FakeUART(), logger=logger)
+
+    # Create a temporary flag file
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.write_text("")
+
+    manager.config["UPDATE_REQUEST_FLAG_FILE"] = str(flag_file)
+
+    manager.check_for_update(callback=None)
+
+    assert logger.messages == [
+        ("debug", "Checking for update request flag file..."),
+        ("info", f"Update request flag found: {flag_file}"),
     ]

@@ -1,6 +1,6 @@
-from machine import UART, Pin  # pyright: ignore[reportMissingImports]
-from urst import Urst
-from utime import sleep_ms  # pyright: ignore[reportMissingImports]
+from machine import UART, Pin  # type: ignore
+from urst import Urst  # type: ignore
+from utime import sleep_ms  # type: ignore
 
 uart = UART(0, baudrate=57600, tx=Pin(0), rx=Pin(1))
 urst = Urst(uart)

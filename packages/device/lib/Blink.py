@@ -1,5 +1,5 @@
-from machine import Pin
-from utime import sleep_ms
+from machine import Pin  # type: ignore
+from utime import sleep_ms  # type: ignore
 
 
 class Blink:

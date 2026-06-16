@@ -1,14 +1,44 @@
 import config
 from log_to_file import Logger  # type: ignore
 
+from Blink import Blink  # type: ignore
 from otampy.ota import OTAManager  # type: ignore
+
+blinker = Blink(pin="LED")
 
 try:
     import utime as time  # pyright: ignore[reportMissingImports]
 except ImportError:
     import time
 
-logger = Logger(config.LOG_LEVEL, config.LOG_FILE)
+
+class _NullLogger:
+    __slots__ = ()
+
+    def _log(self, level, msg):
+        print("[" + str(time()) + "] [" + level + "] " + msg)
+
+    def debug(self, msg):
+        self._log("DEBUG", msg)
+
+    def info(self, msg):
+        self._log("INFO", msg)
+
+    def warning(self, msg):
+        self._log("WARNING", msg)
+
+    def error(self, msg):
+        self._log("ERROR", msg)
+
+    def critical(self, msg):
+        self._log("CRITICAL", msg)
+
+    def exception(self, msg):
+        self._log("ERROR", msg)
+
+
+logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
+logger = logger if logger is not None else _NullLogger()
 
 # Initialize UART 0 on pins GP0 (TX) and GP1 (RX)
 # On a Pico, UART(0) uses GP0/GP1 by default.
@@ -22,8 +52,10 @@ try:
         rx=machine.Pin(config.OTA_RX_PIN),
     )
 except ImportError:
-    print("Not running on MicroPython, or machine module not available.")
-    print("Falling back to a mock/simulated serial for demonstration.")
+    logger.warning(
+        "Not running on MicroPython, or machine module not available."
+    )
+    logger.debug("Falling back to a mock/simulated serial for demonstration.")
 
     # This part is just so the script can be 'run' on desktop without errors
     class MockUART:
@@ -44,7 +76,9 @@ except ImportError:
 # =============================================================================
 def do_application_stuff():
     """Placeholder function for main application logic."""
-    logger.info("Doing application stuff...")
+    data = uart.read()
+    if data:
+        logger.debug(f"data: {data}")
 
 
 def application_callback():
@@ -66,12 +100,17 @@ def main():
 
             ota_manager.check_for_update(callback=None)
 
-            time.sleep(1.5)
+            blinker.blink(1)
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
-        logger.info("Shutting down application.")
+        logger.info("KeyboardInterrupt: Shutting down application.")
+
     finally:
-        logger.close()
+        logger.info("Shutdown complete.")
+        for _ in range(10):
+            blinker.blink(2)
+            time.sleep(0.5)
 
 
 if __name__ == "__main__":

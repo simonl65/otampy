@@ -7,6 +7,7 @@ import argparse
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -64,8 +65,8 @@ def should_deploy(path: Path) -> bool:
     return "__pycache__" not in path.parts and path.suffix != ".pyc"
 
 
-def copy_tree_commands(source: Path, remote_root: str) -> list[str]:
-    commands = mkdir_command(remote_root)
+def copy_tree_commands(source: Path, remote_root: str) -> list[list[str]]:
+    commands = [mkdir_command(remote_root)]
 
     directories = (path for path in source.rglob("*") if path.is_dir())
     for directory in sorted(
@@ -74,25 +75,21 @@ def copy_tree_commands(source: Path, remote_root: str) -> list[str]:
         remote_path = (
             f"{remote_root}/{directory.relative_to(source).as_posix()}"
         )
-        commands.extend(mkdir_command(remote_path))
+        commands.append(mkdir_command(remote_path))
 
     files = (path for path in source.rglob("*") if path.is_file())
     for file in sorted(path for path in files if should_deploy(path)):
         remote_path = f"{remote_root}/{file.relative_to(source).as_posix()}"
-        commands.extend(("cp", str(file), f":{remote_path}"))
+        commands.append(["cp", str(file), f":{remote_path}"])
 
     return commands
 
 
-def file_deploy_commands(args: argparse.Namespace) -> list[str]:
+def file_deploy_commands() -> list[list[str]]:
     commands = copy_tree_commands(LIB_DIR, "/lib")
-    commands.extend(("cp", str(CONFIG_FILE), ":config.py"))
-    commands.extend(("cp", str(BOOT_FILE), ":boot.py"))
-    commands.extend(("cp", str(MAIN_FILE), ":main.py"))
-
-    if not args.no_reset:
-        commands.append("reset")
-
+    commands.append(["cp", str(CONFIG_FILE), ":config.py"])
+    commands.append(["cp", str(BOOT_FILE), ":boot.py"])
+    commands.append(["cp", str(MAIN_FILE), ":main.py"])
     return commands
 
 
@@ -101,7 +98,15 @@ def deploy(args: argparse.Namespace) -> None:
         for package in MIP_PACKAGES:
             run_mpremote(args, ["mip", "install", package])
 
-    run_mpremote(args, file_deploy_commands(args))
+    for command in file_deploy_commands():
+        run_mpremote(args, command)
+
+    if not args.no_reset:
+        if args.reset_delay:
+            print(f"Waiting {args.reset_delay:g}s before reset...", flush=True)
+            if not args.dry_run:
+                time.sleep(args.reset_delay)
+        run_mpremote(args, ["reset"])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -127,6 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-reset",
         action="store_true",
         help="Skip resetting the device after deployment.",
+    )
+    parser.add_argument(
+        "--reset-delay",
+        default=2.0,
+        type=float,
+        help="Seconds to wait after copying files before resetting the device.",
     )
     parser.add_argument(
         "--dry-run",

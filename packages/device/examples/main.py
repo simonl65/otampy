@@ -40,8 +40,7 @@ class _NullLogger:
 logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
 logger = logger if logger is not None else _NullLogger()
 
-# Initialize UART 0 on pins GP0 (TX) and GP1 (RX)
-# On a Pico, UART(0) uses GP0/GP1 by default.
+# Initialize UART 1 on pins GP4 (TX) and GP5 (RX)
 try:
     import machine  # pyright: ignore[reportMissingImports]
 

@@ -53,6 +53,14 @@ class FakeLogger:
         self.messages.append(("critical", msg))
 
 
+fake_config = {
+    "LOG_LEVEL": "DEBUG",
+    "LOG_FILE": "/ota.log",
+    "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
+}
+
+
+
 def test_has_uart_interface_accepts_uart_like_object(monkeypatch):
     ota = load_ota_module(monkeypatch)
     manager = ota.OTAManager(FakeUART())
@@ -137,3 +145,11 @@ def test_check_for_update_logs_flag_found(monkeypatch, tmp_path):
         ("debug", "Checking for update request flag file..."),
         ("info", f"Update request flag found: {flag_file}"),
     ]
+
+
+def test_check_config_passed_in(monkeypatch):
+    ota = load_ota_module(monkeypatch)
+    logger = FakeLogger()
+    manager = ota.OTAManager(FakeUART(), config=fake_config, logger=logger)
+
+    assert manager.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"

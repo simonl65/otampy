@@ -1,9 +1,18 @@
+import config
 from machine import UART, Pin  # type: ignore
 from urst import Urst  # type: ignore
 from utime import sleep_ms  # type: ignore
 
-uart = UART(0, baudrate=57600, tx=Pin(0), rx=Pin(1))
+uart = UART(
+    config.OTA_PORT,
+    baudrate=config.OTA_BAUDRATE,
+    tx=Pin(config.OTA_TX_PIN),
+    rx=Pin(config.OTA_RX_PIN),
+)
+print(uart)
+
 urst = Urst(uart)
+
 led = Pin("LED", Pin.OUT)
 
 led.on()

@@ -42,8 +42,7 @@ def run_mpremote(args: argparse.Namespace, command: list[str]) -> None:
     result = subprocess.run(
         cmd,
         check=False,
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     if result.stdout:

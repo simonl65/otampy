@@ -90,7 +90,7 @@ def application_callback():
 # MAIN FUNCTION
 # =============================================================================
 def main():
-    ota_manager = OTAManager(uart, config)
+    ota_manager = OTAManager(uart, config=config, logger=logger)
 
     try:
         while True:
@@ -98,7 +98,7 @@ def main():
 
             do_application_stuff()
 
-            ota_manager.check_for_update(callback=None)
+            ota_manager.check_for_update(callback=application_callback)
 
             blinker.blink(1)
             time.sleep(0.1)

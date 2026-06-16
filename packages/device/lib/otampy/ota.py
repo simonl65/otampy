@@ -67,6 +67,7 @@ class OTAManager:
             config = {}
             config["LOG_LEVEL"] = "DEBUG"
             config["LOG_FILE"] = "/logs/ota.log"
+            config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
         self.logger = logger if logger is not None else _NullLogger()
@@ -92,7 +93,7 @@ class OTAManager:
         except Exception:
             import os as _os  # type: ignore
 
-        flag = self.config.UPDATE_REQUEST_FLAG_FILE
+        flag = self.config["UPDATE_REQUEST_FLAG_FILE"]
         if not flag:
             return
 

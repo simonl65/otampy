@@ -104,6 +104,7 @@ def test_init_sets_default_config(monkeypatch):
     assert manager.config == {
         "LOG_LEVEL": "DEBUG",
         "LOG_FILE": "/logs/ota.log",
+        "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
     }
 
 

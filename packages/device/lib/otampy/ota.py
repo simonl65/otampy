@@ -59,7 +59,7 @@ class OTAManager:
             return False
 
     def __init__(self, uart, config=None, logger=None):
-        from urst import Urst
+        from urst import Urst  # type: ignore
 
         """Initializes a new OTAManager object."""
         # Initialise the logger and configuration
@@ -85,10 +85,46 @@ class OTAManager:
         self.transport = Urst(self.uart)
 
     def check_for_update(self, callback):
-        """Checks for presence of update request flag file. If found, runn the application callback function."""
-        self.logger.debug(
-            "Checking for presence of update request flag file..."
-        )
+        """Look only for the configured update-request flag file and run callback if present."""
+        self.logger.debug("Checking for update request flag file...")
+        try:
+            import uos as _os  # type: ignore
+        except Exception:
+            import os as _os  # type: ignore
+
+        flag = self.config.get("UPDATE_REQUEST_FLAG_FILE")
+        if not flag:
+            return
+
+        try:
+            _os.stat(flag)
+        except Exception:
+            return
+
+        try:  # noqa: SIM105
+            self.logger.info(f"Update request flag found: {flag}")
+        except Exception:
+            pass
+
+        if callable(callback):
+            try:
+                callback()
+            except Exception as exc:
+                try:  # noqa: SIM105
+                    self.logger.error(f"Application callback raised: {exc}")
+                except Exception:
+                    pass
+
+        try:
+            _os.remove(flag)
+        except Exception:
+            try:
+                getattr(_os, "unlink", lambda _p: None)(flag)
+            except Exception:
+                try:  # noqa: SIM105
+                    self.logger.debug(f"Could not remove update flag: {flag}")
+                except Exception:
+                    pass
 
     def ready_for_update(self):
         """Resets the device so that boot.py gets run."""

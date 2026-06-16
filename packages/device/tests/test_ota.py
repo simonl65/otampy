@@ -9,7 +9,9 @@ def load_ota_module(monkeypatch):
         def __init__(self, uart):
             self.uart = uart
 
-    monkeypatch.setitem(sys.modules, "urst", types.SimpleNamespace(Urst=FakeUrst))
+    monkeypatch.setitem(
+        sys.modules, "urst", types.SimpleNamespace(Urst=FakeUrst)
+    )
 
     module_path = (
         Path(__file__).resolve().parents[1] / "lib" / "otampy" / "ota.py"
@@ -104,5 +106,5 @@ def test_check_for_update_logs_check(monkeypatch):
     manager.check_for_update(callback=None)
 
     assert logger.messages == [
-        ("debug", "Checking for presence of update request flag file...")
+        ("debug", "Checking for update request flag file...")
     ]

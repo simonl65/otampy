@@ -32,6 +32,19 @@ class _NullLogger:
         self._log("ERROR", msg)
 
 
+class _MockUART:
+    __slots__ = ()
+
+    def write(self, data):
+        return len(data)
+
+    def read(self, n):
+        return b""
+
+    def any(self):
+        return 0
+
+
 class OTAManager:
     """The OTAManager class provides methods for performing over-the-air updates on devices."""
 
@@ -60,29 +73,16 @@ class OTAManager:
 
         # Initialise the UART connection to the device
         self.uart = uart
-        if self._has_uart_interface(uart):
-            self.transport = Urst(uart)
-        else:
+        if not self._has_uart_interface(self.uart):
             self.logger.warning(
                 "UART object is not available or does not provide the expected interface."
             )
             self.logger.debug(
                 "Falling back to a mock/simulated serial for demonstration."
             )
+            self.uart = _MockUART()
 
-            # This part is just so the script can be 'run' on desktop without errors
-            class MockUART:
-                def write(self, data):
-                    return len(data)
-
-                def read(self, n):
-                    return b""
-
-                def any(self):
-                    return 0
-
-            self.uart = MockUART()
-            self.transport = Urst(self.uart)
+        self.transport = Urst(self.uart)
 
     def check_for_update(self, callback):
         """Checks for presence of update request flag file. If found, runn the application callback function."""

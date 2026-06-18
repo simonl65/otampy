@@ -28,6 +28,7 @@ class AliasedGroup(click.Group):
             "softreset": "sr",
             "remove": "rm",
             "update": "upd",
+            "memory": "mem",
         }
         if name in aliases:
             return click.Group.get_command(self, ctx, aliases[name])
@@ -111,6 +112,12 @@ def update(args: tuple[str, ...]) -> None:
         console.print(
             f"[green]Updating firmware with arguments: {args}[/green]"
         )
+
+
+@cli.command(name="mem")
+def memory() -> None:
+    """Retrieves current free and todal memory from the device."""
+    console.print("[green]Getting device's memory details...[/green]")
 
 
 def main() -> None:

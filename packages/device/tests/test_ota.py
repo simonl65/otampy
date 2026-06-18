@@ -60,7 +60,6 @@ fake_config = {
 }
 
 
-
 def test_has_uart_interface_accepts_uart_like_object(monkeypatch):
     ota = load_ota_module(monkeypatch)
     manager = ota.OTAManager(FakeUART())
@@ -150,6 +149,9 @@ def test_check_for_update_logs_flag_found(monkeypatch, tmp_path):
 def test_check_config_passed_in(monkeypatch):
     ota = load_ota_module(monkeypatch)
     logger = FakeLogger()
-    manager = ota.OTAManager(FakeUART(), config=fake_config, logger=logger)
+    uart = FakeUART()
+    manager = ota.OTAManager(uart, config=fake_config, logger=logger)
 
     assert manager.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
+    assert manager.logger is logger
+    assert manager.uart is uart

@@ -65,7 +65,4 @@ pythonPlatform = "Linux"
 
 reportMissingModuleSource = "none"
 
-[project.optional-dependencies]
-# install to folder typings
-# uv pip install -r pyproject.toml --extra stubs --target typings
 stubs = ["micropython-rp2-rpi_pico_w-stubs==1.28.0.*"]

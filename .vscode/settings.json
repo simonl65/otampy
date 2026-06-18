@@ -5,14 +5,4 @@
         "packages/device/tests",
         "packages/cli/tests"
     ],
-    "micropython.enableCodeCompletion": true,
-    "micropython.enableMultiLanguage": true,
-    "python.autoComplete.extraPaths": [
-        "/home/simon/.vscode/extensions/walklinewang.code-completion-for-micropython-0.1.11\\code_completion\\default"
-    ],
-    "python.analysis.extraPaths": [
-        "/home/simon/.vscode/extensions/walklinewang.code-completion-for-micropython-0.1.11\\code_completion\\default",
-        "/.micropython-stubs"
-    ],
-    "python.analysis.stubPath": "/home/simon/.vscode/extensions/walklinewang.code-completion-for-micropython-0.1.11\\code_completion\\default",
 }

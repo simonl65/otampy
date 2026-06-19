@@ -7,6 +7,7 @@ import argparse
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -25,14 +26,23 @@ class DeployError(Exception):
         self.output = output
 
 
-def mpremote_prefix(args: argparse.Namespace) -> list[str]:
+@dataclass(frozen=True)
+class DeployArgs:
+    port: str | None
+    mpremote: str
+    no_mip: bool
+    no_reset: bool
+    dry_run: bool
+
+
+def mpremote_prefix(args: DeployArgs) -> list[str]:
     prefix = [args.mpremote]
     if args.port:
         prefix.extend(("connect", args.port))
     return prefix
 
 
-def run_mpremote(args: argparse.Namespace, command: list[str]) -> None:
+def run_mpremote(args: DeployArgs, command: list[str]) -> None:
     cmd = [*mpremote_prefix(args), *command]
     print("$ " + shlex.join(cmd), flush=True)
     if args.dry_run:
@@ -47,12 +57,13 @@ def run_mpremote(args: argparse.Namespace, command: list[str]) -> None:
     if result.stdout:
         print(result.stdout, end="")
     if result.returncode:
-        raise DeployError(result.returncode, result.stdout + result.stderr)
+        output = (result.stdout or "") + (result.stderr or "")
+        raise DeployError(result.returncode, output)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
 
 
-def deploy_command(args: argparse.Namespace) -> list[str]:
+def deploy_command(args: DeployArgs) -> list[str]:
     command = [
         "resume",
         "rm",
@@ -77,7 +88,7 @@ def deploy_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def deploy(args: argparse.Namespace) -> None:
+def deploy(args: DeployArgs) -> None:
     run_mpremote(args, deploy_command(args))
 
 
@@ -113,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> DeployArgs:
     parser = build_parser()
     argv = sys.argv[1:] if argv is None else argv
 
@@ -121,7 +132,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.print_help()
         raise SystemExit(0)
 
-    return parser.parse_args(argv)
+    return DeployArgs(**vars(parser.parse_args(argv)))
 
 
 def print_deploy_error(error: DeployError) -> None:

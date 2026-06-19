@@ -3,6 +3,7 @@ from log_to_file import Logger  # type: ignore
 
 from Blink import Blink  # type: ignore
 from otampy.ota import OTAManager  # type: ignore
+from otampy.ota import _NullLogger as NullLogger  # type: ignore
 
 blinker = Blink(pin="LED")
 
@@ -11,9 +12,9 @@ try:
 except ImportError:
     import time
 
-from otampy.ota import _NullLogger as NullLogger  # type: ignore
-
-logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL) or NullLogger()
+logger = (
+    Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL) or NullLogger()
+)
 
 # Initialize UART 1 on pins GP4 (TX) and GP5 (RX)
 try:

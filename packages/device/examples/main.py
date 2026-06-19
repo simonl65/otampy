@@ -37,7 +37,7 @@ except ImportError:
         def write(self, data):
             return len(data)
 
-        def read(self, n):
+        def read(self, n=None):
             return b"Mock read data"
 
         def any(self):

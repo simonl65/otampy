@@ -11,34 +11,9 @@ try:
 except ImportError:
     import time
 
+from otampy.ota import _NullLogger as NullLogger  # type: ignore
 
-class _NullLogger:
-    __slots__ = ()
-
-    def _log(self, level, msg):
-        print("[" + str(time()) + "] [" + level + "] " + msg)
-
-    def debug(self, msg):
-        self._log("DEBUG", msg)
-
-    def info(self, msg):
-        self._log("INFO", msg)
-
-    def warning(self, msg):
-        self._log("WARNING", msg)
-
-    def error(self, msg):
-        self._log("ERROR", msg)
-
-    def critical(self, msg):
-        self._log("CRITICAL", msg)
-
-    def exception(self, msg):
-        self._log("ERROR", msg)
-
-
-logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
-logger = logger if logger is not None else _NullLogger()
+logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL) or NullLogger()
 
 # Initialize UART 1 on pins GP4 (TX) and GP5 (RX)
 try:

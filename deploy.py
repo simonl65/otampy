@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deploy OTAmpy device files to a MicroPython board with mpremote."""
 
+# TODO: The following complete command works without fail: `mr resume rm -r : + cp -r packages/device/lib/ packages/device/examples/config.py packages/device/examples/main.py packages/device/examples/boot.py : + mip install "github:simonl65/log-to-file" "github:simonl65/URST-mpy" + reset`
+
 from __future__ import annotations
 
 import argparse

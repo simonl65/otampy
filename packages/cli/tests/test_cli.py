@@ -63,7 +63,7 @@ def test_cli_ls_default():
 
 def test_cli_ls_path():
     """Test the 'ls' command with a specific path."""
-    runner = CliRunner()
+    runner = CliRunner(env={"NO_COLOR": "1"})
     result = runner.invoke(cli, ["ls", "/lib"])
     assert result.exit_code == 0
     assert "Listing content of /lib" in result.output
@@ -111,7 +111,7 @@ def test_cli_update_default():
 
 def test_cli_update_with_files():
     """Test 'upd' command with specific files/paths."""
-    runner = CliRunner()
+    runner = CliRunner(env={"NO_COLOR": "1"})
     result = runner.invoke(cli, ["upd", ".", "main.py", "lib/lib2.py"])
     assert result.exit_code == 0
     assert (
@@ -122,7 +122,7 @@ def test_cli_update_with_files():
 
 def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
-    runner = CliRunner()
+    runner = CliRunner(env={"NO_COLOR": "1"})
     result = runner.invoke(cli, ["update", ".", "main.py"])
     assert result.exit_code == 0
     assert "Updating firmware with arguments: ('.', 'main.py')" in result.output

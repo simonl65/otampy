@@ -9,6 +9,7 @@ members = [
 
 [manifest.dependency-groups]
 dev = [
+    { name = "micropython-rp2-rpi-pico-w-stubs", specifier = "==1.28.0.*" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.4" },
@@ -147,6 +148,26 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "micropython-rp2-rpi-pico-w-stubs"
+version = "1.28.0.post4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "micropython-stdlib-stubs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/6e/b40ac27b00e2a0de88a8bf26f8f87d764a1c9c75a2152980c486031baa08/micropython_rp2_rpi_pico_w_stubs-1.28.0.post4.tar.gz", hash = "sha256:6d4f9ca86632c3c72e148753b50be60c2d304689508c5d8b5503ba9ac7a8b2d1", size = 98118, upload-time = "2026-05-20T12:36:01.053Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/fd/8882e0f968d481e8e739f7b69b65b05ee74b8662deea0497fb6981140cd2/micropython_rp2_rpi_pico_w_stubs-1.28.0.post4-py2.py3-none-any.whl", hash = "sha256:6337f87243cba58307d0a058860a36461616a820b7c758397f2144456f222a20", size = 125570, upload-time = "2026-05-20T12:36:02.137Z" },
+]
+
+[[package]]
+name = "micropython-stdlib-stubs"
+version = "1.28.0.post5"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/35/ed41077c239ad63681fb568817547afb44e7d33be8851af80c2f4934a7b9/micropython_stdlib_stubs-1.28.0.post5-py3-none-any.whl", hash = "sha256:2786030144710958c5a57d11ef1f7aa66ddabc566e2ec16d0fa549eeb9689141", size = 148984, upload-time = "2026-05-20T12:35:25.54Z" },
 ]
 
 [[package]]

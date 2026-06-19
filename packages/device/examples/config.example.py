@@ -8,7 +8,7 @@ LOG_FILE = "/ota.log"
 OTA_PORT = 1
 OTA_TX_PIN = 4
 OTA_RX_PIN = 5
-OTA_BAUDRATE = 57600  # 115200
+OTA_BAUDRATE = 57600  # 115200 is unreliable wirth old XBee-Pro's
 OTA_TIMEOUT_MS = 5000
 
 # =============================================================================

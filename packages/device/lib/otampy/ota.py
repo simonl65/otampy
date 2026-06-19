@@ -59,8 +59,6 @@ class OTAManager:
             return False
 
     def __init__(self, uart, config=None, logger=None):
-        from urst import Urst  # type: ignore
-
         """Initializes a new OTAManager object."""
         # Initialise the logger and configuration
         if config is None:
@@ -82,6 +80,8 @@ class OTAManager:
                 "Falling back to a mock/simulated serial for demonstration."
             )
             self.uart = _MockUART()
+
+        from urst import Urst  # type: ignore
 
         self.transport = Urst(self.uart)
 

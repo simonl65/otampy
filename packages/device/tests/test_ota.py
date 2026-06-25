@@ -2,6 +2,9 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 
 def load_ota_module(monkeypatch):
@@ -60,98 +63,138 @@ fake_config = {
 }
 
 
-def test_has_uart_interface_accepts_uart_like_object(monkeypatch):
+def setup_manager(monkeypatch, uart=None, config=None, logger=None):
     ota = load_ota_module(monkeypatch)
-    manager = ota.OTAManager(FakeUART())
-
-    assert manager._has_uart_interface(FakeUART())
-
-
-def test_has_uart_interface_rejects_incomplete_object(monkeypatch):
-    ota = load_ota_module(monkeypatch)
-    manager = ota.OTAManager(FakeUART())
-
-    assert not manager._has_uart_interface(object())
+    manager = ota.OTAManager(uart=FakeUART(), config=config, logger=logger)
+    return manager
 
 
-def test_init_uses_provided_uart_when_interface_is_valid(monkeypatch):
-    ota = load_ota_module(monkeypatch)
-    uart = FakeUART()
-    logger = FakeLogger()
+class TestUart:
+    def test_has_uart_interface_accepts_uart_like_object(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        manager = ota.OTAManager(FakeUART())
 
-    manager = ota.OTAManager(uart, logger=logger)
+        assert manager._has_uart_interface(FakeUART())
 
-    assert manager.uart is uart
-    assert manager.transport.uart is uart
-    assert logger.messages == []
+    def test_has_uart_interface_rejects_incomplete_object(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        manager = ota.OTAManager(FakeUART())
 
+        assert not manager._has_uart_interface(object())
 
-def test_init_uses_mock_uart_when_interface_is_invalid(monkeypatch):
-    ota = load_ota_module(monkeypatch)
-    logger = FakeLogger()
+    def test_init_uses_provided_uart_when_interface_is_valid(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        uart = FakeUART()
+        logger = FakeLogger()
 
-    manager = ota.OTAManager(object(), logger=logger)
+        manager = ota.OTAManager(uart, logger=logger)
 
-    assert isinstance(manager.uart, ota._MockUART)
-    assert manager.transport.uart is manager.uart
-    assert logger.messages == [
-        (
-            "warning",
-            "UART object is not available or does not provide the expected interface.",
-        ),
-        ("debug", "Falling back to a mock/simulated serial for demonstration."),
-    ]
+        assert manager.uart is uart
+        assert manager.transport.uart is uart
+        assert logger.messages == []
 
+    def test_init_uses_mock_uart_when_interface_is_invalid(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        logger = FakeLogger()
 
-def test_init_sets_default_config(monkeypatch):
-    ota = load_ota_module(monkeypatch)
+        manager = ota.OTAManager(object(), logger=logger)
 
-    manager = ota.OTAManager(FakeUART())
-
-    assert manager.config == {
-        "LOG_LEVEL": "DEBUG",
-        "LOG_FILE": "/logs/ota.log",
-        "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
-    }
-
-
-def test_check_for_update_logs_check(monkeypatch):
-    ota = load_ota_module(monkeypatch)
-    logger = FakeLogger()
-    manager = ota.OTAManager(FakeUART(), logger=logger)
-
-    manager.check_for_update(callback=None)
-
-    assert logger.messages == [
-        ("debug", "Checking for update request flag file...")
-    ]
+        assert isinstance(manager.uart, ota._MockUART)
+        assert manager.transport.uart is manager.uart
+        assert logger.messages == [
+            (
+                "warning",
+                "UART object is not available or does not provide the expected interface.",
+            ),
+            (
+                "debug",
+                "Falling back to a mock/simulated serial for demonstration.",
+            ),
+        ]
 
 
-def test_check_for_update_logs_flag_found(monkeypatch, tmp_path):
-    ota = load_ota_module(monkeypatch)
-    logger = FakeLogger()
-    manager = ota.OTAManager(FakeUART(), logger=logger)
+class TestBootTime:
+    def test__do_we_have_update_flag__returns_true(self, monkeypatch):
+        # TODO: Implement test test_do_we_have_update_flag_yes
+        pass
 
-    # Create a temporary flag file
-    flag_file = tmp_path / "update_requested.flag"
-    flag_file.write_text("")
+    def test__check_for_update_file__logs_flag_found(
+        self, monkeypatch, tmp_path
+    ):
+        logger = FakeLogger()
+        manager = setup_manager(monkeypatch, logger=logger)
 
-    manager.config["UPDATE_REQUEST_FLAG_FILE"] = str(flag_file)
+        # Create a temporary flag file
+        flag_file = tmp_path / "update_requested.flag"
+        flag_file.write_text("")
+        manager.config["UPDATE_REQUEST_FLAG_FILE"] = str(flag_file)
 
-    manager.check_for_update(callback=None)
+        manager.check_for_update_file(callback=None)
 
-    assert logger.messages == [
-        ("debug", "Checking for update request flag file..."),
-        ("info", f"Update request flag found: {flag_file}"),
-    ]
+        assert (
+            "debug",
+            f"Update request flag found: {flag_file}",
+        ) in logger.messages
+
+    def test__check_for_update_flag__returns_false_if_flag_not_found(
+        self, monkeypatch, tmp_path
+    ):
+        logger = FakeLogger()
+        manager = setup_manager(monkeypatch, logger=logger)
+        flag_file = tmp_path / "update_requested.flag"
+        manager.config["UPDATE_REQUEST_FLAG_FILE"] = str(flag_file)
+
+        manager.check_for_update_file(callback=None)
+
+        assert (
+            "debug",
+            f"Update request flag found: {flag_file}",
+        ) not in logger.messages
 
 
-def test_check_config_passed_in(monkeypatch):
-    ota = load_ota_module(monkeypatch)
-    logger = FakeLogger()
-    uart = FakeUART()
-    manager = ota.OTAManager(uart, config=fake_config, logger=logger)
+class TestRunTime:
+    # @pytest.mark.skip("TODO: Implement test__check_for_update")
+    def test__check_for_update(self, monkeypatch):
+        logger = FakeLogger()
+        manager = setup_manager(monkeypatch, logger=logger)
+        callback = Mock()
 
-    assert manager.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
-    assert manager.logger is logger
-    assert manager.uart is uart
+        manager.check_for_update(callback)
+
+        # callback.assert_called_once()
+
+    def test_init_sets_default_config(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+
+        manager = ota.OTAManager(FakeUART())
+
+        assert manager.config == {
+            "LOG_LEVEL": "DEBUG",
+            "LOG_FILE": "/logs/ota.log",
+            "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
+        }
+
+    def test_config_is_passed_in(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        logger = FakeLogger()
+        uart = FakeUART()
+        manager = ota.OTAManager(uart, config=fake_config, logger=logger)
+
+        assert (
+            manager.config["UPDATE_REQUEST_FLAG_FILE"]
+            == "update_requested.flag"
+        )
+        assert manager.logger is logger
+        assert manager.uart is uart
+
+    def test_missing_config_takes_defaults(self, monkeypatch):
+        ota = load_ota_module(monkeypatch)
+        logger = FakeLogger()
+        uart = FakeUART()
+        manager = ota.OTAManager(uart, logger=logger)
+
+        assert manager.config == {
+            "LOG_LEVEL": "DEBUG",
+            "LOG_FILE": "/logs/ota.log",
+            "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
+        }

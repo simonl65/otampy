@@ -17,11 +17,11 @@ def load_ota_module(monkeypatch):
     )
 
     module_path = (
-        Path(__file__).resolve().parents[1] / "lib" / "otampy" / "ota.py"
+        Path(__file__).resolve().parents[1] / "lib" / "otampy" / "ota.py"  # type: ignore
     )
     spec = importlib.util.spec_from_file_location("device_ota", module_path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    spec.loader.exec_module(module)  # type: ignore
     return module
 
 
@@ -65,6 +65,8 @@ fake_config = {
 
 def setup_manager(monkeypatch, uart=None, config=None, logger=None):
     ota = load_ota_module(monkeypatch)
+    if uart is None:
+        uart = FakeUART()
     manager = ota.OTAManager(uart=FakeUART(), config=config, logger=logger)
     return manager
 
@@ -114,8 +116,10 @@ class TestUart:
 
 
 class TestBootTime:
-    def test__do_we_have_update_flag__returns_true(self, monkeypatch):
-        # TODO: Implement test test_do_we_have_update_flag_yes
+    @pytest.mark.skip("TODO: Implement test test_do_we_have_update_flag_yes")
+    def test__do_we_have_update_flag__returns_true_when_flag_file_is_present(
+        self, monkeypatch, tmp_path
+    ):
         pass
 
     def test__check_for_update_file__logs_flag_found(
@@ -153,7 +157,7 @@ class TestBootTime:
 
 
 class TestRunTime:
-    # @pytest.mark.skip("TODO: Implement test__check_for_update")
+    @pytest.mark.skip("TODO: Implement test__check_for_update")
     def test__check_for_update(self, monkeypatch):
         logger = FakeLogger()
         manager = setup_manager(monkeypatch, logger=logger)

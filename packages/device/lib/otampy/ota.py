@@ -6,6 +6,11 @@ This module is designed to be used in conjunction with the `otampy` CLI tool to 
 
 from time import time
 
+try:
+    import uos as _os
+except Exception:
+    import os as _os
+
 
 class PrintLogger:
     __slots__ = ()
@@ -111,35 +116,26 @@ class OTAManager:
             return
 
         # Do we have the flag file
-        if self.do_we_have_update_flag(flag):
+        if self._do_we_have_update_flag(flag):
             self.logger.debug(f"Update request flag found: {flag}")
             self.handle_update(flag)
 
         # Hijack the boot process to do the update
         # return self.handle_update(flag)
 
-    def do_we_have_update_flag(self, flag):
+    def _do_we_have_update_flag(self, flag):
         """Checks for existance of the flag file and returns boolean"""
-        try:
-            import uos as _os
-        except Exception:
-            import os as _os
 
-            # Does flag exist in file system?
-            try:
-                _os.stat(flag)
-                return True
-            except OSError:
-                return False
+        # Does flag exist in file system?
+        try:
+            _os.stat(flag)
+            return True
+        except OSError:
+            return False
 
     # TODO: Implement the update process
     def handle_update(self, flag):
         """Handles the update process on the device."""
-        try:
-            import uos as _os  # type: ignore
-        except Exception:
-            import os as _os  # type: ignore
-
         try:
             _os.remove(flag)
         except Exception:

@@ -7,7 +7,7 @@ This module is designed to be used in conjunction with the `otampy` CLI tool to 
 from time import time
 
 
-class _NullLogger:
+class PrintLogger:
     __slots__ = ()
 
     def _log(self, level, msg):
@@ -32,6 +32,7 @@ class _NullLogger:
         self._log("ERROR", msg)
 
 
+# >>> HOST_ONLY
 class _MockUART:
     __slots__ = ()
 
@@ -43,6 +44,9 @@ class _MockUART:
 
     def any(self):
         return 0
+
+
+# <<< HOST_ONLY
 
 
 class OTAManager:
@@ -68,7 +72,7 @@ class OTAManager:
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
-        self.logger = logger if logger is not None else _NullLogger()
+        self.logger = logger if logger is not None else PrintLogger()
 
         # Initialise the UART connection to the device
         self.uart = uart
@@ -86,35 +90,55 @@ class OTAManager:
         self.transport = Urst(self.uart)
 
     def check_for_update(self, callback):
-        """Look only for the configured update-request flag file and run callback if present."""
+        """Check transport for update command and run callback if present"""
+        print("TODO: Implement check_for_update")
+        # self.logger.debug("GOTCHA!")
+        # raise RuntimeError("TODO: Implement check_for_update")
+
+    def ready_for_update(self):
+        """Resets the device so that boot.py gets run."""
+        print("TODO: Implement ready_for_update")
+
+    # Runs at boot time -------------------------------------------------------
+    def check_for_update_file(self, callback):
+        """Check if we have the configured update-request flag file and run update process if present."""
         self.logger.debug("Checking for update request flag file...")
+        flag = self.config["UPDATE_REQUEST_FLAG_FILE"]
+
+        # MUST have a flag to check for
+        if not flag:
+            self.logger.error("Missing filename for update request flag file")
+            return
+
+        # Do we have the flag file
+        if self.do_we_have_update_flag(flag):
+            self.logger.debug(f"Update request flag found: {flag}")
+            self.handle_update(flag)
+
+        # Hijack the boot process to do the update
+        # return self.handle_update(flag)
+
+    def do_we_have_update_flag(self, flag):
+        """Checks for existance of the flag file and returns boolean"""
+        try:
+            import uos as _os
+        except Exception:
+            import os as _os
+
+            # Does flag exist in file system?
+            try:
+                _os.stat(flag)
+                return True
+            except OSError:
+                return False
+
+    # TODO: Implement the update process
+    def handle_update(self, flag):
+        """Handles the update process on the device."""
         try:
             import uos as _os  # type: ignore
         except Exception:
             import os as _os  # type: ignore
-
-        flag = self.config["UPDATE_REQUEST_FLAG_FILE"]
-        if not flag:
-            return
-
-        try:
-            _os.stat(flag)
-        except Exception:
-            return
-
-        try:
-            self.logger.info(f"Update request flag found: {flag}")
-        except Exception:
-            pass
-
-        if callable(callback):
-            try:
-                callback()
-            except Exception as exc:
-                try:
-                    self.logger.error(f"Application callback raised: {exc}")
-                except Exception:
-                    pass
 
         try:
             _os.remove(flag)
@@ -126,11 +150,3 @@ class OTAManager:
                     self.logger.debug(f"Could not remove update flag: {flag}")
                 except Exception:
                     pass
-
-    def ready_for_update(self):
-        """Resets the device so that boot.py gets run."""
-        pass
-
-    def handle_update(self):
-        """Handles the update process on the device."""
-        pass

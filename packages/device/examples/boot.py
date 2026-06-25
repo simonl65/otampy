@@ -1,7 +1,17 @@
 import config
+from log_to_file import Logger  # type: ignore
 from machine import UART, Pin  # type: ignore
 from urst import Urst  # type: ignore
 from utime import sleep_ms  # type: ignore
+
+from otampy.ota import (  # type: ignore
+    OTAManager,
+    PrintLogger,
+)
+
+logger = (
+    Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL) or PrintLogger()
+)
 
 uart = UART(
     config.OTA_PORT,
@@ -13,17 +23,15 @@ print(uart)
 
 urst = Urst(uart)
 
+ota_manager = OTAManager(uart, config=config, logger=None)
+
 led = Pin("LED", Pin.OUT)
 
 led.on()
 
 urst.send(b"BOOTING...\n")
 
-for _ in range(40):
-    sleep_ms(100)
-    led.toggle()
-
-led.on()
+ota_manager.check_for_update()
 
 urst.send(b"Loading MAIN...\n")
 

@@ -4,6 +4,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "micropython-rp2-rpi_pico_w-stubs==1.28.0.*",
+    "pytest-watcher>=0.6.3",
 ]
 
 

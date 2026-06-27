@@ -13,6 +13,10 @@ except Exception:
 
 
 class OTALogger:
+    """
+    Fallback logging - Logs messages to stdout
+    """
+
     __slots__ = ()
 
     def _log(self, level, msg):
@@ -38,7 +42,11 @@ class OTALogger:
 
 
 class OTAManager:
-    """The OTAManager class provides methods for performing over-the-air updates on devices."""
+    """
+    The OTAManager class provides methods for:
+        - Checking for OTA commands
+        - Performing over-the-air updates
+    """
 
     def _has_uart_interface(self, uart):
         try:
@@ -69,17 +77,20 @@ class OTAManager:
 
         self.transport = Urst(self.uart)
 
+    # =========================================================================
+    # RUN-TIME PROCESSES (main.py)
+    # =========================================================================
     def check_for_update(self, callback):
         """Check transport for update command and run callback if present"""
         print("TODO: Implement check_for_update")
-        # self.logger.debug("GOTCHA!")
-        # raise RuntimeError("TODO: Implement check_for_update")
 
     def ready_for_update(self):
         """Resets the device so that boot.py gets run."""
         print("TODO: Implement ready_for_update")
 
-    # Runs at boot time -------------------------------------------------------
+    # =========================================================================
+    # BOOT PROCESSING (boot.py)
+    # =========================================================================
     def check_for_update_file(self, callback):
         """Check if we have the configured update-request flag file and run update process if present."""
         self.logger.debug("Checking for update request flag file...")

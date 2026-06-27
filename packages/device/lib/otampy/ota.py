@@ -12,6 +12,18 @@ except Exception:
     import os as _os
 
 
+OTA_COMMANDS = [
+    "PING",  # Respond with "PONG"
+    "CAT",  # View content of file
+    "LS",  # List folder content
+    "RM",  # Remove item(s)
+    "BL",  # Enter bootloader
+    "RB",  # Hard reset
+    "SR",  # Soft reset
+    "UPDATE_REQUEST",  # Initiate firmware update process
+]
+
+
 class OTALogger:
     """
     Fallback logging - Logs messages to stdout

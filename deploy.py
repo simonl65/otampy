@@ -63,6 +63,30 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
         print(result.stderr, end="", file=sys.stderr)
 
 
+def validate_deploy_sources() -> None:
+    """Ensure local deploy sources exist before any destructive device operation."""
+    missing = [
+        path
+        for path in (LIB_DIR, CONFIG_FILE, BOOT_FILE, MAIN_FILE)
+        if not path.exists()
+    ]
+    if not missing:
+        return
+
+    rel_paths = ", ".join(
+        str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+        for path in missing
+    )
+    print(f"Error: missing deploy source(s): {rel_paths}", file=sys.stderr)
+    if CONFIG_FILE in missing:
+        example = CONFIG_FILE.parent / "config.example.py"
+        print(
+            f"Create config.py from {example.relative_to(ROOT)} before deploying.",
+            file=sys.stderr,
+        )
+    raise SystemExit(1)
+
+
 def deploy_command(args: DeployArgs) -> list[str]:
     command = [
         "resume",
@@ -89,6 +113,7 @@ def deploy_command(args: DeployArgs) -> list[str]:
 
 
 def deploy(args: DeployArgs) -> None:
+    validate_deploy_sources()
     run_mpremote(args, deploy_command(args))
 
 

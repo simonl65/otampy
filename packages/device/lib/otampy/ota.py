@@ -12,7 +12,7 @@ except Exception:
     import os as _os
 
 
-class PrintLogger:
+class OTALogger:
     __slots__ = ()
 
     def _log(self, level, msg):
@@ -35,23 +35,6 @@ class PrintLogger:
 
     def exception(self, msg):
         self._log("ERROR", msg)
-
-
-# >>> HOST_ONLY
-class _MockUART:
-    __slots__ = ()
-
-    def write(self, data):
-        return len(data)
-
-    def read(self, n):
-        return b""
-
-    def any(self):
-        return 0
-
-
-# <<< HOST_ONLY
 
 
 class OTAManager:
@@ -77,18 +60,10 @@ class OTAManager:
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
-        self.logger = logger if logger is not None else PrintLogger()
+        self.logger = logger if logger is not None else OTALogger()
 
         # Initialise the UART connection to the device
         self.uart = uart
-        if not self._has_uart_interface(self.uart):
-            self.logger.warning(
-                "UART object is not available or does not provide the expected interface."
-            )
-            self.logger.debug(
-                "Falling back to a mock/simulated serial for demonstration."
-            )
-            self.uart = _MockUART()
 
         from urst import Urst  # type: ignore
 

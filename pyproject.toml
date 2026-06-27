@@ -35,7 +35,7 @@ indent-style = "space"
 
 # --- Pytest ---
 [tool.pytest.ini_options]
-testpaths = ["packages/cli/tests", "packages/device/tests"]
+testpaths = ["packages/cli/tests", "packages/device/tests", "tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
 addopts = "--cov=packages/cli/src/otampy --cov-report=term-missing"
 

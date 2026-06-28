@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest import mock
 
 import pytest
 
-import deploy
-
+import otampy.deploy as deploy
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _patch_sources(exist_flags: dict[str, bool]):
     """Return a context manager that patches each deploy source path.
@@ -24,23 +23,21 @@ def _patch_sources(exist_flags: dict[str, bool]):
     patches = []
     for name, exists in exist_flags.items():
         real_path: Path = getattr(deploy, name)
-        mock_path = Path(real_path)  # keep the real value for relative_to checks
+        mock_path = Path(
+            real_path
+        )  # keep the real value for relative_to checks
         mock_path = type(  # create a subclass with a patched exists()
             "MockPath",
             (Path,),
             {"exists": lambda self, _exists=exists: _exists},
         )(real_path)
-        patches.append(patch.object(deploy, name, mock_path))
+        patches.append(mock.patch.object(deploy, name, mock_path))
     return patches
 
 
-def _all_exist():
-    return {name: True for name in ("LIB_DIR", "CONFIG_FILE", "BOOT_FILE", "MAIN_FILE")}
-
-
-# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestValidateDeploySourcesAllPresent:
     """validate_deploy_sources() should return None when every source exists."""
@@ -56,10 +53,10 @@ class TestValidateDeploySourcesAllPresent:
         main.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
         ):
             result = deploy.validate_deploy_sources()
 
@@ -78,10 +75,12 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", tmp_path / "lib"),  # does not exist
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(
+                deploy, "LIB_DIR", tmp_path / "lib"
+            ),  # does not exist
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
         ):
             with pytest.raises(SystemExit) as exc_info:
                 deploy.validate_deploy_sources()
@@ -97,11 +96,13 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            patch.object(deploy, "ROOT", tmp_path),
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),  # missing
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(
+                deploy, "CONFIG_FILE", tmp_path / "config.py"
+            ),  # missing
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
         ):
             with pytest.raises(SystemExit) as exc_info:
                 deploy.validate_deploy_sources()
@@ -117,10 +118,12 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),  # missing
-            patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(
+                deploy, "BOOT_FILE", tmp_path / "boot.py"
+            ),  # missing
+            mock.patch.object(deploy, "MAIN_FILE", main),
         ):
             with pytest.raises(SystemExit) as exc_info:
                 deploy.validate_deploy_sources()
@@ -136,10 +139,12 @@ class TestValidateDeploySourcesMissing:
         boot.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),  # missing
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(
+                deploy, "MAIN_FILE", tmp_path / "main.py"
+            ),  # missing
         ):
             with pytest.raises(SystemExit) as exc_info:
                 deploy.validate_deploy_sources()
@@ -148,11 +153,11 @@ class TestValidateDeploySourcesMissing:
 
     def test_raises_system_exit_when_all_missing(self, tmp_path):
         with (
-            patch.object(deploy, "ROOT", tmp_path),
-            patch.object(deploy, "LIB_DIR", tmp_path / "lib"),
-            patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),
-            patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),
-            patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),
+            mock.patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", tmp_path / "lib"),
+            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),
+            mock.patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),
+            mock.patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),
         ):
             with pytest.raises(SystemExit) as exc_info:
                 deploy.validate_deploy_sources()
@@ -175,11 +180,11 @@ class TestValidateDeploySourcesStderr:
         main.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", missing_lib),
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
-            patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", missing_lib),
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "ROOT", tmp_path),
         ):
             with pytest.raises(SystemExit):
                 deploy.validate_deploy_sources()
@@ -201,11 +206,11 @@ class TestValidateDeploySourcesStderr:
         example.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", missing_config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
-            patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(deploy, "CONFIG_FILE", missing_config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "ROOT", tmp_path),
         ):
             with pytest.raises(SystemExit):
                 deploy.validate_deploy_sources()
@@ -214,7 +219,9 @@ class TestValidateDeploySourcesStderr:
         assert "config.py" in captured.err
         assert "config.example.py" in captured.err
 
-    def test_no_config_hint_when_only_other_files_missing(self, tmp_path, capsys):
+    def test_no_config_hint_when_only_other_files_missing(
+        self, tmp_path, capsys
+    ):
         lib_dir = tmp_path / "lib"
         # lib_dir intentionally not created
         config = tmp_path / "config.py"
@@ -225,11 +232,11 @@ class TestValidateDeploySourcesStderr:
         main.touch()
 
         with (
-            patch.object(deploy, "LIB_DIR", lib_dir),
-            patch.object(deploy, "CONFIG_FILE", config),
-            patch.object(deploy, "BOOT_FILE", boot),
-            patch.object(deploy, "MAIN_FILE", main),
-            patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),
+            mock.patch.object(deploy, "CONFIG_FILE", config),
+            mock.patch.object(deploy, "BOOT_FILE", boot),
+            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "ROOT", tmp_path),
         ):
             with pytest.raises(SystemExit):
                 deploy.validate_deploy_sources()

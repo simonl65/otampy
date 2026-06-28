@@ -1,3 +1,4 @@
+import pytest
 from shared import FakeLogger, FakeUART, LoadOTAModule
 
 
@@ -17,8 +18,9 @@ def test_init_errors_when_no_uart_provided(monkeypatch):
     ota = LoadOTAModule.load(monkeypatch)
     logger = FakeLogger()
     uart = None
+    UartRequiredError = ota.UartRequiredError
 
-    manager = ota.OTAManager(uart)
-
-    assert manager.uart is None
-    assert logger.messages == []
+    # assert manager.uart is None
+    # assert ("critical", "Must provide a UART object") in logger.messages
+    with pytest.raises(UartRequiredError, match="Must provide a UART object"):
+        manager = ota.OTAManager(uart, logger=logger)

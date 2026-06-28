@@ -48,7 +48,7 @@ members = ["packages/cli"]
 
 [tool.pyright]
 include = ["."]
-extraPaths = ["./lib"]
+extraPaths = ["./lib", "./packages/cli/src/otampy/deploy.py"]
 ignore = ["**/typings"]
 exclude = [
     ".*",

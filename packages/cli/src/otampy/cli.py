@@ -3,6 +3,8 @@ import logging
 import click
 from rich.console import Console
 
+import otampy.deploy as deploy
+
 from .shared.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS
 
 logger = logging.getLogger(__name__)
@@ -134,6 +136,60 @@ def update(args: tuple[str, ...]) -> None:
 def memory() -> None:
     """Retrieves current free and todal memory from the device."""
     _console().print("[green]Getting device's memory details...[/green]")
+
+
+@cli.command(name="deploy")
+@click.option(
+    "-p",
+    "--port",
+    help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
+    default=None,
+)
+@click.option(
+    "--mpremote",
+    default="mpremote",
+    help="mpremote executable to use.",
+)
+@click.option(
+    "--no-mip",
+    is_flag=True,
+    help="Skip installing MicroPython dependencies with mip.",
+)
+@click.option(
+    "--no-reset",
+    is_flag=True,
+    help="Skip resetting the device after deployment.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print mpremote commands without running them.",
+)
+def deploy_cmd(
+    port: str | None,
+    mpremote: str,
+    no_mip: bool,
+    no_reset: bool,
+    dry_run: bool,
+) -> None:
+    """Deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device."""
+    args = deploy.DeployArgs(
+        port=port,  # type: ignore
+        mpremote=mpremote,  # type: ignore
+        no_mip=no_mip,  # type: ignore
+        no_reset=no_reset,  # type: ignore
+        dry_run=dry_run,  # type: ignore
+    )
+    try:
+        deploy.deploy(args)
+    except FileNotFoundError as error:
+        raise click.ClickException(
+            f"Could not find {error.filename!r}. Install mpremote with `uv tool install mpremote` or pass --mpremote."
+        ) from error
+    except deploy.DeployError as error:
+        deploy.print_deploy_error(error)
+        ctx = click.get_current_context()
+        ctx.exit(error.returncode or 1)
 
 
 def main() -> None:

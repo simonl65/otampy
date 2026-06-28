@@ -1,3 +1,5 @@
+import unittest.mock as mock
+
 from click.testing import CliRunner
 
 from otampy.cli import cli
@@ -126,3 +128,33 @@ def test_cli_aliases():
     result = runner.invoke(cli, ["update", ".", "main.py"])
     assert result.exit_code == 0
     assert "Updating firmware with arguments: ('.', 'main.py')" in result.output
+
+
+def test_cli_deploy_forwards_to_deploy_module():
+    """Test that the Click deploy command forwards options to deploy.deploy()."""
+    runner = CliRunner()
+    with mock.patch("otampy.cli.deploy.deploy") as mock_deploy:
+        result = runner.invoke(
+            cli, ["deploy", "--port", "/dev/ttyACM0", "--no-mip", "--dry-run"]
+        )
+
+    assert result.exit_code == 0
+    mock_deploy.assert_called_once()  # type: ignore
+    called_args = mock_deploy.call_args.args[0]  # type: ignore
+    assert called_args.port == "/dev/ttyACM0"
+    assert called_args.no_mip is True
+    assert called_args.no_reset is False
+    assert called_args.dry_run is True
+
+
+def test_cli_deploy_reports_missing_mpremote_as_click_exception():
+    """Test that a missing mpremote error becomes a ClickException."""
+    runner = CliRunner()
+    missing_file_error = FileNotFoundError("mpremote")
+
+    with mock.patch("otampy.cli.deploy.deploy", side_effect=missing_file_error):
+        result = runner.invoke(cli, ["deploy", "--dry-run"])
+
+    assert result.exit_code != 0
+    assert "Could not find" in result.output
+    assert "Install mpremote" in result.output

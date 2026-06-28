@@ -51,8 +51,9 @@ class OTALogger:
     def critical(self, msg):
         self._log("CRITICAL", msg)
 
-    def exception(self, msg):
-        self._log("ERROR", msg)
+
+class UartRequiredError(Exception):
+    pass
 
 
 # =============================================================================
@@ -78,9 +79,12 @@ class OTAManager:
         self.logger = logger if logger is not None else OTALogger()
 
         # Initialise the UART connection to the device
-        self.uart = uart
-
-        self.transport = Urst(self.uart)
+        if uart is None:
+            self.logger.critical("Must provide a UART object")
+            raise UartRequiredError("Must provide a UART object")
+        else:
+            self.uart = uart
+            self.transport = Urst(self.uart)
 
     def check_for_update(self, callback):
         """Check transport for update command and run callback if present"""

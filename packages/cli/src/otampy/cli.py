@@ -2,12 +2,24 @@ import logging
 
 import click
 from rich.console import Console
+try:
+    from otampy.protocol import OTA_COMMANDS, DEFAULT_OTA_CONFIG  # type: ignore
+except Exception:
+    OTA_COMMANDS = []
+    DEFAULT_OTA_CONFIG = {}
 
 logger = logging.getLogger(__name__)
 
 
 def _console() -> Console:
     return Console(highlight=False)
+
+
+# Sanity-check the protocol at import time so maintainers see mismatches
+try:
+    logger.debug("Loaded OTA_COMMANDS: %s", OTA_COMMANDS)
+except Exception:
+    pass
 
 
 class AliasedGroup(click.Group):

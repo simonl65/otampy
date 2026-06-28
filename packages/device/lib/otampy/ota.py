@@ -39,7 +39,7 @@ class OTALogger:
         "CRITICAL",
     ]
 
-    def __init__(self, path="ota.log", min_level="DEBUG"):
+    def __init__(self, path="ota.log", min_level="ERROR"):
         self.path = path
         self.min_level = self.log_levels.index(min_level)
 

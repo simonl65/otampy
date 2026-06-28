@@ -25,6 +25,13 @@ OTA_COMMANDS = [
     "UPDATE_REQUEST",  # Initiate firmware update process
 ]
 
+# Shared default configuration for OTA components
+DEFAULT_OTA_CONFIG = {
+    "LOG_LEVEL": "DEBUG",
+    "LOG_FILE": "/logs/ota.log",
+    "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
+}
+
 
 class OTALogger:
     """
@@ -96,10 +103,13 @@ class OTAManager:
     def __init__(self, uart, config=None, logger=None):
         # Initialise the logger and configuration
         if config is None:
-            config = {}
-            config["LOG_LEVEL"] = "DEBUG"
-            config["LOG_FILE"] = "/logs/ota.log"
-            config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
+            # start with a copy of the shared defaults
+            config = dict(DEFAULT_OTA_CONFIG)
+        else:
+            # ensure any missing values are filled from defaults
+            merged = dict(DEFAULT_OTA_CONFIG)
+            merged.update(config)
+            config = merged
         self.config = config
 
         # Use OTALogger if none passed-in
@@ -135,10 +145,11 @@ class OTABoot:
     def __init__(self, uart, config=None, logger=None):
         # Initialise the logger and configuration
         if config is None:
-            config = {}
-            config["LOG_LEVEL"] = "DEBUG"
-            config["LOG_FILE"] = "/logs/ota.log"
-            config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
+            config = dict(DEFAULT_OTA_CONFIG)
+        else:
+            merged = dict(DEFAULT_OTA_CONFIG)
+            merged.update(config)
+            config = merged
         self.config = config
 
         # Use OTALogger if none passed-in

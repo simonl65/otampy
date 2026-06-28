@@ -6,7 +6,7 @@ from pathlib import Path
 
 class LoadOTAModule:
     @staticmethod
-    def load_ota_module(monkeypatch):
+    def load(monkeypatch):
         class FakeUrst:
             def __init__(self, uart):
                 self.uart = uart
@@ -65,7 +65,7 @@ fake_config = {
 class Manager:
     @staticmethod
     def setup(monkeypatch, uart=None, config=None, logger=None):
-        ota = LoadOTAModule.load_ota_module(monkeypatch)
+        ota = LoadOTAModule.load(monkeypatch)
         if uart is None:
             uart = FakeUART()
         manager = ota.OTAManager(uart=uart, config=config, logger=logger)
@@ -75,7 +75,7 @@ class Manager:
 class Boot:
     @staticmethod
     def setup(monkeypatch, uart=None, config=None, logger=None):
-        ota = LoadOTAModule.load_ota_module(monkeypatch)
+        ota = LoadOTAModule.load(monkeypatch)
         if uart is None:
             uart = FakeUART()
         boot = ota.OTABoot(uart=uart, config=config, logger=logger)

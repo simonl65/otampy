@@ -31,10 +31,27 @@ class OTALogger:
     Fallback logging - Logs messages to stdout
     """
 
-    __slots__ = ()
+    log_levels = [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    ]
+
+    def __init__(self, path="ota.log", min_level="DEBUG"):
+        self.path = path
+        self.min_level = self.log_levels.index(min_level)
 
     def _log(self, level, msg):
-        print("[" + str(time()) + "] [" + level + "] " + msg)
+        if self.log_levels.index(level) < self.min_level:
+            return
+        line = "[" + str(time()) + "] [" + level + "] " + msg
+        try:
+            with open(self.path, "a") as f:
+                f.write(line)
+        except OSError:
+            print(line)
 
     def debug(self, msg):
         self._log("DEBUG", msg)

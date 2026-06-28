@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import unittest.mock as mock
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -31,7 +31,7 @@ def _patch_sources(exist_flags: dict[str, bool]):
             (Path,),
             {"exists": lambda self, _exists=exists: _exists},
         )(real_path)
-        patches.append(mock.patch.object(deploy, name, mock_path))
+        patches.append(mock.patch.object(deploy, name, mock_path))  # pyright: ignore[reportFunctionMemberAccess]
     return patches
 
 
@@ -53,10 +53,10 @@ class TestValidateDeploySourcesAllPresent:
         main.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
         ):
             result = deploy.validate_deploy_sources()
 
@@ -75,15 +75,13 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            mock.patch.object(
-                deploy, "LIB_DIR", tmp_path / "lib"
-            ),  # does not exist
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "LIB_DIR", tmp_path / "lib"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit) as exc_info,
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         assert exc_info.value.code == 1
 
@@ -96,16 +94,14 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            mock.patch.object(deploy, "ROOT", tmp_path),
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(
-                deploy, "CONFIG_FILE", tmp_path / "config.py"
-            ),  # missing
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit) as exc_info,
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         assert exc_info.value.code == 1
 
@@ -118,15 +114,13 @@ class TestValidateDeploySourcesMissing:
         main.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(
-                deploy, "BOOT_FILE", tmp_path / "boot.py"
-            ),  # missing
-            mock.patch.object(deploy, "MAIN_FILE", main),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # type: ignore
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit) as exc_info,
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         assert exc_info.value.code == 1
 
@@ -139,28 +133,26 @@ class TestValidateDeploySourcesMissing:
         boot.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(
-                deploy, "MAIN_FILE", tmp_path / "main.py"
-            ),  # missing
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit) as exc_info,
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         assert exc_info.value.code == 1
 
     def test_raises_system_exit_when_all_missing(self, tmp_path):
         with (
-            mock.patch.object(deploy, "ROOT", tmp_path),
-            mock.patch.object(deploy, "LIB_DIR", tmp_path / "lib"),
-            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),
-            mock.patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),
-            mock.patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),
+            mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "LIB_DIR", tmp_path / "lib"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "config.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit) as exc_info,
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         assert exc_info.value.code == 1
 
@@ -171,7 +163,6 @@ class TestValidateDeploySourcesStderr:
     def test_prints_missing_paths_to_stderr(self, tmp_path, capsys):
         missing_lib = tmp_path / "lib"
 
-        lib_dir = tmp_path / "lib"
         config = tmp_path / "config.py"
         config.touch()
         boot = tmp_path / "boot.py"
@@ -180,14 +171,14 @@ class TestValidateDeploySourcesStderr:
         main.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", missing_lib),
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
-            mock.patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", missing_lib),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         captured = capsys.readouterr()
         assert "Error: missing deploy source(s):" in captured.err
@@ -206,14 +197,14 @@ class TestValidateDeploySourcesStderr:
         example.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(deploy, "CONFIG_FILE", missing_config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
-            mock.patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", missing_config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         captured = capsys.readouterr()
         assert "config.py" in captured.err
@@ -232,14 +223,14 @@ class TestValidateDeploySourcesStderr:
         main.touch()
 
         with (
-            mock.patch.object(deploy, "LIB_DIR", lib_dir),
-            mock.patch.object(deploy, "CONFIG_FILE", config),
-            mock.patch.object(deploy, "BOOT_FILE", boot),
-            mock.patch.object(deploy, "MAIN_FILE", main),
-            mock.patch.object(deploy, "ROOT", tmp_path),
+            mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", config),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                deploy.validate_deploy_sources()
+            deploy.validate_deploy_sources()
 
         captured = capsys.readouterr()
         # config.py hint should NOT appear when config is not missing

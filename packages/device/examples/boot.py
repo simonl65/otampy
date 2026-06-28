@@ -5,12 +5,12 @@ from urst import Urst  # type: ignore
 from utime import sleep_ms  # type: ignore
 
 from otampy.ota import (  # type: ignore
+    OTALogger,
     OTAManager,
-    PrintLogger,
 )
 
 logger = (
-    Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL) or PrintLogger()
+    Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL) or OTALogger()
 )
 
 uart = UART(

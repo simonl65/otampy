@@ -3,11 +3,7 @@ import logging
 import click
 from rich.console import Console
 
-try:
-    from otampy.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS  # type: ignore
-except Exception:
-    OTA_COMMANDS = []
-    DEFAULT_OTA_CONFIG = {}
+from .shared.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS
 
 logger = logging.getLogger(__name__)
 

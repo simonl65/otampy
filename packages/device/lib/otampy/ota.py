@@ -14,30 +14,7 @@ except Exception:
     import os as _os
 
 
-try:
-    # Prefer the shared protocol module when available
-    from otampy.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS  # type: ignore
-except Exception:
-    # MicroPython environments or inline usage may not have the shared
-    # package available on sys.path. Fall back to local definitions to
-    # preserve standalone device behaviour.
-    OTA_COMMANDS = [
-        "PING",  # Respond with "PONG"
-        "CAT",  # View content of file
-        "LS",  # List folder content
-        "RM",  # Remove item(s)
-        "BL",  # Enter bootloader
-        "RB",  # Hard reset
-        "SR",  # Soft reset
-        "UPDATE_REQUEST",  # Initiate firmware update process
-    ]
-
-    # Shared default configuration for OTA components
-    DEFAULT_OTA_CONFIG = {
-        "LOG_LEVEL": "DEBUG",
-        "LOG_FILE": "/logs/ota.log",
-        "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
-    }
+from otampy.shared.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS
 
 
 class OTALogger:

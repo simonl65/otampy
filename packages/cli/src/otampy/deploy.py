@@ -4,14 +4,96 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
-ROOT = Path(__file__).resolve().parent
-DEVICE_ROOT = ROOT / "packages" / "device"
+
+def _find_repo_root() -> Path:
+    """Find the repository root by scanning parents for project files.
+
+    Falls back to the installed package location when no repo markers are found.
+    """
+    here = Path(__file__).resolve()
+    for p in (here, *here.parents):
+        if (
+            (p / "pyproject.toml").exists()
+            or (p / "setup.cfg").exists()
+            or (p / ".git").exists()
+            or (p / "LICENSE.md").exists()
+        ):
+            return p
+
+    # Fallback: use package resources for installed packages
+    try:
+        import importlib.resources as resources
+
+        files_fn = getattr(resources, "files", None)
+        if files_fn is None or not callable(files_fn):
+            raise RuntimeError("importlib.resources.files not available")
+
+        pkg = files_fn("otampy")
+        pkg_any = cast(Any, pkg)
+        # Traversable may not be directly path-like for Path(); use os.fspath or str()
+        if hasattr(pkg_any, "__fspath__"):
+            return Path(os.fspath(pkg_any))
+        return Path(str(pkg_any))
+    except Exception:
+        return here.parent
+
+
+def _find_device_root(root: Path) -> Path:
+    """Locate the `device` package directory from a repo root or installed package.
+
+    Search common candidate locations and fall back to the prior relative path.
+    """
+    # Look for `packages/device` or top-level `device` under the repo or its parents
+    for p in (root, *root.parents):
+        candidates = (p / "packages" / "device", p / "device")
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+    # Try to find a `device` resource in the installed package
+    try:
+        import importlib.resources as resources
+
+        files_fn = getattr(resources, "files", None)
+        if files_fn is not None and callable(files_fn):
+            base = files_fn("otampy")
+            base_any = cast(Any, base)
+            join = getattr(base_any, "joinpath", None)
+            dev = None
+            if callable(join):
+                dev = base_any.joinpath("device")
+            else:
+                # Fallback: try building a path from the base's fs path
+                try:
+                    base_path = Path(os.fspath(base_any))
+                    candidate = base_path / "device"
+                    if candidate.is_dir():
+                        return candidate
+                except Exception:
+                    pass
+
+            if dev is not None:
+                dev_any = cast(Any, dev)
+                if hasattr(dev_any, "__fspath__"):
+                    return Path(os.fspath(dev_any))
+                return Path(str(dev_any))
+    except Exception:
+        pass
+
+    # Last resort: preserve previous heuristic
+    return Path(__file__).resolve().parent / "packages" / "device"
+
+
+ROOT = _find_repo_root()
+DEVICE_ROOT = _find_device_root(ROOT)
 LIB_DIR = DEVICE_ROOT / "lib"
 CONFIG_FILE = DEVICE_ROOT / "examples" / "config.py"
 BOOT_FILE = DEVICE_ROOT / "examples" / "boot.py"

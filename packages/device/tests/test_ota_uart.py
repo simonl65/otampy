@@ -1,22 +1,8 @@
 from shared import FakeLogger, FakeUART, LoadOTAModule
 
 
-def test_has_uart_interface_accepts_uart_like_object(monkeypatch):
-    ota = LoadOTAModule.load_ota_module(monkeypatch)
-    manager = ota.OTAManager(FakeUART())
-
-    assert manager._has_uart_interface(FakeUART())
-
-
-def test_has_uart_interface_rejects_incomplete_object(monkeypatch):
-    ota = LoadOTAModule.load_ota_module(monkeypatch)
-    manager = ota.OTAManager(FakeUART())
-
-    assert not manager._has_uart_interface(object())
-
-
-def test_init_uses_provided_uart_when_interface_is_valid(monkeypatch):
-    ota = LoadOTAModule.load_ota_module(monkeypatch)
+def test_init_uses_provided_uart(monkeypatch):
+    ota = LoadOTAModule.load(monkeypatch)
     uart = FakeUART()
     logger = FakeLogger()
 
@@ -24,4 +10,15 @@ def test_init_uses_provided_uart_when_interface_is_valid(monkeypatch):
 
     assert manager.uart is uart
     assert manager.transport.uart is uart
+    assert logger.messages == []
+
+
+def test_init_errors_when_no_uart_provided(monkeypatch):
+    ota = LoadOTAModule.load(monkeypatch)
+    logger = FakeLogger()
+    uart = None
+
+    manager = ota.OTAManager(uart)
+
+    assert manager.uart is None
     assert logger.messages == []

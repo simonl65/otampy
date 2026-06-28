@@ -20,7 +20,6 @@ def test_init_errors_when_no_uart_provided(monkeypatch):
     uart = None
     UartRequiredError = ota.UartRequiredError
 
-    # assert manager.uart is None
-    # assert ("critical", "Must provide a UART object") in logger.messages
     with pytest.raises(UartRequiredError, match="Must provide a UART object"):
         ota.OTAManager(uart, logger=logger)
+    assert ("critical", "Must provide a UART object") in logger.messages

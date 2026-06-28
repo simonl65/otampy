@@ -46,7 +46,17 @@ class OTALogger:
     def _log(self, level, msg):
         if self.log_levels.index(level) < self.min_level:
             return
-        line = "[" + str(time()) + "] [" + level + "] " + msg
+        MIN_TS_WIDTH = 18
+        MIN_LEVEL_WIDTH = 8
+        line = (
+            "["
+            + (str(time())[:MIN_TS_WIDTH]).ljust(MIN_TS_WIDTH, " ")
+            + "] ["
+            + (level[:MIN_LEVEL_WIDTH]).ljust(MIN_LEVEL_WIDTH, " ")
+            + "] "
+            + msg
+            + "\n"
+        )
         try:
             with open(self.path, "a") as f:
                 f.write(line)
@@ -93,7 +103,9 @@ class OTAManager:
         self.config = config
 
         # Use OTALogger if none passed-in
-        self.logger = logger if logger is not None else OTALogger()
+        self.logger = (
+            logger if logger is not None else OTALogger(min_level="DEBUG")
+        )
 
         # Initialise the UART connection to the device
         if uart is None:

@@ -16,7 +16,7 @@ except Exception:
 
 try:
     # Prefer the shared protocol module when available
-    from otampy.protocol import OTA_COMMANDS, DEFAULT_OTA_CONFIG  # type: ignore
+    from otampy.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS  # type: ignore
 except Exception:
     # MicroPython environments or inline usage may not have the shared
     # package available on sys.path. Fall back to local definitions to

@@ -2,8 +2,9 @@ import logging
 
 import click
 from rich.console import Console
+
 try:
-    from otampy.protocol import OTA_COMMANDS, DEFAULT_OTA_CONFIG  # type: ignore
+    from otampy.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS  # type: ignore
 except Exception:
     OTA_COMMANDS = []
     DEFAULT_OTA_CONFIG = {}
@@ -76,7 +77,9 @@ def help_cmd() -> None:
 @cli.command(name="bl")
 def bootloader() -> None:
     """Reboots device into its bootloader mode."""
-    _console().print("[yellow]Rebooting device into bootloader mode...[/yellow]")
+    _console().print(
+        "[yellow]Rebooting device into bootloader mode...[/yellow]"
+    )
 
 
 @cli.command(name="rb")
@@ -98,14 +101,18 @@ def list_dir(path: str | None) -> None:
     if path:
         _console().print(f"[green]Listing content of {path}...[/green]")
     else:
-        _console().print("[green]Listing content of current directory...[/green]")
+        _console().print(
+            "[green]Listing content of current directory...[/green]"
+        )
 
 
 @cli.command(name="cat")
 @click.argument("file", required=True)
 def cat(file: str) -> None:
     """Shows content of specified file on device."""
-    _console().print(f"[green]Showing content of specified file: {file}[/green]")
+    _console().print(
+        f"[green]Showing content of specified file: {file}[/green]"
+    )
 
 
 @cli.command(name="rm")

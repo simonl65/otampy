@@ -71,7 +71,6 @@ class OTAManager:
             return False
 
     def __init__(self, uart, config=None, logger=None):
-        """Initializes a new OTAManager object."""
         # Initialise the logger and configuration
         if config is None:
             config = {}
@@ -80,6 +79,7 @@ class OTAManager:
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
+        # Use OTALogger if none passed-in
         self.logger = logger if logger is not None else OTALogger()
 
         # Initialise the UART connection to the device
@@ -99,6 +99,31 @@ class OTAManager:
     def ready_for_update(self):
         """Resets the device so that boot.py gets run."""
         print("TODO: Implement ready_for_update")
+
+
+class OTABoot:
+    """
+    Boot-time processing
+    """
+
+    def __init__(self, uart, config=None, logger=None):
+        # Initialise the logger and configuration
+        if config is None:
+            config = {}
+            config["LOG_LEVEL"] = "DEBUG"
+            config["LOG_FILE"] = "/logs/ota.log"
+            config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
+        self.config = config
+
+        # Use OTALogger if none passed-in
+        self.logger = logger if logger is not None else OTALogger()
+
+        # Initialise the UART connection to the device
+        self.uart = uart
+
+        from urst import Urst  # type: ignore
+
+        self.transport = Urst(self.uart)
 
     # =========================================================================
     # BOOT PROCESSING (boot.py)

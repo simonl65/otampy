@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
-from unittest.mock import Mock
 
 
 class LoadOTAModule:
@@ -65,9 +64,19 @@ fake_config = {
 
 class Manager:
     @staticmethod
-    def setup_manager(monkeypatch, uart=None, config=None, logger=None):
+    def setup(monkeypatch, uart=None, config=None, logger=None):
         ota = LoadOTAModule.load_ota_module(monkeypatch)
         if uart is None:
             uart = FakeUART()
         manager = ota.OTAManager(uart=uart, config=config, logger=logger)
         return manager
+
+
+class Boot:
+    @staticmethod
+    def setup(monkeypatch, uart=None, config=None, logger=None):
+        ota = LoadOTAModule.load_ota_module(monkeypatch)
+        if uart is None:
+            uart = FakeUART()
+        boot = ota.OTABoot(uart=uart, config=config, logger=logger)
+        return boot

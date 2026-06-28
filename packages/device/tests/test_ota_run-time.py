@@ -31,7 +31,7 @@ def test_missing_config_takes_defaults(monkeypatch):
 @pytest.mark.skip("TODO: Implement test__check_for_update")
 def test__check_for_update(monkeypatch):
     logger = FakeLogger()
-    manager = Manager.setup_manager(monkeypatch, logger=logger)
+    manager = Manager.setup(monkeypatch, logger=logger)
     callback = Mock()
 
     manager.check_for_update(callback)

@@ -6,6 +6,8 @@ This module is designed to be used in conjunction with the `otampy` CLI tool to 
 
 from time import time
 
+from urst import Urst  # type: ignore
+
 try:
     import uos as _os
 except Exception:
@@ -53,22 +55,15 @@ class OTALogger:
         self._log("ERROR", msg)
 
 
+# =============================================================================
+# RUN-TIME PROCESSES (main.py)
+# =============================================================================
 class OTAManager:
     """
     The OTAManager class provides methods for:
         - Checking for OTA commands
         - Performing over-the-air updates
     """
-
-    def _has_uart_interface(self, uart):
-        try:
-            return (
-                callable(uart.write)
-                and callable(uart.read)
-                and callable(uart.any)
-            )
-        except AttributeError:
-            return False
 
     def __init__(self, uart, config=None, logger=None):
         # Initialise the logger and configuration
@@ -85,13 +80,8 @@ class OTAManager:
         # Initialise the UART connection to the device
         self.uart = uart
 
-        from urst import Urst  # type: ignore
-
         self.transport = Urst(self.uart)
 
-    # =========================================================================
-    # RUN-TIME PROCESSES (main.py)
-    # =========================================================================
     def check_for_update(self, callback):
         """Check transport for update command and run callback if present"""
         print("TODO: Implement check_for_update")
@@ -101,6 +91,9 @@ class OTAManager:
         print("TODO: Implement ready_for_update")
 
 
+# =============================================================================
+# BOO-TIME PROCESSES (boot.py)
+# =============================================================================
 class OTABoot:
     """
     Boot-time processing
@@ -125,9 +118,6 @@ class OTABoot:
 
         self.transport = Urst(self.uart)
 
-    # =========================================================================
-    # BOOT PROCESSING (boot.py)
-    # =========================================================================
     def check_for_update_file(self, callback):
         """Check if we have the configured update-request flag file and run update process if present."""
         self.logger.debug("Checking for update request flag file...")

@@ -596,3 +596,56 @@ def test_cli_query_connection_retry():
         assert call_count == 3
         # Should have slept twice (exponential backoff)
         assert mock_sleep.call_count == 2
+
+
+def test_cli_port_interactive(tmp_path):
+    runner = CliRunner()
+
+    # Mock comports
+    mock_port1 = mock.MagicMock()
+    mock_port1.device = "/dev/ttyFake1"
+    mock_port1.description = "Fake Port 1"
+
+    mock_port2 = mock.MagicMock()
+    mock_port2.device = "/dev/ttyFake2"
+    mock_port2.description = "Fake Port 2"
+
+    with (
+        mock.patch("serial.tools.list_ports.comports", return_value=[mock_port1, mock_port2]),
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+    ):
+        # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'y'
+        result = runner.invoke(cli, ["port"], input="1\ny\n")
+        assert result.exit_code == 0
+        assert "Available serial ports:" in result.output
+        assert "1: /dev/ttyFake1 (Fake Port 1)" in result.output
+        assert "Permanent default port set to: /dev/ttyFake1" in result.output
+
+        # Verify file config.json exists and has correct default_port value
+        config_file = tmp_path / ".config" / "otampy" / "config.json"
+        assert config_file.is_file()
+        import json
+        with open(config_file) as f:
+            assert json.load(f)["default_port"] == "/dev/ttyFake1"
+
+        # 2. Interactive choice: select 2, select session 'n'
+        result = runner.invoke(cli, ["port"], input="2\nn\n")
+        assert result.exit_code == 0
+        assert "To set this default for the current terminal session, run:" in result.output
+        assert "export OTAMPY_PORT=/dev/ttyFake2" in result.output
+
+        # 3. Test non-interactive options: show, set, clear
+        result_show = runner.invoke(cli, ["port", "--show"])
+        assert result_show.exit_code == 0
+        assert "Current default port: /dev/ttyFake1" in result_show.output
+
+        result_clear = runner.invoke(cli, ["port", "--clear"])
+        assert result_clear.exit_code == 0
+        assert "Permanent default port cleared." in result_clear.output
+        assert not config_file.is_file()
+
+        result_set = runner.invoke(cli, ["port", "--set", "/dev/ttyFakeX"])
+        assert result_set.exit_code == 0
+        assert "Permanent default port set to: /dev/ttyFakeX" in result_set.output
+        with open(config_file) as f:
+            assert json.load(f)["default_port"] == "/dev/ttyFakeX"

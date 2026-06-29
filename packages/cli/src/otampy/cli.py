@@ -51,6 +51,55 @@ class AliasedGroup(click.Group):
         return sorted(click.Group.list_commands(self, ctx))
 
 
+def get_default_port() -> str | None:
+    import os
+
+    if "OTAMPY_PORT" in os.environ:
+        return os.environ["OTAMPY_PORT"]
+    # Check permanent config
+    config_path = Path.home() / ".config" / "otampy" / "config.json"
+    if config_path.is_file():
+        import json
+
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+                return data.get("default_port")
+        except Exception:
+            pass
+    return None
+
+
+def set_default_port(port: str | None) -> None:
+    import json
+
+    config_dir = Path.home() / ".config" / "otampy"
+    config_path = config_dir / "config.json"
+
+    if port is None:
+        if config_path.is_file():
+            try:
+                config_path.unlink()
+            except Exception:
+                pass
+        return
+
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if config_path.is_file():
+            try:
+                with open(config_path) as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+        data["default_port"] = port
+        with open(config_path, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        raise click.ClickException(f"Failed to save default port: {e}") from e
+
+
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
@@ -58,6 +107,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 @click.option(
     "-p",
     "--port",
+    default=get_default_port,
     help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
 )
 @click.option(
@@ -141,7 +191,9 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not transport.send(command):
-                raise click.ClickException("Failed to send command over transport.")
+                raise click.ClickException(
+                    "Failed to send command over transport."
+                )
 
             response = transport.read()
             if not response:
@@ -168,7 +220,10 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
 
             # Return payload after prefix and potential colon separator
             prefix_len = len(expected_prefix)
-            if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
+            if (
+                len(response) > prefix_len
+                and response[prefix_len : prefix_len + 1] == b":"
+            ):
                 res = response[prefix_len + 1 :]
             else:
                 res = response[prefix_len:]
@@ -241,7 +296,9 @@ def bootloader(ctx: click.Context) -> None:
 def reboot(ctx: click.Context) -> None:
     """Hard reboots the device."""
     if not click.confirm(
-        click.style("Are you sure you want to hard reboot the device?", fg="red"),
+        click.style(
+            "Are you sure you want to hard reboot the device?", fg="red"
+        ),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
@@ -255,7 +312,9 @@ def reboot(ctx: click.Context) -> None:
 def soft_reset(ctx: click.Context) -> None:
     """Soft resets the device."""
     if not click.confirm(
-        click.style("Are you sure you want to soft reset the device?", fg="red"),
+        click.style(
+            "Are you sure you want to soft reset the device?", fg="red"
+        ),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
@@ -273,7 +332,9 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
         _console().print(f"[green]Listing content of {path}...[/green]")
         cmd = f"LS:{path}".encode()
     else:
-        _console().print("[green]Listing content of current directory...[/green]")
+        _console().print(
+            "[green]Listing content of current directory...[/green]"
+        )
         cmd = b"LS"
 
     resp = _query(ctx, cmd, b"LS_OK")
@@ -289,7 +350,9 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
 @click.pass_context
 def cat(ctx: click.Context, file: str) -> None:
     """Shows content of specified file on device."""
-    _console().print(f"[green]Showing content of specified file: {file}[/green]")
+    _console().print(
+        f"[green]Showing content of specified file: {file}[/green]"
+    )
     resp = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
     content = resp.decode("utf-8", errors="replace")
     _console().print(content)
@@ -328,7 +391,9 @@ def memory_info(ctx: click.Context) -> None:
         flash_free = int(parts[2])
         flash_total = int(parts[3])
     except (ValueError, IndexError) as e:
-        raise click.ClickException(f"Invalid memory response from device: {payload}") from e
+        raise click.ClickException(
+            f"Invalid memory response from device: {payload}"
+        ) from e
 
     ram_total = ram_free + ram_alloc
     ram_free_pct = (ram_free / ram_total * 100) if ram_total > 0 else 0
@@ -347,12 +412,20 @@ def memory_info(ctx: click.Context) -> None:
     _console().print("[bold cyan]Memory Information:[/bold cyan]")
     _console().print()
     _console().print("[bold]RAM (Random Access Memory):[/bold]")
-    _console().print(f"  Free:      {format_size(ram_free):<9} / {format_size(ram_total)} ({ram_free_pct:.1f}%)")
-    _console().print(f"  Allocated: {format_size(ram_alloc):<9} ({ram_alloc_pct:.1f}%)")
+    _console().print(
+        f"  Free:      {format_size(ram_free):<9} / {format_size(ram_total)} ({ram_free_pct:.1f}%)"
+    )
+    _console().print(
+        f"  Allocated: {format_size(ram_alloc):<9} ({ram_alloc_pct:.1f}%)"
+    )
     _console().print()
     _console().print("[bold]Flash (Storage):[/bold]")
-    _console().print(f"  Free:      {format_size(flash_free):<9} / {format_size(flash_total)} ({flash_free_pct:.1f}%)")
-    _console().print(f"  Used:      {format_size(flash_used):<9} ({flash_used_pct:.1f}%)")
+    _console().print(
+        f"  Free:      {format_size(flash_free):<9} / {format_size(flash_total)} ({flash_free_pct:.1f}%)"
+    )
+    _console().print(
+        f"  Used:      {format_size(flash_used):<9} ({flash_used_pct:.1f}%)"
+    )
 
 
 def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
@@ -443,7 +516,9 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             time.sleep(0.2)
 
     if not transport or not ser:
-        raise click.ClickException("Timeout waiting for device READY broadcast.")
+        raise click.ClickException(
+            "Timeout waiting for device READY broadcast."
+        )
 
     _console().print("[green]Device is READY. Handshake complete.[/green]")
 
@@ -500,7 +575,9 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             num_chunks = (size + chunk_size - 1) // chunk_size
             for i in range(num_chunks):
                 chunk_data = content[i * chunk_size : (i + 1) * chunk_size]
-                b64_chunk = binascii.b2a_base64(chunk_data).strip().decode("utf-8")
+                b64_chunk = (
+                    binascii.b2a_base64(chunk_data).strip().decode("utf-8")
+                )
 
                 transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
                 resp = transport.read()
@@ -535,12 +612,111 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         ser.close()
 
 
+@cli.command(name="port")
+@click.option("--set", "set_port", help="Set the default port permanently.")
+@click.option("--clear", is_flag=True, help="Clear the permanent default port.")
+@click.option("--show", is_flag=True, help="Show the current default port.")
+def port_cmd(set_port: str | None, clear: bool, show: bool) -> None:
+    """List available serial ports and manage the default port."""
+    import serial.tools.list_ports
+
+    if show:
+        p = get_default_port()
+        if p:
+            _console().print(f"Current default port: [green]{p}[/green]")
+        else:
+            _console().print("No default port set.")
+        return
+
+    if clear:
+        set_default_port(None)
+        _console().print("[green]Permanent default port cleared.[/green]")
+        return
+
+    if set_port:
+        set_default_port(set_port)
+        _console().print(
+            f"[green]Permanent default port set to: {set_port}[/green]"
+        )
+        return
+
+    # Interactive / Listing mode
+    ports = list(serial.tools.list_ports.comports())
+    if not ports:
+        _console().print("No available serial ports found.")
+        return
+
+    _console().print("[bold]Available serial ports:[/bold]")
+    current_default = get_default_port()
+
+    for idx, port_info in enumerate(ports, 1):
+        is_default = (
+            " [green][default][/green]"
+            if port_info.device == current_default
+            else ""
+        )
+        desc = (
+            f" ({port_info.description})"
+            if port_info.description and port_info.description != "n/a"
+            else ""
+        )
+        _console().print(
+            f"  [bold]{idx}[/bold]: [cyan]{port_info.device}[/cyan]{desc}{is_default}"
+        )
+
+    # Ask the user to select a port
+    selection = click.prompt(
+        "\nSelect a port number to set as default (or press Enter to cancel)",
+        default="",
+        show_default=False,
+    )
+    if not selection.strip():
+        _console().print("Cancelled.")
+        return
+
+    try:
+        port_idx = int(selection) - 1
+        if port_idx < 0 or port_idx >= len(ports):
+            raise ValueError()
+    except ValueError as e:
+        raise click.ClickException("Invalid selection.") from e
+
+    selected_port = ports[port_idx].device
+
+    # Ask if session or permanent
+    choice = click.prompt(
+        f"Set {selected_port} as default permanently? (y=permanent, n=session command, c=cancel) [y/n/c]",
+        default="y",
+    ).lower()
+
+    if choice == "y":
+        set_default_port(selected_port)
+        _console().print(
+            f"[green]Permanent default port set to: {selected_port}[/green]"
+        )
+    elif choice == "n":
+        import os
+
+        env_cmd = f"export OTAMPY_PORT={selected_port}"
+        if os.name == "nt":
+            if "PSModulePath" in os.environ:
+                env_cmd = f'$env:OTAMPY_PORT="{selected_port}"'
+            else:
+                env_cmd = f"set OTAMPY_PORT={selected_port}"
+        _console().print(
+            "\nTo set this default for the current terminal session, run:"
+        )
+        _console().print(f"  [bold cyan]{env_cmd}[/bold cyan]")
+    else:
+        _console().print("Cancelled.")
+
+
 @cli.command(name="deploy")
 @click.option(
     "-p",
     "--port",
     help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
-    default=None,
+    default=get_default_port,
 )
 @click.option(
     "--mpremote",

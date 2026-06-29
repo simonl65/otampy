@@ -52,7 +52,10 @@ def test_boot_with_flag_file_runs_callback_and_removes_flag(tmp_path):
         "debug",
         "Checking for update request flag file...",
     ) in logger.messages
-    assert ("debug", f"Update request flag found: {flag_file}") in logger.messages
+    assert (
+        "debug",
+        f"Update request flag found: {flag_file}",
+    ) in logger.messages
 
 
 def test_boot_sends_ready_when_flag_present(tmp_path):
@@ -105,7 +108,9 @@ def test_boot_handles_full_update_session(tmp_path):
     core.transport.incoming_queue.append(
         f"FILE_START:main.py:19:{sha_main}".encode()
     )
-    core.transport.incoming_queue.append(f"CHUNK:0:{b64_main.decode()}".encode())
+    core.transport.incoming_queue.append(
+        f"CHUNK:0:{b64_main.decode()}".encode()
+    )
     core.transport.incoming_queue.append(b"FILE_END")
     core.transport.incoming_queue.append(
         f"FILE_START:lib/helper.py:17:{sha_lib}".encode()
@@ -139,8 +144,8 @@ def test_boot_handles_full_update_session(tmp_path):
     assert target_lib.exists()
     assert target_lib.read_bytes() == payload_lib
 
-    assert not (tmp_path / "main.py.xuip").exists()
-    assert not (tmp_path / "lib" / "helper.py.xuip").exists()
+    assert not (tmp_path / "main.py.ota").exists()
+    assert not (tmp_path / "lib" / "helper.py.ota").exists()
     assert not flag_file.exists()
 
 
@@ -149,18 +154,18 @@ def test_boot_handles_full_update_session(tmp_path):
 # =============================================================================
 
 
-def test_boot_cleans_orphaned_xuip_on_normal_boot(tmp_path):
+def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
     flag_file = tmp_path / "nonexistent.flag"
 
     # Set up staging files on simulated disk
-    orphaned_main = tmp_path / "main.py.xuip"
+    orphaned_main = tmp_path / "main.py.ota"
     orphaned_main.touch()
 
     lib_dir = tmp_path / "lib"
     lib_dir.mkdir()
-    orphaned_lib = lib_dir / "sensor.py.xuip"
+    orphaned_lib = lib_dir / "sensor.py.ota"
     orphaned_lib.touch()
 
     # Create a real source file that should NOT be deleted
@@ -182,14 +187,15 @@ def test_boot_cleans_orphaned_xuip_on_normal_boot(tmp_path):
     # Patch resolver and listdir to work on tmp_path
     import os
 
-    with patch(
-        "device_otampy.boot._resolve_path",
-        side_effect=mock_resolve_path,
-        create=True,
-    ), patch("device_otampy.boot._os.listdir", side_effect=os.listdir), patch(
-        "device_otampy.boot._os.remove", side_effect=os.remove
-    ), patch(
-        "device_otampy.boot._os.stat", side_effect=os.stat
+    with (
+        patch(
+            "device_otampy.boot._resolve_path",
+            side_effect=mock_resolve_path,
+            create=True,
+        ),
+        patch("device_otampy.boot._os.listdir", side_effect=os.listdir),
+        patch("device_otampy.boot._os.remove", side_effect=os.remove),
+        patch("device_otampy.boot._os.stat", side_effect=os.stat),
     ):
         boot.run(core, callback=None)
 

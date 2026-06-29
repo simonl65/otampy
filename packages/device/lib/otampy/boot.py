@@ -19,6 +19,7 @@ def _resolve_path(path):
     if path.startswith("/"):
         return path
     import sys
+
     if sys.implementation.name != "micropython":
         return path
     return "/" + path
@@ -111,7 +112,7 @@ def _run_default_update_loop(core):
                 continue
             sha256 = parts[3]
 
-            staging_path = _resolve_path(path) + ".xuip"
+            staging_path = _resolve_path(path) + ".ota"
             try:
                 _make_dirs(staging_path)
                 """ SIM115:
@@ -203,7 +204,7 @@ def _run_default_update_loop(core):
                 core.transport.send(b"COMMIT_ERR")
 
 
-def _cleanup_orphaned_xuip(core, path="."):
+def _cleanup_orphaned_ota(core, path="."):
     resolved_path = _resolve_path(path)
     try:
         for item in _os.listdir(resolved_path):
@@ -213,8 +214,8 @@ def _cleanup_orphaned_xuip(core, path="."):
                 stat = _os.stat(resolved_item)
                 is_dir = stat[0] & 0x4000
                 if is_dir:
-                    _cleanup_orphaned_xuip(core, item_path)
-                elif item.endswith(".xuip"):
+                    _cleanup_orphaned_ota(core, item_path)
+                elif item.endswith(".ota"):
                     core.logger.debug(
                         f"Removing orphaned staging file: {resolved_item}"
                     )
@@ -267,4 +268,4 @@ def run(core, callback=None):
             except Exception:
                 core.logger.debug(f"Could not remove update flag: {flag}")
     else:
-        _cleanup_orphaned_xuip(core)
+        _cleanup_orphaned_ota(core)

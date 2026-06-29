@@ -26,8 +26,9 @@ class AliasedGroup(click.Group):
     def get_command(
         self, ctx: click.Context, cmd_name: str
     ) -> click.Command | None:
-        # First try to get the command exactly
-        rv = click.Group.get_command(self, ctx, cmd_name)
+        normalized_name = cmd_name.lower()
+        # First try to get the command exactly, case-insensitive
+        rv = click.Group.get_command(self, ctx, normalized_name)
         if rv is not None:
             return rv
         # Map aliases to the target subcommand names
@@ -41,8 +42,8 @@ class AliasedGroup(click.Group):
             "update": "upd",
             "memory": "mem",
         }
-        if cmd_name in aliases:
-            return click.Group.get_command(self, ctx, aliases[cmd_name])
+        if normalized_name in aliases:
+            return click.Group.get_command(self, ctx, aliases[normalized_name])
         return None
 
     def list_commands(self, ctx: click.Context) -> list[str]:

@@ -522,6 +522,22 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
                     rel_path = str(f)
                 res.append((rel_path.replace("\\", "/"), f))
 
+    # Validate for conflicts
+    import click
+    target_paths = [t for t, _ in res]
+    for i, t1 in enumerate(target_paths):
+        for j, t2 in enumerate(target_paths):
+            if i != j:
+                if t1 == t2:
+                    raise click.ClickException(
+                        f"Conflict: Multiple files mapped to the same destination '{t1}'"
+                    )
+                if t2.startswith(t1 + "/"):
+                    raise click.ClickException(
+                        f"Conflict: Destination '{t1}' is mapped as a file, "
+                        f"but also used as a directory for '{t2}'"
+                    )
+
     return res
 
 

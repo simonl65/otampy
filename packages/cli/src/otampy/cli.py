@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -218,6 +219,36 @@ def remove(ctx: click.Context, file: str) -> None:
     _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
 
 
+def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
+    from pathlib import Path
+
+    files = []
+
+    if args:
+        for arg in args:
+            p = Path(arg)
+            if p.is_file():
+                files.append(p)
+            elif p.is_dir():
+                files.extend(p.rglob("*.py"))
+    else:
+        p_main = Path("main.py")
+        if p_main.is_file():
+            files.append(p_main)
+        p_lib = Path("lib")
+        if p_lib.is_dir():
+            files.extend(p_lib.rglob("*.py"))
+
+    res = []
+    for f in files:
+        try:
+            rel = f.relative_to(Path.cwd())
+        except ValueError:
+            rel = f
+        res.append((str(rel), f))
+    return res
+
+
 @cli.command(name="upd")
 @click.argument("args", nargs=-1)
 @click.pass_context
@@ -239,6 +270,8 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
+    import binascii
+    import hashlib
     import time
 
     import serial
@@ -270,7 +303,93 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         raise click.ClickException("Timeout waiting for device READY broadcast.")
 
     _console().print("[green]Device is READY. Handshake complete.[/green]")
-    ser.close()
+
+    # 3. Scan and collect files to send
+    files_to_send = _get_files_to_send(args)
+    if not files_to_send:
+        _console().print("[yellow]No files found to transfer.[/yellow]")
+        ser.close()
+        return
+
+    # Calculate total manifest size
+    total_bytes = 0
+    manifest = []
+    for target_path, local_path in files_to_send:
+        try:
+            with open(local_path, "rb") as f:
+                content = f.read()
+            size = len(content)
+            sha256 = hashlib.sha256(content).hexdigest()
+            total_bytes += size
+            manifest.append((target_path, local_path, size, sha256, content))
+        except OSError as e:
+            raise click.ClickException(
+                f"Failed to read local file {local_path}: {e}"
+            ) from e
+
+    # 4. Start update session: UPDATE_START
+    _console().print(
+        f"Sending manifest ({len(manifest)} files, {total_bytes} bytes)..."
+    )
+    try:
+        transport.send(f"UPDATE_START:{len(manifest)}:{total_bytes}".encode())
+        resp = transport.read()
+        if resp != b"SPACE_OK":
+            raise click.ClickException(
+                f"Device rejected manifest. Response: {resp.decode('utf-8', errors='replace') if resp else 'None'}"
+            )
+
+        # 5. Send files sequentially
+        chunk_size = 256
+        for target_path, _local_path, size, sha256, content in manifest:
+            _console().print(f"Transferring {target_path} ({size} bytes)...")
+
+            # Send FILE_START
+            transport.send(f"FILE_START:{target_path}:{size}:{sha256}".encode())
+            resp = transport.read()
+            if resp != b"FILE_OK":
+                raise click.ClickException(
+                    f"Device failed to initialize file transfer for {target_path}: "
+                    f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                )
+
+            # Send chunks
+            num_chunks = (size + chunk_size - 1) // chunk_size
+            for i in range(num_chunks):
+                chunk_data = content[i * chunk_size : (i + 1) * chunk_size]
+                b64_chunk = binascii.b2a_base64(chunk_data).strip().decode("utf-8")
+
+                transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
+                resp = transport.read()
+                if resp != f"CHUNK_ACK:{i}".encode():
+                    raise click.ClickException(
+                        f"Chunk {i} transmission failed for {target_path}: "
+                        f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                    )
+
+            # Send FILE_END
+            transport.send(b"FILE_END")
+            resp = transport.read()
+            if resp != b"FILE_OK":
+                raise click.ClickException(
+                    f"Device verification failed for {target_path}: "
+                    f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                )
+
+        # 6. Commit transaction: UPDATE_COMMIT
+        _console().print("Committing update transaction...")
+        transport.send(b"UPDATE_COMMIT")
+        resp = transport.read()
+        if resp != b"COMMIT_OK":
+            raise click.ClickException(
+                f"Device commit failed: {resp.decode('utf-8', errors='replace') if resp else 'None'}"
+            )
+
+        _console().print(
+            "[green]Update completed successfully! Device is rebooting.[/green]"
+        )
+    finally:
+        ser.close()
 
 
 @cli.command(name="mem")

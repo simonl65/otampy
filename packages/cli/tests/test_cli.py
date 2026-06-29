@@ -272,7 +272,11 @@ def test_cli_update_with_files():
     runner = CliRunner(env={"NO_COLOR": "1"})
     with mock.patch("serial.Serial") as _mock_serial, mock.patch(
         "urst.Urst"
-    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+    ) as mock_device, mock.patch(
+        "time.sleep"
+    ) as _mock_sleep, mock.patch(
+        "otampy.cli._get_files_to_send", return_value=[], create=True
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
 
@@ -289,7 +293,11 @@ def test_cli_aliases():
     runner = CliRunner(env={"NO_COLOR": "1"})
     with mock.patch("serial.Serial") as _mock_serial, mock.patch(
         "urst.Urst"
-    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+    ) as mock_device, mock.patch(
+        "time.sleep"
+    ) as _mock_sleep, mock.patch(
+        "otampy.cli._get_files_to_send", return_value=[], create=True
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
 
@@ -347,3 +355,87 @@ def test_cli_update_handshake():
         assert "Device acknowledged update request. Rebooting..." in result.output
         assert "Device is READY. Handshake complete." in result.output
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
+
+
+def test_cli_update_full_transfer():
+    """Test full Click 'upd' command multi-file transfer sequence."""
+    runner = CliRunner()
+    from pathlib import Path
+
+    mock_files = [
+        ("main.py", Path("/tmp/main.py")),
+        ("lib/helper.py", Path("/tmp/lib/helper.py")),
+    ]
+
+    payloads = {
+        "/tmp/main.py": b"print('hello main')",
+        "/tmp/lib/helper.py": b"print('hello lib')",
+    }
+
+    class MockFile:
+        def __init__(self, path):
+            self.content = payloads[str(path)]
+
+        def read(self):
+            return self.content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    def mock_open(path, mode="r"):
+        if "b" in mode:
+            return MockFile(path)
+        return MockFile(path)
+
+    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch(
+        "time.sleep"
+    ) as _mock_sleep, mock.patch(
+        "otampy.cli._get_files_to_send", return_value=mock_files, create=True
+    ), mock.patch(
+        "builtins.open", side_effect=mock_open
+    ):
+        mock_device_instance = mock_device.return_value
+
+        # Expected responses:
+        # 1. Handshake UPDATE_REQUEST -> REBOOTING
+        # 2. Handshake Wait READY -> READY
+        # 3. UPDATE_START -> SPACE_OK
+        # 4. FILE_START (main) -> FILE_OK
+        # 5. CHUNK 0 -> CHUNK_ACK:0
+        # 6. FILE_END -> FILE_OK
+        # 7. FILE_START (lib/helper) -> FILE_OK
+        # 8. CHUNK 0 -> CHUNK_ACK:0
+        # 9. FILE_END -> FILE_OK
+        # 10. UPDATE_COMMIT -> COMMIT_OK
+        mock_device_instance.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        assert "Device is READY. Handshake complete." in result.output
+        assert "Sending manifest" in result.output
+        assert "Transferring main.py" in result.output
+        assert "Transferring lib/helper.py" in result.output
+        assert "Update completed successfully!" in result.output
+
+        # Verify command sequencing sent to device
+        mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
+        mock_device_instance.send.assert_any_call(b"UPDATE_START:2:37")
+        mock_device_instance.send.assert_any_call(b"UPDATE_COMMIT")

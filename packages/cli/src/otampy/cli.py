@@ -54,8 +54,8 @@ class AliasedGroup(click.Group):
 def get_default_port() -> str | None:
     import os
 
-    if "OTAMPY_PORT" in os.environ:
-        return os.environ["OTAMPY_PORT"]
+    if "OTAMPY_PORT" in os.environ:  # type: ignore
+        return os.environ["OTAMPY_PORT"]  # type: ignore
     # Check session config (by parent shell PID)
     import tempfile
 
@@ -129,7 +129,7 @@ def set_default_port(port: str | None, session: bool = False) -> None:
                 pass
         data["default_port"] = port
         with open(config_path, "w") as f:
-            json.dump(data, f, indent=4)
+            json.dump(data, f, indent=4)  # type: ignore
     except Exception as e:
         raise click.ClickException(f"Failed to save default port: {e}") from e
 
@@ -471,7 +471,12 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
         for arg in args:
             if ":" in arg:
                 parts = arg.split(":")
-                if len(parts[0]) == 1 and parts[0].isalpha() and len(parts) > 1 and parts[1].startswith(("\\", "/")):
+                if (
+                    len(parts[0]) == 1
+                    and parts[0].isalpha()
+                    and len(parts) > 1
+                    and parts[1].startswith(("\\", "/"))
+                ):
                     if len(parts) > 2:
                         src_str = parts[0] + ":" + parts[1]
                         target_str = parts[2]
@@ -524,6 +529,7 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
 
     # Validate for conflicts
     import click
+
     target_paths = [t for t, _ in res]
     for i, t1 in enumerate(target_paths):
         for j, t2 in enumerate(target_paths):
@@ -553,6 +559,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         return
 
     import hashlib
+
     # Calculate total manifest size
     total_bytes = 0
     manifest = []
@@ -611,7 +618,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
                 ser.reset_output_buffer()
                 transport = Urst(ser)
 
-            resp = transport.read()
+            resp = transport.read()  # type: ignore
             if resp == b"READY":
                 break
         except Exception:
@@ -627,8 +634,6 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         )
 
     _console().print("[green]Device is READY. Handshake complete.[/green]")
-
-
 
     # 4. Start update session: UPDATE_START
     _console().print(

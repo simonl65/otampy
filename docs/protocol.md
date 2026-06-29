@@ -53,15 +53,15 @@ Every request from the Host CLI expects a corresponding response from the Device
 
 These commands handle the transition from runtime (`main.py`) to bootloader (`boot.py`) and the subsequent file transfer.
 
-| Request / Msg | Sender | Response | Description |
-|---|---|---|---|
-| `UPDATE_REQUEST` | Host | `REBOOTING`<br>`BUSY` | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots. |
-| `READY` | Device | (None) | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload. |
-| `UPDATE_START:file_count:total_bytes` | Host | `SPACE_OK`<br>`SPACE_ERR` | Initiates the OTA transfer session. Device checks disk space. |
-| `FILE_START:path:size:sha256` | Host | `FILE_OK`<br>`FILE_ERR` | Announce upcoming file. Device prepares target path (`path.xuip`). |
-| `CHUNK:seq:data` | Host | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk of configurable size (e.g., 256/512 bytes). |
-| `FILE_END` | Host | `FILE_OK`<br>`FILE_ERR` | Finalise current file. Device verifies SHA-256 checksum. |
-| `UPDATE_COMMIT` | Host | `COMMIT_OK` | Complete update. Device renames all `.xuip` files, clears flag, and reboots to run the new application. |
+| Request / Msg                         | Sender | Response                       | Description                                                                                            |
+| ------------------------------------- | ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `UPDATE_REQUEST`                      | Host   | `REBOOTING`<br>`BUSY`          | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots.   |
+| `READY`                               | Device | (None)                         | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload.                    |
+| `UPDATE_START:file_count:total_bytes` | Host   | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA transfer session. Device checks disk space.                                          |
+| `FILE_START:path:size:sha256`         | Host   | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).                                      |
+| `CHUNK:seq:data`                      | Host   | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk of configurable size (e.g., 256/512 bytes).                                            |
+| `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                               |
+| `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`                    | Complete update. Device renames all `.ota` files, clears flag, and reboots to run the new application. |
 
 ---
 
@@ -107,7 +107,7 @@ Host CLI                           Device (main.py)              Device (boot.py
    │ ── UPDATE_START:2:10240 ─────────────────────────────────────────> │ (Checks free space)
    │ <─ SPACE_OK ────────────────────────────────────────────────────── │
    │                                                                    │
-   │ ── FILE_START:main.py:5120:sha256 ───────────────────────────────> │ (Creates main.py.xuip)
+   │ ── FILE_START:main.py:5120:sha256 ───────────────────────────────> │ (Creates main.py.ota)
    │ <─ FILE_OK ─────────────────────────────────────────────────────── │
    │                                                                    │
    │ ── CHUNK:0:base64_data ──────────────────────────────────────────> │ (Size is configurable)
@@ -118,8 +118,8 @@ Host CLI                           Device (main.py)              Device (boot.py
    │ ── FILE_END ─────────────────────────────────────────────────────> │ (Verifies checksum)
    │ <─ FILE_OK ─────────────────────────────────────────────────────── │
    │                                                                    │
-   │ ── UPDATE_COMMIT ────────────────────────────────────────────────> │ (Renames .xuip files,
+   │ ── UPDATE_COMMIT ────────────────────────────────────────────────> │ (Renames .ota files,
    │ <─ COMMIT_OK ───────────────────────────────────────────────────── │  clears flag, reboots)
 ```
 
-During reboot, `boot.py` detects the `update_requested.flag` file, renames the `.xuip` files to their final names, removes the flag file, and boots into `main.py`.
+During reboot, `boot.py` detects the `update_requested.flag` file, renames the `.ota` files to their final names, removes the flag file, and boots into `main.py`.

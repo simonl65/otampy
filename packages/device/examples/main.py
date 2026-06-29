@@ -2,10 +2,7 @@ import config
 from log_to_file import Logger  # type: ignore
 
 from Blink import Blink  # type: ignore
-from otampy.ota import (  # type: ignore
-    OTALogger,
-    OTAManager,
-)
+from otampy import OTA, OTALogger  # type: ignore
 
 blinker = Blink(pin="LED")
 
@@ -67,7 +64,7 @@ def application_callback():
 # MAIN FUNCTION
 # =============================================================================
 def main():
-    ota_manager = OTAManager(uart, config=config, logger=logger)
+    ota = OTA(uart, config=config, logger=logger)
 
     try:
         while True:
@@ -75,7 +72,8 @@ def main():
 
             do_application_stuff()
 
-            ota_manager.check_for_update(callback=application_callback)
+            # Poll OTA commands from the host CLI over UART.
+            ota.poll(callback=application_callback)
 
             blinker.blink(1)
             time.sleep(0.1)

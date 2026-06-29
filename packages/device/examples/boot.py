@@ -4,10 +4,7 @@ from machine import UART, Pin  # type: ignore
 from urst import Urst  # type: ignore
 from utime import sleep_ms  # type: ignore
 
-from otampy.ota import (  # type: ignore
-    OTALogger,
-    OTAManager,
-)
+from otampy import OTA, OTALogger  # type: ignore
 
 logger = Logger(
     config.LOG_FILE, "boot.py", level=config.LOG_LEVEL
@@ -23,7 +20,8 @@ print(uart)
 
 urst = Urst(uart)
 
-ota_manager = OTAManager(uart, config=config, logger=None)
+# Initialize OTA in boot mode and use the fallback logger if needed.
+ota = OTA(uart, config=config, logger=logger)
 
 led = Pin("LED", Pin.OUT)
 
@@ -31,7 +29,8 @@ led.on()
 
 urst.send(b"BOOTING...\n")
 
-ota_manager.check_for_update()
+# Check for an update request flag before continuing to the main application.
+ota.boot()
 
 urst.send(b"Loading MAIN...\n")
 

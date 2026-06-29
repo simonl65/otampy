@@ -118,53 +118,69 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
     import serial
     from urst import Urst
 
-    ser = None
-    transport = None
+    last_err = None
 
     for attempt in range(3):
+        ser = None
         try:
             ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+            try:
+                ser.dtr = False
+                ser.rts = False
+            except Exception:
+                pass
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
             transport = Urst(ser)
-            break
-        except Exception as e:
-            if attempt == 2:
+
+            # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
+            if not transport.send(command):
+                raise click.ClickException("Failed to send command over transport.")
+
+            response = transport.read()
+            if not response:
                 raise click.ClickException(
-                    f"Failed to open serial port {port}: {e}"
-                ) from e
-            time.sleep(0.5 * (2**attempt))
+                    f"Timeout waiting for response to command: {command.decode()}"
+                )
 
-    try:
-        transport.send(command)
-        response = transport.read()
-        if not response:
-            raise click.ClickException(
-                f"Timeout waiting for response to command: {command.decode()}"
-            )
+            # Check for device error response
+            if response.startswith(b"ERROR:"):
+                err_msg = response[6:].decode("utf-8", errors="replace")
+                friendly = _friendly_error(err_msg, command)
+                raise click.ClickException(f"Device error: {friendly}")
 
-        # Check for device error response
-        if response.startswith(b"ERROR:"):
-            err_msg = response[6:].decode("utf-8", errors="replace")
-            friendly = _friendly_error(err_msg, command)
-            raise click.ClickException(f"Device error: {friendly}")
+            if not response.startswith(expected_prefix):
+                resp_str = (
+                    response.decode("utf-8", errors="replace")
+                    if isinstance(response, bytes)
+                    else str(response)
+                )
+                raise click.ClickException(
+                    f"Unexpected response to command '{command.decode()}'. "
+                    f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
+                )
 
-        if not response.startswith(expected_prefix):
-            resp_str = (
-                response.decode("utf-8", errors="replace")
-                if isinstance(response, bytes)
-                else str(response)
-            )
-            raise click.ClickException(
-                f"Unexpected response to command '{command.decode()}'. "
-                f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
-            )
+            # Return payload after prefix and potential colon separator
+            prefix_len = len(expected_prefix)
+            if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
+                res = response[prefix_len + 1 :]
+            else:
+                res = response[prefix_len:]
 
-        # Return payload after prefix and potential colon separator
-        prefix_len = len(expected_prefix)
-        if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
-            return response[prefix_len + 1 :]
-        return response[prefix_len:]
-    finally:
-        ser.close()
+            ser.close()
+            return res
+
+        except Exception as e:
+            if ser:
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+            last_err = e
+            if attempt < 2:
+                time.sleep(0.5 * (2**attempt))
+
+    raise click.ClickException(str(last_err))
 
 
 def _send_command(
@@ -359,6 +375,13 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
     while time.time() - start_time < timeout:
         try:
             ser = serial.Serial(port, baudrate=baud, timeout=1.0)
+            try:
+                ser.dtr = False
+                ser.rts = False
+            except Exception:
+                pass
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
             transport = Urst(ser)
             resp = transport.read()
             if resp == b"READY":

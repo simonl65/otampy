@@ -117,6 +117,7 @@ def test_cli_ping_response_timeout():
     with (
         mock.patch("serial.Serial") as mock_serial,
         mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep") as mock_sleep,
     ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b""
@@ -125,10 +126,10 @@ def test_cli_ping_response_timeout():
 
     assert result.exit_code != 0
     assert "Timeout waiting for response to command: PING" in result.output
-    mock_serial.assert_called_once_with(
-        "/dev/ttyFake", baudrate=57600, timeout=2.0
-    )
-    mock_device_instance.send.assert_called_once_with(b"PING")
+    assert mock_serial.call_count == 3
+    mock_serial.assert_any_call("/dev/ttyFake", baudrate=57600, timeout=2.0)
+    assert mock_device_instance.send.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
 def test_cli_hard_reboot():

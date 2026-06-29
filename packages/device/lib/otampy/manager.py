@@ -113,5 +113,23 @@ def poll(core, callback=None):
             core.transport.send(b"RM_OK")
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "MEM":
+        try:
+            import gc
+            ram_free = gc.mem_free()
+            ram_alloc = gc.mem_alloc()
+        except (ImportError, AttributeError):
+            ram_free = 0
+            ram_alloc = 0
+
+        try:
+            stat = _os.statvfs("/")
+            flash_free = stat[4] * stat[0]
+            flash_total = stat[2] * stat[0]
+        except (AttributeError, OSError):
+            flash_free = 0
+            flash_total = 0
+
+        core.transport.send(f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode())
     else:
         core.logger.warning(f"Unknown command received: {cmd}")

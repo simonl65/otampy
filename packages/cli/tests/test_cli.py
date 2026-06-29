@@ -308,6 +308,32 @@ def test_cli_rm_file_aborted():
         mock_device.assert_not_called()
 
 
+def test_cli_mem():
+    """Test the 'mem' command."""
+    runner = CliRunner()
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        # ram_free, ram_alloc, flash_free, flash_total
+        mock_device_instance.read.return_value = b"MEM_OK:50000,30000,524288,1048576"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "mem"])
+        assert result.exit_code == 0
+        assert "RAM (Random Access Memory)" in result.output
+        assert "Free:" in result.output
+        assert "48.8 KB" in result.output  # 50000 / 1024 = 48.828 KB -> 48.8 KB
+        assert "Allocated:" in result.output
+        assert "29.3 KB" in result.output  # 30000 / 1024 = 29.296 KB -> 29.3 KB
+        assert "Flash (Storage)" in result.output
+        assert "512.0 KB" in result.output
+        assert "1.0 MB" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"MEM")
+
+
 def test_cli_friendly_errors():
     """Test that _friendly_error maps raw OS errors to human-friendly strings."""
     runner = CliRunner()

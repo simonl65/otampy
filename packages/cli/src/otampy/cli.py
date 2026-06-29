@@ -133,6 +133,12 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
             ser.reset_output_buffer()
             transport = Urst(ser)
 
+            # Clear any unsolicited messages (e.g. boot notifications) from the receive queue
+            try:
+                transport.protocol._recv_queue.clear()
+            except Exception:
+                pass
+
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not transport.send(command):
                 raise click.ClickException("Failed to send command over transport.")
@@ -305,6 +311,48 @@ def remove(ctx: click.Context, file: str) -> None:
         return
     _console().print(f"[red]Removing file: {file}[/red]")
     _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
+
+
+@cli.command(name="mem")
+@click.pass_context
+def memory_info(ctx: click.Context) -> None:
+    """Queries and displays device memory (RAM and Storage/Flash) info."""
+    _console().print("[yellow]Querying device memory info...[/yellow]")
+    resp = _query(ctx, b"MEM", b"MEM_OK")
+    payload = resp.decode("utf-8", errors="replace")
+
+    try:
+        parts = payload.split(",")
+        ram_free = int(parts[0])
+        ram_alloc = int(parts[1])
+        flash_free = int(parts[2])
+        flash_total = int(parts[3])
+    except (ValueError, IndexError) as e:
+        raise click.ClickException(f"Invalid memory response from device: {payload}") from e
+
+    ram_total = ram_free + ram_alloc
+    ram_free_pct = (ram_free / ram_total * 100) if ram_total > 0 else 0
+    ram_alloc_pct = (ram_alloc / ram_total * 100) if ram_total > 0 else 0
+
+    flash_used = flash_total - flash_free
+    flash_free_pct = (flash_free / flash_total * 100) if flash_total > 0 else 0
+    flash_used_pct = (flash_used / flash_total * 100) if flash_total > 0 else 0
+
+    def format_size(size_bytes: int) -> str:
+        if size_bytes >= 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        return f"{size_bytes / 1024:.1f} KB"
+
+    _console().print()
+    _console().print("[bold cyan]Memory Information:[/bold cyan]")
+    _console().print()
+    _console().print("[bold]RAM (Random Access Memory):[/bold]")
+    _console().print(f"  Free:      {format_size(ram_free):<9} / {format_size(ram_total)} ({ram_free_pct:.1f}%)")
+    _console().print(f"  Allocated: {format_size(ram_alloc):<9} ({ram_alloc_pct:.1f}%)")
+    _console().print()
+    _console().print("[bold]Flash (Storage):[/bold]")
+    _console().print(f"  Free:      {format_size(flash_free):<9} / {format_size(flash_total)} ({flash_free_pct:.1f}%)")
+    _console().print(f"  Used:      {format_size(flash_used):<9} ({flash_used_pct:.1f}%)")
 
 
 def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
@@ -485,12 +533,6 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         )
     finally:
         ser.close()
-
-
-@cli.command(name="mem")
-def memory() -> None:
-    """Retrieves current free and todal memory from the device."""
-    _console().print("[green]Getting device's memory details...[/green]")
 
 
 @cli.command(name="deploy")

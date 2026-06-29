@@ -342,3 +342,27 @@ def test_manager_handles_update_request_with_callback(tmp_path):
     assert core.transport.sent_messages == [b"REBOOTING"]
     assert flag_file.exists()
     machine.reset.assert_called_once()
+
+
+def test_manager_handles_mem(monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+
+    core.transport.incoming_queue.append(b"MEM")
+
+    import gc
+    import os
+
+    monkeypatch.setattr(gc, "mem_free", lambda: 50000, raising=False)
+    monkeypatch.setattr(gc, "mem_alloc", lambda: 30000, raising=False)
+
+    def mock_statvfs(path):
+        assert path == "/"
+        return (4096, 4096, 256, 128, 128, 0, 0, 0, 0, 0)
+
+    monkeypatch.setattr(os, "statvfs", mock_statvfs, raising=False)
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"MEM_OK:50000,30000,524288,1048576"]

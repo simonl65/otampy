@@ -1,4 +1,5 @@
 # Super minimal device script to test PING/PONG handshake.
+# Run using: mpremote run packages/device/examples/minimal_ping.py
 import machine
 
 from otampy import OTA  # pyright: ignore[reportAttributeAccessIssue]

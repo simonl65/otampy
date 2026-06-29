@@ -1,4 +1,6 @@
 # Shared UART telemetry example.
+# Showcases use of UART alongside OTA
+# Run with: mpremote run packages/device/examples/shared_uart_telemetry.py
 import machine
 import utime
 

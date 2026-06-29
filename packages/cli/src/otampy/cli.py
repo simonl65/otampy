@@ -200,7 +200,10 @@ def ping(ctx: click.Context) -> None:
 def bootloader(ctx: click.Context) -> None:
     """Reboots device into its bootloader mode."""
     if not click.confirm(
-        "Are you sure you want to reboot the device into bootloader mode?",
+        click.style(
+            "Are you sure you want to reboot the device into bootloader mode?",
+            fg="red",
+        ),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
@@ -216,7 +219,8 @@ def bootloader(ctx: click.Context) -> None:
 def reboot(ctx: click.Context) -> None:
     """Hard reboots the device."""
     if not click.confirm(
-        "Are you sure you want to hard reboot the device?", default=False
+        click.style("Are you sure you want to hard reboot the device?", fg="red"),
+        default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
         return
@@ -229,7 +233,8 @@ def reboot(ctx: click.Context) -> None:
 def soft_reset(ctx: click.Context) -> None:
     """Soft resets the device."""
     if not click.confirm(
-        "Are you sure you want to soft reset the device?", default=False
+        click.style("Are you sure you want to soft reset the device?", fg="red"),
+        default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
         return
@@ -274,7 +279,10 @@ def cat(ctx: click.Context, file: str) -> None:
 def remove(ctx: click.Context, file: str) -> None:
     """Remove specified file from device (may be wildcarded)."""
     if not click.confirm(
-        f"Are you sure you want to remove '{file}' from the device?",
+        click.style(
+            f"Are you sure you want to remove '{file}' from the device?",
+            fg="red",
+        ),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")

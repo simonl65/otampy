@@ -465,30 +465,63 @@ def memory_info(ctx: click.Context) -> None:
 def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
     from pathlib import Path
 
-    files = []
+    res = []
 
     if args:
         for arg in args:
-            p = Path(arg)
+            if ":" in arg:
+                parts = arg.split(":")
+                if len(parts[0]) == 1 and parts[0].isalpha() and len(parts) > 1 and parts[1].startswith(("\\", "/")):
+                    if len(parts) > 2:
+                        src_str = parts[0] + ":" + parts[1]
+                        target_str = parts[2]
+                    else:
+                        src_str = arg
+                        target_str = None
+                else:
+                    src_str = parts[0]
+                    target_str = parts[1] if len(parts) > 1 else None
+            else:
+                src_str = arg
+                target_str = None
+
+            p = Path(src_str)
             if p.is_file():
-                files.append(p)
+                if target_str is not None:
+                    if target_str.endswith("/") or target_str.endswith("\\"):
+                        target_path = target_str.rstrip("/\\") + "/" + p.name
+                    else:
+                        target_path = target_str
+                else:
+                    try:
+                        target_path = str(p.relative_to(Path.cwd()))
+                    except ValueError:
+                        target_path = str(p)
+                res.append((target_path.replace("\\", "/"), p))
             elif p.is_dir():
-                files.extend(p.rglob("*.py"))
+                for f in p.rglob("*.py"):
+                    rel = f.relative_to(p)
+                    if target_str is not None:
+                        target_path = target_str.rstrip("/\\") + "/" + str(rel)
+                    else:
+                        try:
+                            target_path = str(f.relative_to(Path.cwd()))
+                        except ValueError:
+                            target_path = str(f)
+                    res.append((target_path.replace("\\", "/"), f))
     else:
         p_main = Path("main.py")
         if p_main.is_file():
-            files.append(p_main)
+            res.append((str(p_main).replace("\\", "/"), p_main))
         p_lib = Path("lib")
         if p_lib.is_dir():
-            files.extend(p_lib.rglob("*.py"))
+            for f in p_lib.rglob("*.py"):
+                try:
+                    rel_path = str(f.relative_to(Path.cwd()))
+                except ValueError:
+                    rel_path = str(f)
+                res.append((rel_path.replace("\\", "/"), f))
 
-    res = []
-    for f in files:
-        try:
-            rel = f.relative_to(Path.cwd())
-        except ValueError:
-            rel = f
-        res.append((str(rel), f))
     return res
 
 

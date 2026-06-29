@@ -66,13 +66,13 @@ classDiagram
 
 ### Module Responsibilities
 
-| File | Module/Class | Description |
-|---|---|---|
-| `ota.py` | `OTA` | The public **Facade** class. Exposes a simple interface to developers. |
-| `core.py` | `OTACore` | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
-| `logger.py` | `OTALogger`<br>`PrintLogger` | Lightweight logging utilities that log to `/logs/ota.log` or fallback to stdout on file system lockups. |
-| `boot.py` | `run(core, callback)` | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag. |
-| `manager.py` | `poll(core, callback)` | Run-time polling function. Periodically inspects serial transport for command payloads and dispatches them. |
+| File         | Module/Class           | Description                                                                                                  |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ota.py`     | `OTA`                  | The public **Facade** class. Exposes a simple interface to developers.                                       |
+| `core.py`    | `OTACore`              | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
+| `logger.py`  | `OTALogger`            | Lightweight logging utilities that log to `/logs/ota.log` or fallback to stdout on file system lockups.      |
+| `boot.py`    | `run(core, callback)`  | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag.       |
+| `manager.py` | `poll(core, callback)` | Run-time polling function. Periodically inspects serial transport for command payloads and dispatches them.  |
 
 ---
 
@@ -150,8 +150,8 @@ while True:
 
 For existing implementations or legacy scripts referencing older scaffolding version classes, the library exposes wrapper classes:
 
-* **`OTABoot`**: Wraps `OTA.boot()` delegation.
-* **`OTAManager`**: Wraps `OTA.poll()` delegation.
+- **`OTABoot`**: Wraps `OTA.boot()` delegation.
+- **`OTAManager`**: Wraps `OTA.poll()` delegation.
 
 ---
 
@@ -160,6 +160,7 @@ For existing implementations or legacy scripts referencing older scaffolding ver
 Since both the CLI package (`packages/cli`) and the device package (`packages/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.
 
 To achieve complete test isolation:
+
 - `packages/device/tests/conftest.py` runs before the device test modules are collected.
 - It dynamically loads the device library into python under the virtual name **`device_otampy`**.
 - This registers all device-side code (e.g., `device_otampy.ota`, `device_otampy.core`) independently, leaving the `otampy` namespace clear for the CPython host CLI package.

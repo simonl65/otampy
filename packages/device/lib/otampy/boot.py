@@ -26,6 +26,7 @@ def run(core, callback=None):
 
     if has_flag:
         core.logger.debug(f"Update request flag found: {flag}")
+        core.transport.send(b"READY")
 
         if callback is not None:
             # Handle variable argument callback cleanly

@@ -255,28 +255,50 @@ def test_cli_rm_file():
 def test_cli_update_default():
     """Test 'upd' command without parameters (update all firmware)."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["upd"])
-    assert result.exit_code == 0
-    assert "Updating all application firmware" in result.output
+    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        assert "Device is READY. Handshake complete." in result.output
 
 
 def test_cli_update_with_files():
     """Test 'upd' command with specific files/paths."""
     runner = CliRunner(env={"NO_COLOR": "1"})
-    result = runner.invoke(cli, ["upd", ".", "main.py", "lib/lib2.py"])
-    assert result.exit_code == 0
-    assert (
-        "Updating firmware with arguments: ('.', 'main.py', 'lib/lib2.py')"
-        in result.output
-    )
+    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
+
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "upd", ".", "main.py", "lib/lib2.py"]
+        )
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        assert "Device is READY. Handshake complete." in result.output
 
 
 def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
     runner = CliRunner(env={"NO_COLOR": "1"})
-    result = runner.invoke(cli, ["update", ".", "main.py"])
-    assert result.exit_code == 0
-    assert "Updating firmware with arguments: ('.', 'main.py')" in result.output
+    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
+
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "update", ".", "main.py"]
+        )
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        assert "Device is READY. Handshake complete." in result.output
 
 
 def test_cli_deploy_forwards_to_deploy_module():
@@ -307,3 +329,21 @@ def test_cli_deploy_reports_missing_mpremote_as_click_exception():
     assert result.exit_code != 0
     assert "Could not find" in result.output
     assert "Install mpremote" in result.output
+
+
+def test_cli_update_handshake():
+    """Test the update handshake sequence."""
+    runner = CliRunner()
+    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        assert "Device acknowledged update request. Rebooting..." in result.output
+        assert "Device is READY. Handshake complete." in result.output
+        mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")

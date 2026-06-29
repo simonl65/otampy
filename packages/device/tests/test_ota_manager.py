@@ -223,3 +223,53 @@ def test_manager_handles_rm_error(monkeypatch):
     manager.poll(core)
     assert len(core.transport.sent_messages) == 1
     assert core.transport.sent_messages[0].startswith(b"ERROR:")
+
+
+# =============================================================================
+# PHASE 3: UPDATE REQUEST HANDSHAKE TESTS
+# =============================================================================
+
+
+def test_manager_handles_update_request_without_callback(tmp_path):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+
+    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    core = OTACore(uart, config=config, logger=logger)
+
+    core.transport.incoming_queue.append(b"UPDATE_REQUEST")
+
+    machine.reset.reset_mock()
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"REBOOTING"]
+    assert flag_file.exists()
+    machine.reset.assert_called_once()
+
+
+def test_manager_handles_update_request_with_callback(tmp_path):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+
+    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    core = OTACore(uart, config=config, logger=logger)
+
+    core.transport.incoming_queue.append(b"UPDATE_REQUEST")
+
+    machine.reset.reset_mock()
+
+    callback_called = False
+
+    def safe_callback():
+        nonlocal callback_called
+        callback_called = True
+
+    manager.poll(core, callback=safe_callback)
+
+    assert callback_called
+    assert core.transport.sent_messages == [b"REBOOTING"]
+    assert flag_file.exists()
+    machine.reset.assert_called_once()

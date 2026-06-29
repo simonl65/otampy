@@ -42,6 +42,18 @@ def poll(core, callback=None):
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
         machine.soft_reset()
+    elif cmd == "UPDATE_REQUEST":
+        if callback is not None:
+            callback()
+        flag = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+        if flag:
+            try:
+                with open(flag, "w") as f:
+                    f.write("1")
+            except OSError as e:
+                core.logger.error(f"Failed to write flag file: {e}")
+        core.transport.send(b"REBOOTING")
+        machine.reset()
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."
         try:

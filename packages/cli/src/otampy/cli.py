@@ -220,14 +220,57 @@ def remove(ctx: click.Context, file: str) -> None:
 
 @cli.command(name="upd")
 @click.argument("args", nargs=-1)
-def update(args: tuple[str, ...]) -> None:
+@click.pass_context
+def update(ctx: click.Context, args: tuple[str, ...]) -> None:
     """Updates application firmware on device."""
-    if not args:
-        _console().print("[green]Updating all application firmware...[/green]")
-    else:
-        _console().print(
-            f"[green]Updating firmware with arguments: {args}[/green]"
+    _console().print("[yellow]Initiating update handshake...[/yellow]")
+
+    # 1. Send UPDATE_REQUEST to device runtime (main.py)
+    _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
+    _console().print(
+        "[yellow]Device acknowledged update request. Rebooting...[/yellow]"
+    )
+
+    # 2. Wait for device to boot up and broadcast READY
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
         )
+
+    import time
+
+    import serial
+    from urst import Urst
+
+    time.sleep(0.5)
+
+    start_time = time.time()
+    timeout = 10.0
+    transport = None
+    ser = None
+
+    while time.time() - start_time < timeout:
+        try:
+            ser = serial.Serial(port, baudrate=baud, timeout=1.0)
+            transport = Urst(ser)
+            resp = transport.read()
+            if resp == b"READY":
+                break
+            ser.close()
+            ser = None
+        except Exception:
+            if ser:
+                ser.close()
+                ser = None
+            time.sleep(0.2)
+
+    if not transport or not ser:
+        raise click.ClickException("Timeout waiting for device READY broadcast.")
+
+    _console().print("[green]Device is READY. Handshake complete.[/green]")
+    ser.close()
 
 
 @cli.command(name="mem")

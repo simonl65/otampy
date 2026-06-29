@@ -105,6 +105,7 @@ def test_manager_handles_ls_default(monkeypatch):
         return (0x8000, 0)  # S_IFREG
 
     import os
+
     monkeypatch.setattr(os, "listdir", mock_listdir)
     monkeypatch.setattr(os, "stat", mock_stat)
 
@@ -129,6 +130,7 @@ def test_manager_handles_ls_path(monkeypatch):
         return (0x8000, 0)  # S_IFREG
 
     import os
+
     monkeypatch.setattr(os, "listdir", mock_listdir)
     monkeypatch.setattr(os, "stat", mock_stat)
 
@@ -147,6 +149,7 @@ def test_manager_handles_ls_error(monkeypatch):
         raise OSError("Directory not found")
 
     import os
+
     monkeypatch.setattr(os, "listdir", mock_listdir)
 
     manager.poll(core)
@@ -212,6 +215,7 @@ def test_manager_handles_rm(monkeypatch):
         removed_files.append(path)
 
     import os
+
     monkeypatch.setattr(os, "remove", mock_remove)
 
     manager.poll(core)
@@ -230,6 +234,7 @@ def test_manager_handles_rm_error(monkeypatch):
         raise OSError("Permission denied")
 
     import os
+
     monkeypatch.setattr(os, "remove", mock_remove)
 
     manager.poll(core)

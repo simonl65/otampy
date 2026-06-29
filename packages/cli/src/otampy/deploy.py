@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -20,12 +21,7 @@ def _find_repo_root() -> Path:
     """
     here = Path(__file__).resolve()
     for p in (here, *here.parents):
-        if (
-            (p / "pyproject.toml").exists()
-            or (p / "setup.cfg").exists()
-            or (p / ".git").exists()
-            or (p / "LICENSE.md").exists()
-        ):
+        if (p / ".git").exists() or (p / "LICENSE.md").exists():
             return p
 
     # Fallback: use package resources for installed packages
@@ -194,8 +190,19 @@ def deploy_command(args: DeployArgs) -> list[str]:
     return command
 
 
+def _remove_pycache_dirs() -> None:
+    """Remove local __pycache__ directories from the workspace before copying files."""
+    if not ROOT.is_dir():
+        return
+
+    for pycache_dir in ROOT.rglob("__pycache__"):
+        if pycache_dir.is_dir():
+            shutil.rmtree(pycache_dir)
+
+
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources()
+    _remove_pycache_dirs()
     run_mpremote(args, deploy_command(args))
 
 

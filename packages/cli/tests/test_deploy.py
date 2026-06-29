@@ -235,3 +235,32 @@ class TestValidateDeploySourcesStderr:
         captured = capsys.readouterr()
         # config.py hint should NOT appear when config is not missing
         assert "Create config.py" not in captured.err
+
+
+def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
+    root = tmp_path
+    lib_dir = root / "lib"
+    subdir = lib_dir / "package"
+    pycache = subdir / "__pycache__"
+    pycache.mkdir(parents=True)
+    (pycache / "module.cpython-311.pyc").touch()
+
+    mock_args = mock.Mock()
+    mock_args.port = None
+    mock_args.mpremote = "mpremote"
+    mock_args.no_mip = True
+    mock_args.no_reset = True
+    mock_args.dry_run = True
+
+    monkeypatch.setattr(deploy, "ROOT", root)
+    called = []
+
+    def fake_run_mpremote(args, command):
+        called.append((args, command))
+
+    monkeypatch.setattr(deploy, "run_mpremote", fake_run_mpremote)
+
+    deploy.deploy(mock_args)
+
+    assert not pycache.exists()
+    assert called, "run_mpremote should be called after cleanup"

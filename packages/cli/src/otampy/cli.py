@@ -546,6 +546,29 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
 @click.pass_context
 def update(ctx: click.Context, args: tuple[str, ...]) -> None:
     """Updates application firmware on device."""
+    # 0. Scan and collect files to send locally before touching device
+    files_to_send = _get_files_to_send(args)
+    if not files_to_send:
+        _console().print("[yellow]No files found to transfer.[/yellow]")
+        return
+
+    import hashlib
+    # Calculate total manifest size
+    total_bytes = 0
+    manifest = []
+    for target_path, local_path in files_to_send:
+        try:
+            with open(local_path, "rb") as f:
+                content = f.read()
+            size = len(content)
+            sha256 = hashlib.sha256(content).hexdigest()
+            total_bytes += size
+            manifest.append((target_path, local_path, size, sha256, content))
+        except OSError as e:
+            raise click.ClickException(
+                f"Failed to read local file {local_path}: {e}"
+            ) from e
+
     _console().print("[yellow]Initiating update handshake...[/yellow]")
 
     # 1. Send UPDATE_REQUEST to device runtime (main.py)
@@ -563,7 +586,6 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         )
 
     import binascii
-    import hashlib
     import time
 
     import serial
@@ -606,28 +628,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     _console().print("[green]Device is READY. Handshake complete.[/green]")
 
-    # 3. Scan and collect files to send
-    files_to_send = _get_files_to_send(args)
-    if not files_to_send:
-        _console().print("[yellow]No files found to transfer.[/yellow]")
-        ser.close()
-        return
 
-    # Calculate total manifest size
-    total_bytes = 0
-    manifest = []
-    for target_path, local_path in files_to_send:
-        try:
-            with open(local_path, "rb") as f:
-                content = f.read()
-            size = len(content)
-            sha256 = hashlib.sha256(content).hexdigest()
-            total_bytes += size
-            manifest.append((target_path, local_path, size, sha256, content))
-        except OSError as e:
-            raise click.ClickException(
-                f"Failed to read local file {local_path}: {e}"
-            ) from e
 
     # 4. Start update session: UPDATE_START
     _console().print(

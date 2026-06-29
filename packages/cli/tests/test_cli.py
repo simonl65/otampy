@@ -376,60 +376,38 @@ def test_cli_friendly_errors():
 
 
 def test_cli_update_default():
-    """Test 'upd' command without parameters (update all firmware)."""
+    """Test 'upd' command without parameters and no local files exits early."""
     runner = CliRunner()
-    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
-        mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
-
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
-        assert result.exit_code == 0
-        assert "Initiating update handshake" in result.output
-        assert "Device is READY. Handshake complete." in result.output
+    result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+    assert result.exit_code == 0
+    assert "No files found to transfer" in result.output
 
 
 def test_cli_update_with_files():
-    """Test 'upd' command with specific files/paths."""
+    """Test 'upd' command with no matching files exits early without touching device."""
     runner = CliRunner(env={"NO_COLOR": "1"})
-    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device, mock.patch(
-        "time.sleep"
-    ) as _mock_sleep, mock.patch(
-        "otampy.cli._get_files_to_send", return_value=[], create=True
+    with mock.patch(
+        "otampy.cli._get_files_to_send", return_value=[]
     ):
-        mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
-
         result = runner.invoke(
             cli, ["-p", "/dev/ttyFake", "upd", ".", "main.py", "lib/lib2.py"]
         )
         assert result.exit_code == 0
-        assert "Initiating update handshake" in result.output
-        assert "Device is READY. Handshake complete." in result.output
+        assert "No files found to transfer" in result.output
 
 
 def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
     runner = CliRunner(env={"NO_COLOR": "1"})
-    with mock.patch("serial.Serial") as _mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device, mock.patch(
-        "time.sleep"
-    ) as _mock_sleep, mock.patch(
-        "otampy.cli._get_files_to_send", return_value=[], create=True
+    with mock.patch(
+        "otampy.cli._get_files_to_send", return_value=[]
     ):
-        mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
-
         result = runner.invoke(
             cli, ["-p", "/dev/ttyFake", "update", ".", "main.py"]
         )
         assert result.exit_code == 0
-        assert "Initiating update handshake" in result.output
-        assert "Device is READY. Handshake complete." in result.output
+        # Alias 'update' resolves to 'upd' command
+        assert "No files found to transfer" in result.output
 
 
 def test_cli_deploy_forwards_to_deploy_module():
@@ -463,13 +441,40 @@ def test_cli_deploy_reports_missing_mpremote_as_click_exception():
 
 
 def test_cli_update_handshake():
-    """Test the update handshake sequence."""
+    """Test the update handshake sequence with mocked files."""
     runner = CliRunner()
+    from pathlib import Path
+
+    mock_files = [("test.py", Path("/tmp/test.py"))]
+    mock_content = b"print('test')"
+
+    class MockFile:
+        def read(self):
+            return mock_content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
     with mock.patch("serial.Serial") as _mock_serial, mock.patch(
         "urst.Urst"
-    ) as mock_device, mock.patch("time.sleep") as _mock_sleep:
+    ) as mock_device, mock.patch("time.sleep") as _mock_sleep, mock.patch(
+        "otampy.cli._get_files_to_send", return_value=mock_files
+    ), mock.patch(
+        "builtins.open", return_value=MockFile()
+    ):
         mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [b"REBOOTING", b"READY"]
+        mock_device_instance.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ]
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
 

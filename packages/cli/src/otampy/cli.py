@@ -59,7 +59,9 @@ def get_default_port() -> str | None:
     # Check session config (by parent shell PID)
     import tempfile
 
-    session_file = Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+    session_file = (
+        Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+    )
     if session_file.is_file():
         try:
             return session_file.read_text().strip()
@@ -84,7 +86,10 @@ def set_default_port(port: str | None, session: bool = False) -> None:
     if session:
         import os
         import tempfile
-        session_file = Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+
+        session_file = (
+            Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+        )
         if port is None:
             if session_file.is_file():
                 try:
@@ -95,7 +100,9 @@ def set_default_port(port: str | None, session: bool = False) -> None:
             try:
                 session_file.write_text(port)
             except Exception as e:
-                raise click.ClickException(f"Failed to save session port: {e}") from e
+                raise click.ClickException(
+                    f"Failed to save session port: {e}"
+                ) from e
         return
 
     import json
@@ -522,24 +529,25 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     while time.time() - start_time < timeout:
         try:
-            ser = serial.Serial(port, baudrate=baud, timeout=1.0)
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            transport = Urst(ser)
+            if ser is None:
+                ser = serial.Serial(port, baudrate=baud, timeout=1.0)
+                try:
+                    ser.dtr = False
+                    ser.rts = False
+                except Exception:
+                    pass
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+                transport = Urst(ser)
+
             resp = transport.read()
             if resp == b"READY":
                 break
-            ser.close()
-            ser = None
         except Exception:
             if ser:
                 ser.close()
                 ser = None
+                transport = None
             time.sleep(0.2)
 
     if not transport or not ser:

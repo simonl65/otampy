@@ -283,6 +283,15 @@ def test_cli_friendly_errors():
         assert result.exit_code == 1
         assert "Device error: Permission denied: 'system.py'" in result.output
 
+    # 4. CAT command on directory (EISDIR)
+    with mock.patch("serial.Serial"), mock.patch("urst.Urst") as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"ERROR:EISDIR"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "lib"])
+        assert result.exit_code == 1
+        assert "Device error: Is a directory: 'lib/'" in result.output
+
 
 def test_cli_update_default():
     """Test 'upd' command without parameters (update all firmware)."""

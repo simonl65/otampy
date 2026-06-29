@@ -1,6 +1,7 @@
 import pytest
-import shared
 from device_otampy.core import OTACore, UartRequiredError
+
+import shared
 
 
 def test_core_init_uses_provided_uart():

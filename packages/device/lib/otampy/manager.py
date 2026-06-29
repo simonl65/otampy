@@ -89,9 +89,18 @@ def poll(core, callback=None):
             return
         filename = parts[1]
         try:
-            with open(filename) as f:
-                content = f.read()
-            core.transport.send(f"CAT_OK:{content}".encode())
+            try:
+                stat = _os.stat(filename)
+                is_dir = stat[0] & 0x4000
+            except OSError:
+                is_dir = False
+
+            if is_dir:
+                core.transport.send(b"ERROR:EISDIR")
+            else:
+                with open(filename) as f:  # noqa: SIM115
+                    content = f.read()
+                core.transport.send(f"CAT_OK:{content}".encode())
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "RM":

@@ -232,6 +232,28 @@ def test_manager_handles_cat_error(monkeypatch):
     assert core.transport.sent_messages[0].startswith(b"ERROR:")
 
 
+def test_manager_handles_cat_directory(monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+
+    core.transport.incoming_queue.append(b"CAT:lib")
+
+    import os
+    original_stat = os.stat
+
+    def mock_stat(path, *args, **kwargs):
+        path_str = str(path)
+        if path_str.endswith("lib") or path_str == "lib":
+            return os.stat_result((0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0))  # S_IFDIR
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", mock_stat)
+
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"ERROR:EISDIR"]
+
+
 def test_manager_handles_rm(monkeypatch):
     uart = shared.FakeUART()
     logger = shared.FakeLogger()

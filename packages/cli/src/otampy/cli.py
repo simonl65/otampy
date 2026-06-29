@@ -78,11 +78,15 @@ def cli(ctx: click.Context, port: str | None, baud: int) -> None:
 def _friendly_error(err_msg: str, command: bytes) -> str:
     err_msg_lower = err_msg.lower()
     target = ""
+    is_directory_err = "eisdir" in err_msg_lower or "errno 21" in err_msg_lower
     try:
         cmd_str = command.decode("utf-8", errors="replace")
         parts = cmd_str.split(":", 1)
         if len(parts) > 1:
-            target = f": '{parts[1]}'"
+            name = parts[1]
+            if is_directory_err and not name.endswith("/"):
+                name += "/"
+            target = f": '{name}'"
     except Exception:
         pass
 

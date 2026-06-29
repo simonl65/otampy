@@ -614,8 +614,8 @@ def test_cli_port_interactive(tmp_path):
         mock.patch("serial.tools.list_ports.comports", return_value=[mock_port1, mock_port2]),
         mock.patch("pathlib.Path.home", return_value=tmp_path),
     ):
-        # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'y'
-        result = runner.invoke(cli, ["ports"], input="1\ny\n")
+        # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'p'
+        result = runner.invoke(cli, ["ports"], input="1\np\n")
         assert result.exit_code == 0
         assert "Available serial ports:" in result.output
         assert "1: /dev/ttyFake1 (Fake Port 1)" in result.output
@@ -628,8 +628,8 @@ def test_cli_port_interactive(tmp_path):
         with open(config_file) as f:
             assert json.load(f)["default_port"] == "/dev/ttyFake1"
 
-        # 2. Interactive choice: select 2, select session 'n'
-        result = runner.invoke(cli, ["ports"], input="2\nn\n")
+        # 2. Interactive choice: select 2, select session 's'
+        result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0
         assert "To set this default for the current terminal session, run:" in result.output
         assert "export OTAMPY_PORT=/dev/ttyFake2" in result.output

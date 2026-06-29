@@ -685,16 +685,16 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
 
     # Ask if session or permanent
     choice = click.prompt(
-        f"Set {selected_port} as default permanently? (y=permanent, n=session command, c=cancel) [y/n/c]",
-        default="y",
+        f"Set {selected_port} as default? (p=permanent, s=session command, c=cancel) [p/s/c]",
+        default="s",
     ).lower()
 
-    if choice == "y":
+    if choice == "p":
         set_default_port(selected_port)
         _console().print(
             f"[green]Permanent default port set to: {selected_port}[/green]"
         )
-    elif choice == "n":
+    elif choice == "s":
         import os
 
         env_cmd = f"export OTAMPY_PORT={selected_port}"

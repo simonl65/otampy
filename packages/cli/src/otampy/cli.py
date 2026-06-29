@@ -74,9 +74,7 @@ def cli(ctx: click.Context, port: str | None, baud: int) -> None:
     ctx.obj["baud"] = baud
 
 
-def _send_command(
-    ctx: click.Context, command: bytes, expected_response: bytes
-) -> None:
+def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
@@ -91,19 +89,22 @@ def _send_command(
         ser = serial.Serial(port, baudrate=baud, timeout=2.0)
         transport = Urst(ser)
     except Exception as e:
-        raise click.ClickException(
-            f"Failed to open serial port {port}: {e}"
-        ) from e
+        raise click.ClickException(f"Failed to open serial port {port}: {e}") from e
 
     try:
         transport.send(command)
-        # TODO: Do we need a delay or timeout loop here?
         response = transport.read()
         if not response:
             raise click.ClickException(
                 f"Timeout waiting for response to command: {command.decode()}"
             )
-        if response != expected_response:
+
+        # Check for device error response
+        if response.startswith(b"ERROR:"):
+            err_msg = response[6:].decode("utf-8", errors="replace")
+            raise click.ClickException(f"Device error: {err_msg}")
+
+        if not response.startswith(expected_prefix):
             resp_str = (
                 response.decode("utf-8", errors="replace")
                 if isinstance(response, bytes)
@@ -111,10 +112,22 @@ def _send_command(
             )
             raise click.ClickException(
                 f"Unexpected response to command '{command.decode()}'. "
-                f"Expected '{expected_response.decode()}', got '{resp_str}'"
+                f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
             )
+
+        # Return payload after prefix and potential colon separator
+        prefix_len = len(expected_prefix)
+        if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
+            return response[prefix_len + 1 :]
+        return response[prefix_len:]
     finally:
         ser.close()
+
+
+def _send_command(
+    ctx: click.Context, command: bytes, expected_response: bytes
+) -> None:
+    _query(ctx, command, expected_response)
 
 
 @cli.command(name="h")
@@ -167,30 +180,42 @@ def soft_reset(ctx: click.Context) -> None:
 
 @cli.command(name="ls")
 @click.argument("path", required=False)
-def list_dir(path: str | None) -> None:
+@click.pass_context
+def list_dir(ctx: click.Context, path: str | None) -> None:
     """Lists content of current (or specified) folder on device."""
     if path:
         _console().print(f"[green]Listing content of {path}...[/green]")
+        cmd = f"LS:{path}".encode()
     else:
-        _console().print(
-            "[green]Listing content of current directory...[/green]"
-        )
+        _console().print("[green]Listing content of current directory...[/green]")
+        cmd = b"LS"
+
+    resp = _query(ctx, cmd, b"LS_OK")
+    items_str = resp.decode("utf-8", errors="replace")
+    if items_str:
+        items = items_str.split(",")
+        for item in items:
+            _console().print(item)
 
 
 @cli.command(name="cat")
 @click.argument("file", required=True)
-def cat(file: str) -> None:
+@click.pass_context
+def cat(ctx: click.Context, file: str) -> None:
     """Shows content of specified file on device."""
-    _console().print(
-        f"[green]Showing content of specified file: {file}[/green]"
-    )
+    _console().print(f"[green]Showing content of specified file: {file}[/green]")
+    resp = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
+    content = resp.decode("utf-8", errors="replace")
+    _console().print(content)
 
 
 @cli.command(name="rm")
 @click.argument("file", required=True)
-def remove(file: str) -> None:
+@click.pass_context
+def remove(ctx: click.Context, file: str) -> None:
     """Remove specified file from device (may be wildcarded)."""
     _console().print(f"[red]Removing file: {file}[/red]")
+    _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
 
 
 @cli.command(name="upd")

@@ -1,5 +1,10 @@
 import machine
 
+try:
+    import uos as _os
+except ImportError:
+    import os as _os
+
 
 def poll(core, callback=None):
     """
@@ -37,5 +42,34 @@ def poll(core, callback=None):
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
         machine.soft_reset()
+    elif cmd == "LS":
+        path = parts[1] if len(parts) > 1 and parts[1] else "."
+        try:
+            items = _os.listdir(path)
+            items_str = ",".join(items)
+            core.transport.send(f"LS_OK:{items_str}".encode())
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "CAT":
+        if len(parts) < 2 or not parts[1]:
+            core.transport.send(b"ERROR:Missing filename")
+            return
+        filename = parts[1]
+        try:
+            with open(filename) as f:
+                content = f.read()
+            core.transport.send(f"CAT_OK:{content}".encode())
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "RM":
+        if len(parts) < 2 or not parts[1]:
+            core.transport.send(b"ERROR:Missing filename")
+            return
+        filename = parts[1]
+        try:
+            _os.remove(filename)
+            core.transport.send(b"RM_OK")
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
     else:
         core.logger.warning(f"Unknown command received: {cmd}")

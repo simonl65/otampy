@@ -166,17 +166,38 @@ def test_cli_command_missing_port():
 def test_cli_ls_default():
     """Test the 'ls' command without paths."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["ls"])
-    assert result.exit_code == 0
-    assert "Listing content of" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"LS_OK:boot.py,main.py"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ls"])
+        assert result.exit_code == 0
+        assert "boot.py" in result.output
+        assert "main.py" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"LS")
 
 
 def test_cli_ls_path():
     """Test the 'ls' command with a specific path."""
     runner = CliRunner(env={"NO_COLOR": "1"})
-    result = runner.invoke(cli, ["ls", "/lib"])
-    assert result.exit_code == 0
-    assert "Listing content of /lib" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"LS_OK:sensor.py"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ls", "/lib"])
+        assert result.exit_code == 0
+        assert "sensor.py" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"LS:/lib")
 
 
 def test_cli_cat_missing_arg():
@@ -190,9 +211,19 @@ def test_cli_cat_missing_arg():
 def test_cli_cat_file():
     """Test the 'cat' command with a file."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["cat", "boot.py"])
-    assert result.exit_code == 0
-    assert "Showing content of specified file: boot.py" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"CAT_OK:import config"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
+        assert result.exit_code == 0
+        assert "import config" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"CAT:boot.py")
 
 
 def test_cli_rm_missing_arg():
@@ -206,9 +237,19 @@ def test_cli_rm_missing_arg():
 def test_cli_rm_file():
     """Test the 'rm' command with a file."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["rm", "main.py"])
-    assert result.exit_code == 0
-    assert "Removing file: main.py" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"RM_OK"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "main.py"])
+        assert result.exit_code == 0
+        assert "Removing file: main.py" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"RM:main.py")
 
 
 def test_cli_update_default():

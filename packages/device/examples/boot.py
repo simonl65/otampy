@@ -1,3 +1,7 @@
+"""
+Example boot.py
+"""
+
 import config
 from log_to_file import Logger  # type: ignore
 from machine import UART, Pin  # type: ignore
@@ -23,11 +27,11 @@ led = Pin("LED", Pin.OUT)
 
 led.on()
 
-ota._core.transport.send(b"BOOTING...\n")
+uart.write(b"BOOTING...\n")
 
 # Check for an update request flag before continuing to the main application.
 ota.boot()
 
-ota._core.transport.send(b"Loading MAIN...\n")
+uart.write(b"Loading MAIN...\n")
 
 sleep_ms(200)

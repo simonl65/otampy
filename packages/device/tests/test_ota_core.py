@@ -25,3 +25,20 @@ def test_core_default_config():
     assert core.config["LOG_LEVEL"] == "DEBUG"
     assert core.config["LOG_FILE"] == "/logs/ota.log"
     assert core.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
+
+
+def test_core_normalizes_module_like_config():
+    class ConfigModule:
+        UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
+        LOG_LEVEL = "DEBUG"
+        LOG_FILE = "/logs/ota.log"
+
+    uart = shared.FakeUART()
+    core = OTACore(uart, config=ConfigModule)
+
+    assert core.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
+    assert core.config["LOG_LEVEL"] == "DEBUG"
+    assert core.config["LOG_FILE"] == "/logs/ota.log"
+    assert (
+        core.config.get("UPDATE_REQUEST_FLAG_FILE") == "update_requested.flag"
+    )

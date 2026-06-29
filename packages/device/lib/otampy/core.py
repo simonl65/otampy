@@ -7,6 +7,21 @@ class UartRequiredError(Exception):
     pass
 
 
+def _normalize_config(config):
+    if config is None:
+        config = {}
+    elif not hasattr(config, "get"):
+        normalized = {}
+        for name in dir(config):
+            if name.isupper():
+                try:
+                    normalized[name] = getattr(config, name)
+                except Exception:
+                    pass
+        config = normalized
+    return config
+
+
 class OTACore:
     """
     OTACore provides the base initialisation, shared state, configuration,
@@ -14,8 +29,8 @@ class OTACore:
     """
 
     def __init__(self, uart, config=None, logger=None):
-        if config is None:
-            config = {}
+        config = _normalize_config(config)
+        if config == {}:
             config["LOG_LEVEL"] = "DEBUG"
             config["LOG_FILE"] = "/logs/ota.log"
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"

@@ -10,12 +10,11 @@ MicroPython code to be placed on the device to enable OTA functionality.
 ## Installation
 
 1. Ensure the device has MicroPython installed and running correctly.
-1. Install `urst-mpy` onto the device with:
+1. Install OTAmpy, `urst-mpy` and `log-to-file` onto the device along with example `boot.py` and `main.py` with:
 
    ```bash
-   mpremote mip install github:simonl65/URST-mpy
+   otampy deploy --port <your-device-port>
    ```
 
-1. Copy all folders and files in `packages/device` to the root of the device.
-1. Update `main.py` with the OTAmpy specific code shown in `examples/main.py`.
+1. Update `boot.py` and `main.py` with the OTAmpy specific code as shown in `examples/`).
 1. Reboot the device.

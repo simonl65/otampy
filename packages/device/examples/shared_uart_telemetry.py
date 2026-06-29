@@ -2,7 +2,7 @@
 import machine
 import utime
 
-from otampy import OTA
+from otampy import OTA  # pyright: ignore[reportAttributeAccessIssue]
 
 # Initialize UART (GP4 = TX, GP5 = RX on standard Pico)
 uart = machine.UART(1, baudrate=57600, tx=machine.Pin(4), rx=machine.Pin(5))
@@ -30,4 +30,4 @@ while True:
         last_telemetry = now
 
     # Sleep 10ms to prevent CPU starvation
-    utime.sleep_ms(10)
+    utime.sleep_ms(1)

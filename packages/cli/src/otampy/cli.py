@@ -5,7 +5,7 @@ from rich.console import Console
 
 import otampy.deploy as deploy
 
-from .shared.protocol import DEFAULT_OTA_CONFIG, OTA_COMMANDS
+from .shared.protocol import OTA_COMMANDS
 
 logger = logging.getLogger(__name__)
 

@@ -1,13 +1,13 @@
 import builtins
 
-from shared import LoadOTAModule
+from device_otampy.logger import (  # pyright: ignore[reportMissingImports]
+    OTALogger,
+)
 
 
-def test_logger_writes_all_levels_to_file(monkeypatch, tmp_path):
-    ota = LoadOTAModule.load(monkeypatch)
-    Logger = ota.OTALogger
+def test_logger_writes_all_levels_to_file(tmp_path):
     log_file = tmp_path / "ota.log"
-    logger = Logger(path=str(log_file), min_level="DEBUG")
+    logger = OTALogger(path=str(log_file), min_level="DEBUG")
 
     logger.debug("debug message")
     logger.info("info message")
@@ -23,11 +23,9 @@ def test_logger_writes_all_levels_to_file(monkeypatch, tmp_path):
     assert "[CRITICAL] critical message" in content
 
 
-def test_logger_filters_lower_level_messages(monkeypatch, tmp_path):
-    ota = LoadOTAModule.load(monkeypatch)
-    Logger = ota.OTALogger
+def test_logger_filters_lower_level_messages(tmp_path):
     log_file = tmp_path / "ota.log"
-    logger = Logger(path=str(log_file), min_level="WARNING")
+    logger = OTALogger(path=str(log_file), min_level="WARNING")
 
     logger.debug("debug message")
     logger.info("info message")
@@ -43,17 +41,18 @@ def test_logger_filters_lower_level_messages(monkeypatch, tmp_path):
     assert "[CRITICAL] critical message" in content
 
 
-def test_logger_falls_back_to_stdout_when_file_write_fails(monkeypatch, capsys):
-    ota = LoadOTAModule.load(monkeypatch)
-    Logger = ota.OTALogger
-    logger = Logger(path="/invalid/path/ota.log", min_level="DEBUG")
+def test_logger_falls_back_to_stdout_when_file_write_fails(capsys):
+    logger = OTALogger(path="/invalid/path/ota.log", min_level="DEBUG")
 
     def raise_os_error(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr(builtins, "open", raise_os_error)
-
-    logger.error("failed write")
+    original_open = builtins.open
+    builtins.open = raise_os_error
+    try:
+        logger.error("failed write")
+    finally:
+        builtins.open = original_open
 
     captured = capsys.readouterr()
     assert "[ERROR   ] failed write" in captured.out

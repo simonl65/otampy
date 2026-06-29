@@ -193,19 +193,20 @@ def _run_default_update_loop(core):
 
             if success:
                 send(b"COMMIT_OK")
-                flag_file = core.config.get("UPDATE_REQUEST_FLAG_FILE")
-                if flag_file:
-                    try:
-                        _os.remove(flag_file)
-                    except OSError:
-                        pass
-                try:
-                    machine.reset()
-                except Exception:
-                    pass
-                break
             else:
                 send(b"COMMIT_ERR")
+
+            flag_file = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+            if flag_file:
+                try:
+                    _os.remove(flag_file)
+                except OSError:
+                    pass
+            try:
+                machine.reset()
+            except Exception:
+                pass
+            break
 
 
 def _cleanup_orphaned_ota(core, path="."):

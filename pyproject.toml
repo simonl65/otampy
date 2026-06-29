@@ -49,7 +49,7 @@ members = ["packages/cli"]
 [tool.pyright]
 include = ["."]
 extraPaths = ["./lib", "./packages/cli/src/otampy/deploy.py"]
-ignore = ["**/typings"]
+ignore = ["**/typings", "**/test/**", "**/tests/**"]
 exclude = [
     ".*",
     "__*",
@@ -57,6 +57,8 @@ exclude = [
     "**/node_modules",
     "**/__pycache__",
     ".venv",
+    "**/test/**",
+    "**/tests/**",
 ]
 
 typeCheckingMode = "standard"

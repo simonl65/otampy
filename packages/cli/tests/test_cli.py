@@ -1,3 +1,4 @@
+import time
 import unittest.mock as mock
 
 from click.testing import CliRunner
@@ -34,9 +35,10 @@ def test_cli_help():
 def test_cli_ping():
     """Test the 'ping' command."""
     runner = CliRunner()
-    with mock.patch("serial.Serial") as mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device:
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"PONG"
 
@@ -53,9 +55,10 @@ def test_cli_ping():
 def test_cli_bootloader():
     """Test the 'bl' command (reboot into bootloader)."""
     runner = CliRunner()
-    with mock.patch("serial.Serial") as mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device:
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"BL_OK"
 
@@ -68,12 +71,59 @@ def test_cli_bootloader():
         mock_device_instance.send.assert_called_once_with(b"BL")
 
 
+def test_cli_ping_response_within_timeout():
+    """Test delayed PONG reception within the transport timeout."""
+    runner = CliRunner()
+
+    def delayed_read():
+        time.sleep(1)
+        return b"PONG"
+
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = delayed_read
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ping"])
+
+    assert result.exit_code == 0
+    assert "Success: Received PONG from device" in result.output
+    mock_serial.assert_called_once_with(
+        "/dev/ttyFake", baudrate=57600, timeout=2.0
+    )
+    mock_device_instance.send.assert_called_once_with(b"PING")
+
+
+def test_cli_ping_response_timeout():
+    """Test ping failure when no response is received within the timeout."""
+    runner = CliRunner()
+
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b""
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ping"])
+
+    assert result.exit_code != 0
+    assert "Timeout waiting for response to command: PING" in result.output
+    mock_serial.assert_called_once_with(
+        "/dev/ttyFake", baudrate=57600, timeout=2.0
+    )
+    mock_device_instance.send.assert_called_once_with(b"PING")
+
+
 def test_cli_hard_reboot():
     """Test the 'rb' command (hard reboot)."""
     runner = CliRunner()
-    with mock.patch("serial.Serial") as mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device:
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"RB_OK"
 
@@ -89,9 +139,10 @@ def test_cli_hard_reboot():
 def test_cli_soft_reset():
     """Test the 'sr' command (soft reset)."""
     runner = CliRunner()
-    with mock.patch("serial.Serial") as mock_serial, mock.patch(
-        "urst.Urst"
-    ) as mock_device:
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"SR_OK"
 

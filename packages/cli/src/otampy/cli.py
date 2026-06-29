@@ -97,6 +97,7 @@ def _send_command(
 
     try:
         transport.send(command)
+        # TODO: Do we need a delay or timeout loop here?
         response = transport.read()
         if not response:
             raise click.ClickException(

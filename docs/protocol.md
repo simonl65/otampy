@@ -39,7 +39,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `PING`  | `PONG`   | Connection health check.                            |
 | `BL`    | `BL_OK`  | Reboot device into its hardware bootloader.         |
 | `RB`    | `RB_OK`  | Trigger a hardware hard reboot (`machine.reset()`). |
-| `SR`    | `SR_OK`  | Trigger a soft reboot (`sys.exit()`).               |
+| `SR`    | `SR_OK`  | Trigger a soft reboot (`machine.soft_reset()`).     |
 
 ### 2.2 File System Commands
 
@@ -51,13 +51,17 @@ Every request from the Host CLI expects a corresponding response from the Device
 
 ### 2.3 Update Sequence Commands
 
-| Request                               | Response                       | Description                                                             |
-| ------------------------------------- | ------------------------------ | ----------------------------------------------------------------------- |
-| `UPDATE_START:file_count:total_bytes` | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA update session. Device checks disk space.             |
-| `FILE_START:path:size:sha256`         | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).       |
-| `CHUNK:seq:data`                      | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk (base64 encoded or raw bytes).                          |
-| `FILE_END`                            | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                |
-| `UPDATE_COMMIT`                       | `COMMIT_OK`                    | Complete update. Device writes `update_requested.flag` and soft-resets. |
+These commands handle the transition from runtime (`main.py`) to bootloader (`boot.py`) and the subsequent file transfer.
+
+| Request / Msg | Sender | Response | Description |
+|---|---|---|---|
+| `UPDATE_REQUEST` | Host | `REBOOTING`<br>`BUSY` | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots. |
+| `READY` | Device | (None) | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload. |
+| `UPDATE_START:file_count:total_bytes` | Host | `SPACE_OK`<br>`SPACE_ERR` | Initiates the OTA transfer session. Device checks disk space. |
+| `FILE_START:path:size:sha256` | Host | `FILE_OK`<br>`FILE_ERR` | Announce upcoming file. Device prepares target path (`path.xuip`). |
+| `CHUNK:seq:data` | Host | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk of configurable size (e.g., 256/512 bytes). |
+| `FILE_END` | Host | `FILE_OK`<br>`FILE_ERR` | Finalise current file. Device verifies SHA-256 checksum. |
+| `UPDATE_COMMIT` | Host | `COMMIT_OK` | Complete update. Device renames all `.xuip` files, clears flag, and reboots to run the new application. |
 
 ---
 
@@ -83,30 +87,39 @@ Host CLI                    Device
    │                           │
 ```
 
-### 3.3 Over-The-Air Update Flow
+### 3.3 Over-The-Air Update Flow (Two-Phase)
 
-The update sequence is structured to be atomic. Files are written with a `.ota` temporary suffix and are only committed (renamed) during the bootloader stage in `boot.py` to prevent corrupting the runtime application if the update is interrupted.
+The update sequence transitions the device from the active application running in `main.py` to a dedicated update loader running in `boot.py`:
 
 ```
-Host CLI                                        Device (main.py)
-   │                                                   │
-   │ ── UPDATE_START:2:10240 (2 files, 10KB total) ──> │
-   │ <─ SPACE_OK ───────────────────────────────────── │ (Checks free space)
-   │                                                   │
-   │ ── FILE_START:main.py:5120:sha256 ──────────────> │ (Creates main.py.ota)
-   │ <─ FILE_OK ────────────────────────────────────── │
-   │                                                   │
-   │ ── CHUNK:0:base64_data ─────────────────────────> │
-   │ <─ CHUNK_ACK:0 ────────────────────────────────── │
-   │ ── CHUNK:1:base64_data ─────────────────────────> │
-   │ <─ CHUNK_ACK:1 ────────────────────────────────── │
-   │                                                   │
-   │ ── FILE_END ────────────────────────────────────> │ (Verifies checksum)
-   │ <─ FILE_OK ────────────────────────────────────── │
-   │                                                   │
-   │ ── UPDATE_COMMIT ───────────────────────────────> │
-   │ <─ COMMIT_OK ──────────────────────────────────── │
-   │                                                   │ (Writes update flag & reboots)
+Host CLI                           Device (main.py)              Device (boot.py)
+   │                                      │                             │
+   │ ── UPDATE_REQUEST ─────────────────> │                             │
+   │                                      │ (calls safe_callback())     │
+   │                                      │ (writes update.flag)        │
+   │ <─ REBOOTING ────────────────────────│                             │
+   │                                      │ (reboots device)            │
+   ▼                                      ▼                             │
+   (Waits for device boot)                                              │
+   │                                                                    │
+   │ <─ READY ───────────────────────────────────────────────────────── │ (Sends READY)
+   │                                                                    │
+   │ ── UPDATE_START:2:10240 ─────────────────────────────────────────> │ (Checks free space)
+   │ <─ SPACE_OK ────────────────────────────────────────────────────── │
+   │                                                                    │
+   │ ── FILE_START:main.py:5120:sha256 ───────────────────────────────> │ (Creates main.py.xuip)
+   │ <─ FILE_OK ─────────────────────────────────────────────────────── │
+   │                                                                    │
+   │ ── CHUNK:0:base64_data ──────────────────────────────────────────> │ (Size is configurable)
+   │ <─ CHUNK_ACK:0 ─────────────────────────────────────────────────── │
+   │ ── CHUNK:1:base64_data ──────────────────────────────────────────> │
+   │ <─ CHUNK_ACK:1 ─────────────────────────────────────────────────── │
+   │                                                                    │
+   │ ── FILE_END ─────────────────────────────────────────────────────> │ (Verifies checksum)
+   │ <─ FILE_OK ─────────────────────────────────────────────────────── │
+   │                                                                    │
+   │ ── UPDATE_COMMIT ────────────────────────────────────────────────> │ (Renames .xuip files,
+   │ <─ COMMIT_OK ───────────────────────────────────────────────────── │  clears flag, reboots)
 ```
 
-During reboot, `boot.py` detects the `update_requested.flag` file, renames the `.ota` files to their final names, removes the flag file, and boots into `main.py`.
+During reboot, `boot.py` detects the `update_requested.flag` file, renames the `.xuip` files to their final names, removes the flag file, and boots into `main.py`.

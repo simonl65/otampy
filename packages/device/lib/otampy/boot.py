@@ -53,6 +53,10 @@ def _run_default_update_loop(core):
 
     import machine
 
+    # Caching Attributes for speed
+    send = core.transport.send
+    read = core.transport.read
+
     session = {
         "files": [],  # list of (target_path, staging_path)
         "current_file": None,
@@ -63,7 +67,7 @@ def _run_default_update_loop(core):
     }
 
     while True:
-        packet = core.transport.read()
+        packet = read()
         if not packet:
             _sleep_ms(10)
             continue
@@ -72,7 +76,7 @@ def _run_default_update_loop(core):
             try:
                 cmd_str = packet.decode("utf-8").strip()
             except UnicodeError:
-                core.transport.send(b"ERROR:Invalid UTF-8")
+                send(b"ERROR:Invalid UTF-8")
                 continue
         else:
             cmd_str = str(packet).strip()
@@ -85,30 +89,30 @@ def _run_default_update_loop(core):
 
         if cmd == "UPDATE_START":
             if len(parts) < 3:
-                core.transport.send(b"ERROR:Invalid manifest")
+                send(b"ERROR:Invalid manifest")
                 continue
             try:
                 _file_count = int(parts[1])
                 total_bytes = int(parts[2])
             except ValueError:
-                core.transport.send(b"ERROR:Invalid numbers")
+                send(b"ERROR:Invalid numbers")
                 continue
 
             free_bytes = _get_free_space()
             if free_bytes < total_bytes * 1.5:
-                core.transport.send(b"SPACE_ERR")
+                send(b"SPACE_ERR")
             else:
-                core.transport.send(b"SPACE_OK")
+                send(b"SPACE_OK")
 
         elif cmd == "FILE_START":
             if len(parts) < 4:
-                core.transport.send(b"ERROR:Invalid file start")
+                send(b"ERROR:Invalid file start")
                 continue
             path = parts[1]
             try:
                 size = int(parts[2])
             except ValueError:
-                core.transport.send(b"ERROR:Invalid file size")
+                send(b"ERROR:Invalid file size")
                 continue
             sha256 = parts[3]
 
@@ -128,19 +132,19 @@ def _run_default_update_loop(core):
                 session["written_bytes"] = 0
                 session["hasher"] = hashlib.sha256()
                 session["files"].append((_resolve_path(path), staging_path))
-                core.transport.send(b"FILE_OK")
+                send(b"FILE_OK")
             except OSError as e:
-                core.transport.send(f"FILE_ERR:{e}".encode())
+                send(f"FILE_ERR:{e}".encode())
 
         elif cmd == "CHUNK":
             if len(parts) < 3:
-                core.transport.send(b"ERROR:Invalid chunk packet")
+                send(b"ERROR:Invalid chunk packet")
                 continue
             seq = parts[1]
             b64_data = parts[2]
 
             if not session["current_file"]:
-                core.transport.send(b"ERROR:No active file session")
+                send(b"ERROR:No active file session")
                 continue
 
             try:
@@ -148,13 +152,13 @@ def _run_default_update_loop(core):
                 session["current_file"].write(decoded)
                 session["hasher"].update(decoded)
                 session["written_bytes"] += len(decoded)
-                core.transport.send(f"CHUNK_ACK:{seq}".encode())
+                send(f"CHUNK_ACK:{seq}".encode())
             except Exception as e:
-                core.transport.send(f"CHUNK_ERR:{e}".encode())
+                send(f"CHUNK_ERR:{e}".encode())
 
         elif cmd == "FILE_END":
             if not session["current_file"]:
-                core.transport.send(b"ERROR:No active file session")
+                send(b"ERROR:No active file session")
                 continue
 
             session["current_file"].close()
@@ -164,14 +168,14 @@ def _run_default_update_loop(core):
             hex_hash = binascii.hexlify(digest).decode("utf-8")
 
             if hex_hash == session["current_hash"]:
-                core.transport.send(b"FILE_OK")
+                send(b"FILE_OK")
             else:
                 try:
                     _os.remove(session["files"][-1][1])
                 except OSError:
                     pass
                 session["files"].pop()
-                core.transport.send(b"FILE_ERR:Checksum mismatch")
+                send(b"FILE_ERR:Checksum mismatch")
 
         elif cmd == "UPDATE_COMMIT":
             success = True
@@ -188,7 +192,7 @@ def _run_default_update_loop(core):
                     break
 
             if success:
-                core.transport.send(b"COMMIT_OK")
+                send(b"COMMIT_OK")
                 flag_file = core.config.get("UPDATE_REQUEST_FLAG_FILE")
                 if flag_file:
                     try:
@@ -201,25 +205,33 @@ def _run_default_update_loop(core):
                     pass
                 break
             else:
-                core.transport.send(b"COMMIT_ERR")
+                send(b"COMMIT_ERR")
 
 
 def _cleanup_orphaned_ota(core, path="."):
     resolved_path = _resolve_path(path)
     try:
-        for item in _os.listdir(resolved_path):
+        # Cache standard methods & check logger levels
+        listdir = _os.listdir
+        stat_func = _os.stat
+        remove_func = _os.remove
+        logger_debug = core.logger.debug
+        log_level_debug = getattr(core.logger, "min_level", 0) <= 0
+
+        for item in listdir(resolved_path):
             item_path = path.rstrip("/") + "/" + item
             resolved_item = _resolve_path(item_path)
             try:
-                stat = _os.stat(resolved_item)
+                stat = stat_func(resolved_item)
                 is_dir = stat[0] & 0x4000
                 if is_dir:
                     _cleanup_orphaned_ota(core, item_path)
                 elif item.endswith(".ota"):
-                    core.logger.debug(
-                        f"Removing orphaned staging file: {resolved_item}"
-                    )
-                    _os.remove(resolved_item)
+                    if log_level_debug:
+                        logger_debug(
+                            f"Removing orphaned staging file: {resolved_item}"
+                        )
+                    remove_func(resolved_item)
             except OSError:
                 pass
     except OSError:

@@ -66,17 +66,23 @@ def application_callback():
 def main():
     ota = OTA(uart, config=config, logger=logger)
 
+    # Cache attributes/methods to eliminate loop lookup overhead
+    ota_poll = ota.poll
+    do_app = do_application_stuff
+    blink_func = blinker.blink
+    sleep_func = time.sleep
+
     try:
         while True:
             """Main application loop."""
 
-            do_application_stuff()
+            do_app()
 
             # Poll OTA commands from the host CLI over UART.
-            ota.poll(callback=application_callback)
+            ota_poll(callback=application_callback)
 
-            blinker.blink(1)
-            time.sleep(0.1)
+            blink_func(1)
+            sleep_func(0.1)
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt: Shutting down application.")

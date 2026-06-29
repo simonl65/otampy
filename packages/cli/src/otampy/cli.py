@@ -83,14 +83,25 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
+    import time
+
     import serial
     from urst import Urst
 
-    try:
-        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
-        transport = Urst(ser)
-    except Exception as e:
-        raise click.ClickException(f"Failed to open serial port {port}: {e}") from e
+    ser = None
+    transport = None
+
+    for attempt in range(3):
+        try:
+            ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+            transport = Urst(ser)
+            break
+        except Exception as e:
+            if attempt == 2:
+                raise click.ClickException(
+                    f"Failed to open serial port {port}: {e}"
+                ) from e
+            time.sleep(0.5 * (2**attempt))
 
     try:
         transport.send(command)

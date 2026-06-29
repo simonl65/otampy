@@ -18,6 +18,9 @@ def _sleep_ms(ms):
 def _resolve_path(path):
     if path.startswith("/"):
         return path
+    import sys
+    if sys.implementation.name != "micropython":
+        return path
     return "/" + path
 
 
@@ -200,6 +203,28 @@ def _run_default_update_loop(core):
                 core.transport.send(b"COMMIT_ERR")
 
 
+def _cleanup_orphaned_xuip(core, path="."):
+    resolved_path = _resolve_path(path)
+    try:
+        for item in _os.listdir(resolved_path):
+            item_path = path.rstrip("/") + "/" + item
+            resolved_item = _resolve_path(item_path)
+            try:
+                stat = _os.stat(resolved_item)
+                is_dir = stat[0] & 0x4000
+                if is_dir:
+                    _cleanup_orphaned_xuip(core, item_path)
+                elif item.endswith(".xuip"):
+                    core.logger.debug(
+                        f"Removing orphaned staging file: {resolved_item}"
+                    )
+                    _os.remove(resolved_item)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def run(core, callback=None):
     """
     Check if the update request flag file exists, execute the callback to
@@ -241,3 +266,5 @@ def run(core, callback=None):
                 getattr(_os, "unlink", lambda _p: None)(flag)
             except Exception:
                 core.logger.debug(f"Could not remove update flag: {flag}")
+    else:
+        _cleanup_orphaned_xuip(core)

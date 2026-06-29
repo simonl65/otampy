@@ -69,79 +69,58 @@ def test_boot_sends_ready_when_flag_present(tmp_path):
     assert core.transport.sent_messages == [b"READY"]
 
 
-# =============================================================================
-# PHASE 4: ATOMIC CHUNKED FILE TRANSFER SESSION TESTS
-# =============================================================================
-
-
 def test_boot_handles_full_update_session(tmp_path):
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
     flag_file = tmp_path / "update_requested.flag"
     flag_file.touch()
 
-    # Pre-calculate SHA-256 for test payloads
     payload_main = b"print('hello main')"
     payload_lib = b"print('hello lib')"
 
     sha_main = hashlib.sha256(payload_main).hexdigest()
     sha_lib = hashlib.sha256(payload_lib).hexdigest()
 
-    # Encode payloads to base64
     b64_main = binascii.b2a_base64(payload_main).strip()
     b64_lib = binascii.b2a_base64(payload_lib).strip()
 
-    # File paths on the simulated device
     target_main = tmp_path / "main.py"
     target_lib = tmp_path / "lib" / "helper.py"
 
-    # Queue full update session command sequence
-    # Note: we use absolute paths in test config for flag & targets
     config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
     core = OTACore(uart, config=config, logger=logger)
 
-    # Mock OS functions inside boot to resolve paths relative to tmp_path
     from unittest.mock import patch
 
     def mock_resolve_path(path):
-        # Prevent double-prepending tmp_path if path is already absolute
         if str(path).startswith(str(tmp_path)):
             return str(path)
         if path.startswith("/"):
             path = path[1:]
         res = tmp_path / path
-        # Ensure parent directories exist
         res.parent.mkdir(parents=True, exist_ok=True)
         return str(res)
 
-    # Queue commands
-    # 1. Start update manifest: 2 files, 36 bytes total
-    core.transport.incoming_queue.append(b"UPDATE_START:2:36")
-    # 2. Start main.py transfer
+    core.transport.incoming_queue.append(b"UPDATE_START:2:37")
     core.transport.incoming_queue.append(
         f"FILE_START:main.py:19:{sha_main}".encode()
     )
-    # 3. Send main.py chunk
     core.transport.incoming_queue.append(f"CHUNK:0:{b64_main.decode()}".encode())
-    # 4. Finalize main.py
     core.transport.incoming_queue.append(b"FILE_END")
-    # 5. Start lib/helper.py transfer
     core.transport.incoming_queue.append(
         f"FILE_START:lib/helper.py:17:{sha_lib}".encode()
     )
-    # 6. Send lib/helper.py chunk
     core.transport.incoming_queue.append(f"CHUNK:0:{b64_lib.decode()}".encode())
-    # 7. Finalize lib/helper.py
     core.transport.incoming_queue.append(b"FILE_END")
-    # 8. Commit
     core.transport.incoming_queue.append(b"UPDATE_COMMIT")
 
-    # Patch boot loader's file/directory resolver to write relative to tmp_path
-    with patch("device_otampy.boot._resolve_path", side_effect=mock_resolve_path, create=True):
+    with patch(
+        "device_otampy.boot._resolve_path",
+        side_effect=mock_resolve_path,
+        create=True,
+    ):
         boot.run(core, callback=None)
 
-    # Assert responses sent back to the host CLI
-    # READY is sent first, then response for each queued command
     assert core.transport.sent_messages == [
         b"READY",
         b"SPACE_OK",
@@ -154,16 +133,69 @@ def test_boot_handles_full_update_session(tmp_path):
         b"COMMIT_OK",
     ]
 
-    # Verify committed target files exist and contain the correct content
     assert target_main.exists()
     assert target_main.read_bytes() == payload_main
 
     assert target_lib.exists()
     assert target_lib.read_bytes() == payload_lib
 
-    # Verify temporary .xuip staging files have been cleaned up
     assert not (tmp_path / "main.py.xuip").exists()
     assert not (tmp_path / "lib" / "helper.py.xuip").exists()
-
-    # Verify update flag is cleared
     assert not flag_file.exists()
+
+
+# =============================================================================
+# PHASE 5: FAULT-TOLERANCE & CLEANUP TESTS
+# =============================================================================
+
+
+def test_boot_cleans_orphaned_xuip_on_normal_boot(tmp_path):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+
+    # Set up staging files on simulated disk
+    orphaned_main = tmp_path / "main.py.xuip"
+    orphaned_main.touch()
+
+    lib_dir = tmp_path / "lib"
+    lib_dir.mkdir()
+    orphaned_lib = lib_dir / "sensor.py.xuip"
+    orphaned_lib.touch()
+
+    # Create a real source file that should NOT be deleted
+    valid_source = tmp_path / "boot.py"
+    valid_source.touch()
+
+    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    core = OTACore(uart, config=config, logger=logger)
+
+    from unittest.mock import patch
+
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        if path.startswith("/"):
+            path = path[1:]
+        return str(tmp_path / path)
+
+    # Patch resolver and listdir to work on tmp_path
+    import os
+
+    with patch(
+        "device_otampy.boot._resolve_path",
+        side_effect=mock_resolve_path,
+        create=True,
+    ), patch("device_otampy.boot._os.listdir", side_effect=os.listdir), patch(
+        "device_otampy.boot._os.remove", side_effect=os.remove
+    ), patch(
+        "device_otampy.boot._os.stat", side_effect=os.stat
+    ):
+        boot.run(core, callback=None)
+
+    # Staging files should be cleaned up
+    assert not orphaned_main.exists()
+    assert not orphaned_lib.exists()
+
+    # Valid files must be kept
+    assert valid_source.exists()

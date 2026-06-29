@@ -439,3 +439,37 @@ def test_cli_update_full_transfer():
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
         mock_device_instance.send.assert_any_call(b"UPDATE_START:2:37")
         mock_device_instance.send.assert_any_call(b"UPDATE_COMMIT")
+
+
+def test_cli_query_connection_retry():
+    """Test that _query connection handler retries opening Serial when busy."""
+    runner = CliRunner()
+    import serial
+
+    # Mock Serial to fail twice, then succeed
+    call_count = 0
+
+    def mock_serial_init(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise serial.SerialException("Port busy")
+        # Return mock serial instance on third attempt
+        return mock.MagicMock()
+
+    with mock.patch("serial.Serial", side_effect=mock_serial_init), mock.patch(
+        "urst.Urst"
+    ) as mock_device, mock.patch("time.sleep") as mock_sleep:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"PONG"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ping"])
+
+        assert result.exit_code == 0
+        assert "Sending PING to device" in result.output
+        assert "Success: Received PONG from device" in result.output
+
+        # Serial should have been called 3 times
+        assert call_count == 3
+        # Should have slept twice (exponential backoff)
+        assert mock_sleep.call_count == 2

@@ -31,28 +31,85 @@ def test_cli_help():
     assert "Show helpful information" in result_h_cmd.output
 
 
+def test_cli_ping():
+    """Test the 'ping' command."""
+    runner = CliRunner()
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"PONG"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ping"])
+        assert result.exit_code == 0
+        assert "Sending PING to device" in result.output
+        assert "Success: Received PONG from device" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"PING")
+
+
 def test_cli_bootloader():
     """Test the 'bl' command (reboot into bootloader)."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["bl"])
-    assert result.exit_code == 0
-    assert "Rebooting device into bootloader mode" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"BL_OK"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"])
+        assert result.exit_code == 0
+        assert "Rebooting device into bootloader mode" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"BL")
 
 
 def test_cli_hard_reboot():
     """Test the 'rb' command (hard reboot)."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["rb"])
-    assert result.exit_code == 0
-    assert "Hard rebooting the device" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"RB_OK"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"])
+        assert result.exit_code == 0
+        assert "Hard rebooting the device" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"RB")
 
 
 def test_cli_soft_reset():
     """Test the 'sr' command (soft reset)."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["sr"])
-    assert result.exit_code == 0
-    assert "Soft resetting the device" in result.output
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"SR_OK"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"])
+        assert result.exit_code == 0
+        assert "Soft resetting the device" in result.output
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
+        mock_device_instance.send.assert_called_once_with(b"SR")
+
+
+def test_cli_command_missing_port():
+    """Test that running connection commands without -p raises an error."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ping"])
+    assert result.exit_code != 0
+    assert "Error: Missing serial port" in result.output
 
 
 def test_cli_ls_default():

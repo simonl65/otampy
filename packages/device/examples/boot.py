@@ -9,9 +9,9 @@ from otampy.ota import (  # type: ignore
     OTAManager,
 )
 
-logger = (
-    Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL) or OTALogger()
-)
+logger = Logger(
+    config.LOG_FILE, "boot.py", level=config.LOG_LEVEL
+) or OTALogger(config.LOG_FILE, level=config.LOG_LEVEL)
 
 uart = UART(
     config.OTA_PORT,

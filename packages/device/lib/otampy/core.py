@@ -21,9 +21,7 @@ class OTACore:
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
-        self.logger = (
-            logger if logger is not None else OTALogger(min_level="DEBUG")
-        )
+        self.logger = logger if logger is not None else OTALogger(level="DEBUG")
 
         if uart is None:
             self.logger.critical("Must provide a UART object")

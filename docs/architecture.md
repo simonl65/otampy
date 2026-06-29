@@ -146,15 +146,6 @@ while True:
 
 ---
 
-## Backward Compatibility Layer
-
-For existing implementations or legacy scripts referencing older scaffolding version classes, the library exposes wrapper classes:
-
-- **`OTABoot`**: Wraps `OTA.boot()` delegation.
-- **`OTAManager`**: Wraps `OTA.poll()` delegation.
-
----
-
 ## Test Environment Architecture
 
 Since both the CLI package (`packages/cli`) and the device package (`packages/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.

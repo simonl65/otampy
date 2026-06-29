@@ -5,8 +5,6 @@ from rich.console import Console
 
 import otampy.deploy as deploy
 
-from .shared.protocol import OTA_COMMANDS
-
 logger = logging.getLogger(__name__)
 
 
@@ -14,11 +12,12 @@ def _console() -> Console:
     return Console(highlight=False)
 
 
-# Sanity-check the protocol at import time so maintainers see mismatches
-try:
-    logger.debug("Loaded OTA_COMMANDS: %s", OTA_COMMANDS)
-except Exception:
-    pass
+# from .shared.protocol import OTA_COMMANDS
+# # Sanity-check the protocol at import time so maintainers see mismatches
+# try:
+#     logger.debug("Loaded OTA_COMMANDS: %s", OTA_COMMANDS)
+# except Exception:
+#     pass
 
 
 class AliasedGroup(click.Group):
@@ -54,9 +53,66 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
 @click.group(cls=AliasedGroup, context_settings=CONTEXT_SETTINGS)
-def cli() -> None:
+@click.option(
+    "-p",
+    "--port",
+    help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
+)
+@click.option(
+    "-b",
+    "--baud",
+    default=57600,
+    type=int,
+    help="Baud rate to use for communication (default: 57600).",
+)
+@click.pass_context
+def cli(ctx: click.Context, port: str | None, baud: int) -> None:
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["port"] = port
+    ctx.obj["baud"] = baud
+
+
+def _send_command(
+    ctx: click.Context, command: bytes, expected_response: bytes
+) -> None:
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
+        )
+
+    import serial
+    from urst import Urst
+
+    try:
+        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+        transport = Urst(ser)
+    except Exception as e:
+        raise click.ClickException(
+            f"Failed to open serial port {port}: {e}"
+        ) from e
+
+    try:
+        transport.send(command)
+        response = transport.read()
+        if not response:
+            raise click.ClickException(
+                f"Timeout waiting for response to command: {command.decode()}"
+            )
+        if response != expected_response:
+            resp_str = (
+                response.decode("utf-8", errors="replace")
+                if isinstance(response, bytes)
+                else str(response)
+            )
+            raise click.ClickException(
+                f"Unexpected response to command '{command.decode()}'. "
+                f"Expected '{expected_response.decode()}', got '{resp_str}'"
+            )
+    finally:
+        ser.close()
 
 
 @cli.command(name="h")
@@ -72,24 +128,39 @@ def help_cmd() -> None:
         _console().print(ctx.parent.get_help())
 
 
+@cli.command(name="ping")
+@click.pass_context
+def ping(ctx: click.Context) -> None:
+    """Connection health check with the device."""
+    _console().print("[yellow]Sending PING to device...[/yellow]")
+    _send_command(ctx, b"PING", b"PONG")
+    _console().print("[green]Success: Received PONG from device.[/green]")
+
+
 @cli.command(name="bl")
-def bootloader() -> None:
+@click.pass_context
+def bootloader(ctx: click.Context) -> None:
     """Reboots device into its bootloader mode."""
     _console().print(
         "[yellow]Rebooting device into bootloader mode...[/yellow]"
     )
+    _send_command(ctx, b"BL", b"BL_OK")
 
 
 @cli.command(name="rb")
-def reboot() -> None:
+@click.pass_context
+def reboot(ctx: click.Context) -> None:
     """Hard reboots the device."""
     _console().print("[yellow]Hard rebooting the device...[/yellow]")
+    _send_command(ctx, b"RB", b"RB_OK")
 
 
 @cli.command(name="sr")
-def soft_reset() -> None:
+@click.pass_context
+def soft_reset(ctx: click.Context) -> None:
     """Soft resets the device."""
     _console().print("[yellow]Soft resetting the device...[/yellow]")
+    _send_command(ctx, b"SR", b"SR_OK")
 
 
 @cli.command(name="ls")

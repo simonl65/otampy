@@ -615,7 +615,7 @@ def test_cli_port_interactive(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
     ):
         # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'y'
-        result = runner.invoke(cli, ["port"], input="1\ny\n")
+        result = runner.invoke(cli, ["ports"], input="1\ny\n")
         assert result.exit_code == 0
         assert "Available serial ports:" in result.output
         assert "1: /dev/ttyFake1 (Fake Port 1)" in result.output
@@ -629,22 +629,22 @@ def test_cli_port_interactive(tmp_path):
             assert json.load(f)["default_port"] == "/dev/ttyFake1"
 
         # 2. Interactive choice: select 2, select session 'n'
-        result = runner.invoke(cli, ["port"], input="2\nn\n")
+        result = runner.invoke(cli, ["ports"], input="2\nn\n")
         assert result.exit_code == 0
         assert "To set this default for the current terminal session, run:" in result.output
         assert "export OTAMPY_PORT=/dev/ttyFake2" in result.output
 
         # 3. Test non-interactive options: show, set, clear
-        result_show = runner.invoke(cli, ["port", "--show"])
+        result_show = runner.invoke(cli, ["ports", "--show"])
         assert result_show.exit_code == 0
         assert "Current default port: /dev/ttyFake1" in result_show.output
 
-        result_clear = runner.invoke(cli, ["port", "--clear"])
+        result_clear = runner.invoke(cli, ["ports", "--clear"])
         assert result_clear.exit_code == 0
         assert "Permanent default port cleared." in result_clear.output
         assert not config_file.is_file()
 
-        result_set = runner.invoke(cli, ["port", "--set", "/dev/ttyFakeX"])
+        result_set = runner.invoke(cli, ["ports", "--set", "/dev/ttyFakeX"])
         assert result_set.exit_code == 0
         assert "Permanent default port set to: /dev/ttyFakeX" in result_set.output
         with open(config_file) as f:

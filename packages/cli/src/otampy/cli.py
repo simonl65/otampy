@@ -612,11 +612,11 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         ser.close()
 
 
-@cli.command(name="port")
+@cli.command(name="ports")
 @click.option("--set", "set_port", help="Set the default port permanently.")
 @click.option("--clear", is_flag=True, help="Clear the permanent default port.")
 @click.option("--show", is_flag=True, help="Show the current default port.")
-def port_cmd(set_port: str | None, clear: bool, show: bool) -> None:
+def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
     """List available serial ports and manage the default port."""
     import serial.tools.list_ports
 
@@ -641,7 +641,7 @@ def port_cmd(set_port: str | None, clear: bool, show: bool) -> None:
         return
 
     # Interactive / Listing mode
-    ports = list(serial.tools.list_ports.comports())
+    ports = [p for p in serial.tools.list_ports.comports() if p.hwid != "n/a"]
     if not ports:
         _console().print("No available serial ports found.")
         return

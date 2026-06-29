@@ -75,6 +75,32 @@ def cli(ctx: click.Context, port: str | None, baud: int) -> None:
     ctx.obj["baud"] = baud
 
 
+def _friendly_error(err_msg: str, command: bytes) -> str:
+    err_msg_lower = err_msg.lower()
+    target = ""
+    try:
+        cmd_str = command.decode("utf-8", errors="replace")
+        parts = cmd_str.split(":", 1)
+        if len(parts) > 1:
+            target = f": '{parts[1]}'"
+    except Exception:
+        pass
+
+    if "enoent" in err_msg_lower or "errno 2" in err_msg_lower:
+        return f"No such file or directory{target}"
+    if "eacces" in err_msg_lower or "errno 13" in err_msg_lower:
+        return f"Permission denied{target}"
+    if "enospc" in err_msg_lower or "errno 28" in err_msg_lower:
+        return "No space left on device"
+    if "eexist" in err_msg_lower or "errno 17" in err_msg_lower:
+        return f"File or directory already exists{target}"
+    if "eisdir" in err_msg_lower or "errno 21" in err_msg_lower:
+        return f"Is a directory{target}"
+    if "enotdir" in err_msg_lower or "errno 20" in err_msg_lower:
+        return f"Not a directory{target}"
+    return err_msg
+
+
 def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
@@ -114,7 +140,8 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
         # Check for device error response
         if response.startswith(b"ERROR:"):
             err_msg = response[6:].decode("utf-8", errors="replace")
-            raise click.ClickException(f"Device error: {err_msg}")
+            friendly = _friendly_error(err_msg, command)
+            raise click.ClickException(f"Device error: {friendly}")
 
         if not response.startswith(expected_prefix):
             resp_str = (

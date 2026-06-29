@@ -252,6 +252,38 @@ def test_cli_rm_file():
         mock_device_instance.send.assert_called_once_with(b"RM:main.py")
 
 
+def test_cli_friendly_errors():
+    """Test that _friendly_error maps raw OS errors to human-friendly strings."""
+    runner = CliRunner()
+
+    # 1. LS command with ENOENT error
+    with mock.patch("serial.Serial"), mock.patch("urst.Urst") as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"ERROR:[Errno 2] ENOENT"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ls", "lib/Boot.py"])
+        assert result.exit_code == 1
+        assert "Device error: No such file or directory: 'lib/Boot.py'" in result.output
+
+    # 2. CAT command with ENOENT error
+    with mock.patch("serial.Serial"), mock.patch("urst.Urst") as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"ERROR:ENOENT"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "missing.py"])
+        assert result.exit_code == 1
+        assert "Device error: No such file or directory: 'missing.py'" in result.output
+
+    # 3. RM command with EACCES error
+    with mock.patch("serial.Serial"), mock.patch("urst.Urst") as mock_device:
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"ERROR:[Errno 13] EACCES"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "system.py"])
+        assert result.exit_code == 1
+        assert "Device error: Permission denied: 'system.py'" in result.output
+
+
 def test_cli_update_default():
     """Test 'upd' command without parameters (update all firmware)."""
     runner = CliRunner()

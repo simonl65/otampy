@@ -631,17 +631,16 @@ def test_cli_port_interactive(tmp_path):
         # 2. Interactive choice: select 2, select session 's'
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0
-        assert "To set this default for the current terminal session, run:" in result.output
-        assert "export OTAMPY_PORT=/dev/ttyFake2" in result.output
+        assert "Session default port set to: /dev/ttyFake2" in result.output
 
         # 3. Test non-interactive options: show, set, clear
         result_show = runner.invoke(cli, ["ports", "--show"])
         assert result_show.exit_code == 0
-        assert "Current default port: /dev/ttyFake1" in result_show.output
+        assert "Current default port: /dev/ttyFake2" in result_show.output
 
         result_clear = runner.invoke(cli, ["ports", "--clear"])
         assert result_clear.exit_code == 0
-        assert "Permanent default port cleared." in result_clear.output
+        assert "Default ports cleared." in result_clear.output
         assert not config_file.is_file()
 
         result_set = runner.invoke(cli, ["ports", "--set", "/dev/ttyFakeX"])

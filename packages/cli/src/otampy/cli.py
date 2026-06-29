@@ -56,6 +56,16 @@ def get_default_port() -> str | None:
 
     if "OTAMPY_PORT" in os.environ:
         return os.environ["OTAMPY_PORT"]
+    # Check session config (by parent shell PID)
+    import tempfile
+
+    session_file = Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+    if session_file.is_file():
+        try:
+            return session_file.read_text().strip()
+        except Exception:
+            pass
+
     # Check permanent config
     config_path = Path.home() / ".config" / "otampy" / "config.json"
     if config_path.is_file():
@@ -70,7 +80,24 @@ def get_default_port() -> str | None:
     return None
 
 
-def set_default_port(port: str | None) -> None:
+def set_default_port(port: str | None, session: bool = False) -> None:
+    if session:
+        import os
+        import tempfile
+        session_file = Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
+        if port is None:
+            if session_file.is_file():
+                try:
+                    session_file.unlink()
+                except Exception:
+                    pass
+        else:
+            try:
+                session_file.write_text(port)
+            except Exception as e:
+                raise click.ClickException(f"Failed to save session port: {e}") from e
+        return
+
     import json
 
     config_dir = Path.home() / ".config" / "otampy"
@@ -614,7 +641,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 
 @cli.command(name="ports")
 @click.option("--set", "set_port", help="Set the default port permanently.")
-@click.option("--clear", is_flag=True, help="Clear the permanent default port.")
+@click.option("--clear", is_flag=True, help="Clear the default port settings.")
 @click.option("--show", is_flag=True, help="Show the current default port.")
 def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
     """List available serial ports and manage the default port."""
@@ -630,7 +657,8 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
 
     if clear:
         set_default_port(None)
-        _console().print("[green]Permanent default port cleared.[/green]")
+        set_default_port(None, session=True)
+        _console().print("[green]Default ports cleared.[/green]")
         return
 
     if set_port:
@@ -695,18 +723,10 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
             f"[green]Permanent default port set to: {selected_port}[/green]"
         )
     elif choice == "s":
-        import os
-
-        env_cmd = f"export OTAMPY_PORT={selected_port}"
-        if os.name == "nt":
-            if "PSModulePath" in os.environ:
-                env_cmd = f'$env:OTAMPY_PORT="{selected_port}"'
-            else:
-                env_cmd = f"set OTAMPY_PORT={selected_port}"
+        set_default_port(selected_port, session=True)
         _console().print(
-            "\nTo set this default for the current terminal session, run:"
+            f"[green]Session default port set to: {selected_port}[/green]"
         )
-        _console().print(f"  [bold cyan]{env_cmd}[/bold cyan]")
     else:
         _console().print("Cancelled.")
 

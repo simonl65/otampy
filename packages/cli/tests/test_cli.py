@@ -53,7 +53,7 @@ def test_cli_ping():
 
 
 def test_cli_bootloader():
-    """Test the 'bl' command (reboot into bootloader)."""
+    """Test the 'bl' command (reboot into bootloader) with confirmation."""
     runner = CliRunner()
     with (
         mock.patch("serial.Serial") as mock_serial,
@@ -62,13 +62,27 @@ def test_cli_bootloader():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"BL_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"], input="y\n")
         assert result.exit_code == 0
         assert "Rebooting device into bootloader mode" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
         mock_device_instance.send.assert_called_once_with(b"BL")
+
+
+def test_cli_bootloader_aborted():
+    """Test that the 'bl' command defaults to aborting when not confirmed."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"], input="\n")
+        assert result.exit_code == 0
+        assert "Aborted." in result.output
+        mock_serial.assert_not_called()
+        mock_device.assert_not_called()
 
 
 def test_cli_ping_response_within_timeout():
@@ -118,7 +132,7 @@ def test_cli_ping_response_timeout():
 
 
 def test_cli_hard_reboot():
-    """Test the 'rb' command (hard reboot)."""
+    """Test the 'rb' command (hard reboot) with confirmation."""
     runner = CliRunner()
     with (
         mock.patch("serial.Serial") as mock_serial,
@@ -127,7 +141,7 @@ def test_cli_hard_reboot():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"RB_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"], input="y\n")
         assert result.exit_code == 0
         assert "Hard rebooting the device" in result.output
         mock_serial.assert_called_once_with(
@@ -136,8 +150,22 @@ def test_cli_hard_reboot():
         mock_device_instance.send.assert_called_once_with(b"RB")
 
 
+def test_cli_hard_reboot_aborted():
+    """Test that 'rb' command defaults to aborting when not confirmed."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"], input="\n")
+        assert result.exit_code == 0
+        assert "Aborted." in result.output
+        mock_serial.assert_not_called()
+        mock_device.assert_not_called()
+
+
 def test_cli_soft_reset():
-    """Test the 'sr' command (soft reset)."""
+    """Test the 'sr' command (soft reset) with confirmation."""
     runner = CliRunner()
     with (
         mock.patch("serial.Serial") as mock_serial,
@@ -146,13 +174,27 @@ def test_cli_soft_reset():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"SR_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"], input="y\n")
         assert result.exit_code == 0
         assert "Soft resetting the device" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
         mock_device_instance.send.assert_called_once_with(b"SR")
+
+
+def test_cli_soft_reset_aborted():
+    """Test that 'sr' command defaults to aborting when not confirmed."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial") as mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"], input="\n")
+        assert result.exit_code == 0
+        assert "Aborted." in result.output
+        mock_serial.assert_not_called()
+        mock_device.assert_not_called()
 
 
 def test_cli_command_missing_port():
@@ -235,7 +277,7 @@ def test_cli_rm_missing_arg():
 
 
 def test_cli_rm_file():
-    """Test the 'rm' command with a file."""
+    """Test the 'rm' command with a file with confirmation."""
     runner = CliRunner()
     with mock.patch("serial.Serial") as mock_serial, mock.patch(
         "urst.Urst"
@@ -243,13 +285,26 @@ def test_cli_rm_file():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"RM_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "main.py"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "main.py"], input="y\n")
         assert result.exit_code == 0
         assert "Removing file: main.py" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
         mock_device_instance.send.assert_called_once_with(b"RM:main.py")
+
+
+def test_cli_rm_file_aborted():
+    """Test that 'rm' command defaults to aborting when not confirmed."""
+    runner = CliRunner()
+    with mock.patch("serial.Serial") as mock_serial, mock.patch(
+        "urst.Urst"
+    ) as mock_device:
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "main.py"], input="\n")
+        assert result.exit_code == 0
+        assert "Aborted." in result.output
+        mock_serial.assert_not_called()
+        mock_device.assert_not_called()
 
 
 def test_cli_friendly_errors():
@@ -279,7 +334,7 @@ def test_cli_friendly_errors():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"ERROR:[Errno 13] EACCES"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "system.py"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "system.py"], input="y\n")
         assert result.exit_code == 1
         assert "Device error: Permission denied: 'system.py'" in result.output
 

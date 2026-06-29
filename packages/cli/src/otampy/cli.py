@@ -199,6 +199,12 @@ def ping(ctx: click.Context) -> None:
 @click.pass_context
 def bootloader(ctx: click.Context) -> None:
     """Reboots device into its bootloader mode."""
+    if not click.confirm(
+        "Are you sure you want to reboot the device into bootloader mode?",
+        default=False,
+    ):
+        _console().print("[yellow]Aborted.[/yellow]")
+        return
     _console().print(
         "[yellow]Rebooting device into bootloader mode...[/yellow]"
     )
@@ -209,6 +215,11 @@ def bootloader(ctx: click.Context) -> None:
 @click.pass_context
 def reboot(ctx: click.Context) -> None:
     """Hard reboots the device."""
+    if not click.confirm(
+        "Are you sure you want to hard reboot the device?", default=False
+    ):
+        _console().print("[yellow]Aborted.[/yellow]")
+        return
     _console().print("[yellow]Hard rebooting the device...[/yellow]")
     _send_command(ctx, b"RB", b"RB_OK")
 
@@ -217,6 +228,11 @@ def reboot(ctx: click.Context) -> None:
 @click.pass_context
 def soft_reset(ctx: click.Context) -> None:
     """Soft resets the device."""
+    if not click.confirm(
+        "Are you sure you want to soft reset the device?", default=False
+    ):
+        _console().print("[yellow]Aborted.[/yellow]")
+        return
     _console().print("[yellow]Soft resetting the device...[/yellow]")
     _send_command(ctx, b"SR", b"SR_OK")
 
@@ -257,6 +273,12 @@ def cat(ctx: click.Context, file: str) -> None:
 @click.pass_context
 def remove(ctx: click.Context, file: str) -> None:
     """Remove specified file from device (may be wildcarded)."""
+    if not click.confirm(
+        f"Are you sure you want to remove '{file}' from the device?",
+        default=False,
+    ):
+        _console().print("[yellow]Aborted.[/yellow]")
+        return
     _console().print(f"[red]Removing file: {file}[/red]")
     _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
 

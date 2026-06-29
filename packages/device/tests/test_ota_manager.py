@@ -99,11 +99,17 @@ def test_manager_handles_ls_default(monkeypatch):
     def mock_listdir(path="."):
         return ["boot.py", "main.py", "lib"]
 
+    def mock_stat(path):
+        if path.endswith("lib"):
+            return (0x4000, 0)  # S_IFDIR
+        return (0x8000, 0)  # S_IFREG
+
     import os
     monkeypatch.setattr(os, "listdir", mock_listdir)
+    monkeypatch.setattr(os, "stat", mock_stat)
 
     manager.poll(core)
-    assert core.transport.sent_messages == [b"LS_OK:boot.py,main.py,lib"]
+    assert core.transport.sent_messages == [b"LS_OK:boot.py,main.py,lib/"]
 
 
 def test_manager_handles_ls_path(monkeypatch):
@@ -115,13 +121,19 @@ def test_manager_handles_ls_path(monkeypatch):
 
     def mock_listdir(path):
         assert path == "lib"
-        return ["sensor.py"]
+        return ["sensor.py", "subfolder"]
+
+    def mock_stat(path):
+        if path.endswith("subfolder"):
+            return (0x4000, 0)  # S_IFDIR
+        return (0x8000, 0)  # S_IFREG
 
     import os
     monkeypatch.setattr(os, "listdir", mock_listdir)
+    monkeypatch.setattr(os, "stat", mock_stat)
 
     manager.poll(core)
-    assert core.transport.sent_messages == [b"LS_OK:sensor.py"]
+    assert core.transport.sent_messages == [b"LS_OK:sensor.py,subfolder/"]
 
 
 def test_manager_handles_ls_error(monkeypatch):

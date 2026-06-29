@@ -57,20 +57,30 @@ def poll(core, callback=None):
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."
         try:
-            items = []
-            for item in _os.listdir(path):
-                full_path = path.rstrip("/") + "/" + item
-                try:
-                    stat = _os.stat(full_path)
-                    is_dir = stat[0] & 0x4000
-                    if is_dir:
-                        items.append(item + "/")
-                    else:
+            try:
+                stat = _os.stat(path)
+                is_dir = stat[0] & 0x4000
+            except OSError:
+                is_dir = True
+
+            if not is_dir:
+                name = path.split("/")[-1]
+                core.transport.send(f"LS_OK:{name}".encode())
+            else:
+                items = []
+                for item in _os.listdir(path):
+                    full_path = path.rstrip("/") + "/" + item
+                    try:
+                        st = _os.stat(full_path)
+                        item_is_dir = st[0] & 0x4000
+                        if item_is_dir:
+                            items.append(item + "/")
+                        else:
+                            items.append(item)
+                    except OSError:
                         items.append(item)
-                except OSError:
-                    items.append(item)
-            items_str = ",".join(items)
-            core.transport.send(f"LS_OK:{items_str}".encode())
+                items_str = ",".join(items)
+                core.transport.send(f"LS_OK:{items_str}".encode())
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "CAT":

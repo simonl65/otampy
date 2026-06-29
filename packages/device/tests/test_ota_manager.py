@@ -99,12 +99,16 @@ def test_manager_handles_ls_default(monkeypatch):
     def mock_listdir(path="."):
         return ["boot.py", "main.py", "lib"]
 
-    def mock_stat(path):
-        if path.endswith("lib"):
-            return (0x4000, 0)  # S_IFDIR
-        return (0x8000, 0)  # S_IFREG
-
     import os
+    original_stat = os.stat
+
+    def mock_stat(path, *args, **kwargs):
+        path_str = str(path)
+        if path_str.endswith("lib") or path_str.endswith("lib/"):
+            return os.stat_result((0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        if any(path_str.endswith(f) for f in ("boot.py", "main.py")):
+            return os.stat_result((0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        return original_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "listdir", mock_listdir)
     monkeypatch.setattr(os, "stat", mock_stat)
@@ -124,18 +128,44 @@ def test_manager_handles_ls_path(monkeypatch):
         assert path == "lib"
         return ["sensor.py", "subfolder"]
 
-    def mock_stat(path):
-        if path.endswith("subfolder"):
-            return (0x4000, 0)  # S_IFDIR
-        return (0x8000, 0)  # S_IFREG
-
     import os
+    original_stat = os.stat
+
+    def mock_stat(path, *args, **kwargs):
+        path_str = str(path)
+        if path_str.endswith("subfolder") or path_str.endswith("subfolder/"):
+            return os.stat_result((0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        if path_str.endswith("sensor.py"):
+            return os.stat_result((0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        return original_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "listdir", mock_listdir)
     monkeypatch.setattr(os, "stat", mock_stat)
 
     manager.poll(core)
     assert core.transport.sent_messages == [b"LS_OK:sensor.py,subfolder/"]
+
+
+def test_manager_handles_ls_file(monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+
+    core.transport.incoming_queue.append(b"LS:lib/Boot.py")
+
+    import os
+    original_stat = os.stat
+
+    def mock_stat(path, *args, **kwargs):
+        path_str = str(path)
+        if path_str.endswith("lib/Boot.py") or path_str == "lib/Boot.py":
+            return os.stat_result((0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", mock_stat)
+
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"LS_OK:Boot.py"]
 
 
 def test_manager_handles_ls_error(monkeypatch):

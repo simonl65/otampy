@@ -24,15 +24,9 @@ class OTALogger:
             return
         MIN_TS_WIDTH = 18
         MIN_LEVEL_WIDTH = 8
-        line = (
-            "["
-            + (str(time())[:MIN_TS_WIDTH]).ljust(MIN_TS_WIDTH, " ")
-            + "] ["
-            + (level[:MIN_LEVEL_WIDTH]).ljust(MIN_LEVEL_WIDTH, " ")
-            + "] "
-            + msg
-            + "\n"
-        )
+        ts_part = f"{str(time())[:MIN_TS_WIDTH]:<18}"
+        level_part = f"{level[:MIN_LEVEL_WIDTH]:<8}"
+        line = "[" + ts_part + "] [" + level_part + "] " + msg + "\n"
         try:
             with open(self.path, "a") as f:
                 f.write(line)

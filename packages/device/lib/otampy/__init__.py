@@ -1,7 +1,7 @@
 """Device-side OTAmpy package."""
 
 from .core import UartRequiredError
-from .logger import OTALogger, PrintLogger
+from .logger import OTALogger
 from .ota import OTA, OTABoot, OTAManager
 
 __all__ = [
@@ -9,6 +9,5 @@ __all__ = [
     "OTABoot",
     "OTAManager",
     "OTALogger",
-    "PrintLogger",
     "UartRequiredError",
 ]

@@ -53,24 +53,3 @@ class OTALogger:
 
     def critical(self, msg):
         self._log("CRITICAL", msg)
-
-
-class PrintLogger:
-    """
-    Fallback logger that prints everything directly to stdout
-    """
-
-    def debug(self, msg):
-        print(f"[DEBUG   ] {msg}")
-
-    def info(self, msg):
-        print(f"[INFO    ] {msg}")
-
-    def warning(self, msg):
-        print(f"[WARNING ] {msg}")
-
-    def error(self, msg):
-        print(f"[ERROR   ] {msg}")
-
-    def critical(self, msg):
-        print(f"[CRITICAL] {msg}")

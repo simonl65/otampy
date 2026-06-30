@@ -1,5 +1,6 @@
 import builtins
 
+import device_otampy.logger as logger_module
 from device_otampy.logger import (  # pyright: ignore[reportMissingImports]
     OTALogger,
 )
@@ -76,3 +77,29 @@ def test_logger_falls_back_to_stdout_when_file_write_fails(capsys):
 
     captured = capsys.readouterr()
     assert "[ERROR   ] failed write" in captured.out
+
+
+def test_ensure_dir_creates_parent_directories(tmp_path):
+    log_file = tmp_path / "logs" / "nested" / "ota.log"
+    logger_module.OTALogger._ensure_dir(str(log_file))
+
+    assert (tmp_path / "logs").is_dir()
+    assert (tmp_path / "logs" / "nested").is_dir()
+
+
+def test_ensure_logfile_at_root_is_handled_correctly(tmp_path, monkeypatch):
+    log_file = tmp_path / "ota.log"
+    original_open = builtins.open
+
+    def redirect_root_log(path, *args, **kwargs):
+        if path == "/ota.log":
+            path = log_file
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", redirect_root_log)
+
+    logger = OTALogger(path="/ota.log", level="DEBUG")
+    logger.error("root message")
+
+    assert log_file.exists()
+    assert "root message" in log_file.read_text()

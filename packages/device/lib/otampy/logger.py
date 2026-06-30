@@ -6,25 +6,6 @@ except ImportError:
     import os as _os
 
 
-def _make_parent_dirs(path):
-    parts = path.split("/")
-    if len(parts) < 2:
-        return
-
-    current = "/" if path.startswith("/") else ""
-    for part in parts[:-1]:
-        if not part:
-            continue
-        if current in ("", "/"):
-            current += part
-        else:
-            current += "/" + part
-        try:
-            _os.mkdir(current)
-        except OSError:
-            pass
-
-
 class OTALogger:
     """
     Fallback logging - Logs messages to a file or stdout on failure
@@ -41,6 +22,35 @@ class OTALogger:
     def __init__(self, path="ota.log", level="ERROR"):
         self.path = path
         self.min_level = self.log_levels.get(level, 3)
+        self._ensure_dir(path)
+
+    @staticmethod
+    def _ensure_dir(filename: str) -> None:
+        # MicroPython's `os` module has no `os.path` and (on most ports) no
+        # `os.makedirs`, so directories are split out and created manually,
+        # one path segment at a time.
+        idx = filename.rfind("/")
+        if idx <= 0:
+            return  # no directory component (or root-level file)
+
+        directory = filename[:idx]
+        parts = directory.split("/")
+        path = ""
+        for part in parts:
+            if not part:
+                # leading slash on an absolute path
+                path = "/"
+                continue
+            if path == "" or path == "/":
+                path = part if path == "" else "/" + part
+            else:
+                path = path + "/" + part
+            if path == "/":
+                continue
+            try:
+                _os.mkdir(path)
+            except OSError:
+                pass  # already exists (or can't be created; caught later on write)
 
     def _log(self, level, msg):
         current_level_num = self.log_levels.get(level, 3)
@@ -52,7 +62,6 @@ class OTALogger:
         level_part = f"{level[:MIN_LEVEL_WIDTH]:<8}"
         line = "[" + ts_part + "] [" + level_part + "] " + msg + "\n"
         try:
-            _make_parent_dirs(self.path)
             with open(self.path, "a") as f:
                 f.write(line)
         except OSError:

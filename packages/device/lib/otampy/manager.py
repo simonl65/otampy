@@ -43,6 +43,7 @@ def poll(core, callback=None):
         core.transport.send(b"SR_OK")
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
+        core.logger.debug("UPDATE REQUESTED")
         if callback is not None:
             callback()
         flag = core.config.get("UPDATE_REQUEST_FLAG_FILE")
@@ -116,6 +117,7 @@ def poll(core, callback=None):
     elif cmd == "MEM":
         try:
             import gc
+
             ram_free = gc.mem_free()
             ram_alloc = gc.mem_alloc()
         except (ImportError, AttributeError):
@@ -130,6 +132,8 @@ def poll(core, callback=None):
             flash_free = 0
             flash_total = 0
 
-        core.transport.send(f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode())
+        core.transport.send(
+            f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode()
+        )
     else:
         core.logger.warning(f"Unknown command received: {cmd}")

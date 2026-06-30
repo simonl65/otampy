@@ -1,0 +1,136 @@
+import machine
+
+try:
+    import uos as _os
+except ImportError:
+    import os as _os
+
+
+def poll(core, callback=None):
+    """
+    Check the transport (UART) for any pending commands and dispatch them.
+    """
+    packet = core.transport.read()
+    if not packet:
+        return
+
+    # Decode if bytes
+    if isinstance(packet, bytes):
+        try:
+            cmd_str = packet.decode("utf-8").strip()
+        except UnicodeError:
+            core.logger.warning("Received invalid non-UTF-8 packet")
+            return
+    else:
+        cmd_str = str(packet).strip()
+
+    if not cmd_str:
+        return
+
+    # Parse command and optional arguments
+    parts = cmd_str.split(":")
+    cmd = parts[0]
+
+    if cmd == "PING":
+        core.transport.send(b"PONG")
+    elif cmd == "RB":
+        core.transport.send(b"RB_OK")
+        machine.reset()
+    elif cmd == "SR":
+        core.transport.send(b"SR_OK")
+        machine.soft_reset()
+    elif cmd == "UPDATE_REQUEST":
+        core.logger.debug("UPDATE REQUESTED")
+        if callback is not None:
+            callback()
+        flag = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+        if flag:
+            try:
+                with open(flag, "w") as f:
+                    f.write("1")
+            except OSError as e:
+                core.logger.error(f"Failed to write flag file: {e}")
+        core.transport.send(b"REBOOTING")
+        machine.reset()
+    elif cmd == "LS":
+        path = parts[1] if len(parts) > 1 and parts[1] else "."
+        try:
+            try:
+                stat = _os.stat(path)
+                is_dir = stat[0] & 0x4000
+            except OSError:
+                is_dir = True
+
+            if not is_dir:
+                name = path.split("/")[-1]
+                core.transport.send(f"LS_OK:{name}".encode())
+            else:
+                items = []
+                for item in _os.listdir(path):
+                    full_path = path.rstrip("/") + "/" + item
+                    try:
+                        st = _os.stat(full_path)
+                        item_is_dir = st[0] & 0x4000
+                        if item_is_dir:
+                            items.append(item + "/")
+                        else:
+                            items.append(item)
+                    except OSError:
+                        items.append(item)
+                items_str = ",".join(items)
+                core.transport.send(f"LS_OK:{items_str}".encode())
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "CAT":
+        if len(parts) < 2 or not parts[1]:
+            core.transport.send(b"ERROR:Missing filename")
+            return
+        filename = parts[1]
+        try:
+            try:
+                stat = _os.stat(filename)
+                is_dir = stat[0] & 0x4000
+            except OSError:
+                is_dir = False
+
+            if is_dir:
+                core.transport.send(b"ERROR:EISDIR")
+            else:
+                with open(filename) as f:  # noqa: SIM115
+                    content = f.read()
+                core.transport.send(f"CAT_OK:{content}".encode())
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "RM":
+        if len(parts) < 2 or not parts[1]:
+            core.transport.send(b"ERROR:Missing filename")
+            return
+        filename = parts[1]
+        try:
+            _os.remove(filename)
+            core.transport.send(b"RM_OK")
+        except OSError as e:
+            core.transport.send(f"ERROR:{e}".encode())
+    elif cmd == "MEM":
+        try:
+            import gc
+
+            ram_free = gc.mem_free()
+            ram_alloc = gc.mem_alloc()
+        except (ImportError, AttributeError):
+            ram_free = 0
+            ram_alloc = 0
+
+        try:
+            stat = _os.statvfs("/")
+            flash_free = stat[4] * stat[0]
+            flash_total = stat[2] * stat[0]
+        except (AttributeError, OSError):
+            flash_free = 0
+            flash_total = 0
+
+        core.transport.send(
+            f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode()
+        )
+    else:
+        core.logger.warning(f"Unknown command received: {cmd}")

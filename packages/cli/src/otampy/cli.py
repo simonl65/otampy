@@ -272,8 +272,8 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
                 except Exception:
                     pass
             last_err = e
-            if attempt < 2:
-                time.sleep(0.5 * (2**attempt))
+            if attempt < 1:
+                time.sleep(0.25 * (2**attempt))
 
     raise click.ClickException(str(last_err))
 

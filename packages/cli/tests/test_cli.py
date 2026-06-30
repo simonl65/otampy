@@ -129,7 +129,7 @@ def test_cli_ping_response_timeout():
     assert mock_serial.call_count == 3
     mock_serial.assert_any_call("/dev/ttyFake", baudrate=57600, timeout=2.0)
     assert mock_device_instance.send.call_count == 3
-    assert mock_sleep.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 def test_cli_hard_reboot():
@@ -646,7 +646,7 @@ def test_cli_query_connection_retry():
         # Serial should have been called 3 times
         assert call_count == 3
         # Should have slept twice (exponential backoff)
-        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_count == 1
 
 
 def test_cli_port_interactive(tmp_path):

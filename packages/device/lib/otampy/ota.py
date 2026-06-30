@@ -16,7 +16,29 @@ class OTA:
         """
         from .boot import run
 
-        run(self._core, callback)
+        try:
+            run(self._core, callback)
+        finally:
+            import gc
+            import sys
+
+            package_name = __package__
+            module_name = package_name + ".boot"
+            package = sys.modules.get(package_name)
+
+            try:
+                del sys.modules[module_name]
+            except KeyError:
+                pass
+
+            if package is not None:
+                try:
+                    delattr(package, "boot")
+                except AttributeError:
+                    pass
+
+            del run
+            gc.collect()
 
     def poll(self, callback=None):
         """

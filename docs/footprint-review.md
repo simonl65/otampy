@@ -60,6 +60,23 @@ Both `otampy.boot` and `otampy.manager` were present in `sys.modules`. The
 a reliable live-heap baseline. This was not a controlled cold boot, so it is
 diagnostic evidence only and does not complete FP-01.
 
+### Post-F1 device diagnostic
+
+The lazy-import facade was deployed to the same board and verified by SHA-256.
+The boot-only checkpoint and two normal-lifecycle runs produced:
+
+| Lifecycle | Allocated after GC | Free after GC | `boot` loaded | `manager` loaded |
+| --- | ---: | ---: | --- | --- |
+| Boot only | 25,440 bytes | 180,000 bytes | Yes | No |
+| Normal boot-to-main, run 1 | 29,952 bytes | 175,488 bytes | Yes | Yes |
+| Normal boot-to-main, run 2 | 29,952 bytes | 175,488 bytes | Yes | Yes |
+
+The isolated mode behaviour works on the target. The normal lifecycle was
+1,248 bytes lower than the single pre-refactor post-GC diagnostic, but this is
+not yet a controlled A/B benchmark and should not be treated as a guaranteed
+saving. More importantly, boot-to-main still retains both modules, confirming
+the remaining half of FP-05.
+
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
 rounding. It is not the size of `packages/device` alone.
@@ -104,7 +121,10 @@ imported its codec, protocol, constants, logging compatibility, `math`, and
 **Progress (2026-06-30):** `OTA.boot()` and `OTA.poll()` now import their
 respective handlers on demand, with an isolated regression test proving that
 package import loads neither operating-mode module. This prevents
-runtime-only and boot-only consumers from loading the unused mode.
+runtime-only and boot-only consumers from loading the unused mode. A Pico W
+boot-only measurement confirmed that `manager` was absent from `sys.modules`;
+two normal boot-to-main measurements confirmed that both modes remain
+resident.
 
 This is not sufficient for the normal boot-to-main lifecycle: once imported,
 modules remain in `sys.modules`. The boot-only module must either be released
@@ -326,8 +346,9 @@ contents, configuration, and lifecycle checkpoint.
 - [ ] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
   state** (F1). Preserve the public facade and test both lifecycle paths.
   **Progress (2026-06-30):** mode imports are lazy and covered by an isolated
-  regression test; on-device lifecycle measurement and boot-state release
-  remain.
+  regression test. Target measurements confirm isolated boot avoids
+  `manager`, while normal boot-to-main retains both modes; boot-state release
+  remains.
 - [ ] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
   mapping, module, empty, and custom config inputs.
 - [ ] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response

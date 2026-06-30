@@ -15,6 +15,16 @@ def test_logger_accepts_path(tmp_path):
     assert "[CRITICAL] critical message" in content
 
 
+def test_logger_creates_missing_parent_dirs(tmp_path):
+    log_file = tmp_path / "logs" / "nested" / "ota.log"
+    logger = OTALogger(str(log_file), level="DEBUG")
+
+    logger.error("nested message")
+
+    content = log_file.read_text()
+    assert "[ERROR   ] nested message" in content
+
+
 def test_logger_writes_all_levels_to_file(tmp_path):
     log_file = tmp_path / "ota.log"
     logger = OTALogger(path=str(log_file), level="DEBUG")

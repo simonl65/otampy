@@ -52,6 +52,22 @@ def test_boot_releases_boot_module_and_can_run_again():
         assert not hasattr(package, "boot")
 
 
+def test_boot_release_does_not_require_package_global():
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    ota_module = sys.modules["device_otampy.ota"]
+    package_name = ota_module.__package__
+    del ota_module.__package__
+
+    try:
+        with patch("device_otampy.boot.run"):
+            ota.boot()
+    finally:
+        ota_module.__package__ = package_name
+
+    assert "device_otampy.boot" not in sys.modules
+
+
 def test_facade_delegates_to_boot_and_manager():
     uart = shared.FakeUART()
     ota = OTA(uart)

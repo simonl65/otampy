@@ -25,7 +25,8 @@ class OTA:
             import gc
             import sys
 
-            package_name = __package__
+            ota_module_name = OTA.__module__
+            package_name = ota_module_name[: ota_module_name.rfind(".")]
             module_name = package_name + ".boot"
             package = sys.modules.get(package_name)
 

@@ -44,6 +44,22 @@ The supplied snapshot is:
 uncollected garbage. A before/after-GC pair is needed before treating it as a
 steady-state baseline.
 
+### Initial device diagnostic
+
+On 2026-06-30, the pre-refactor deployment was inspected on a Raspberry Pi
+Pico W running MicroPython v1.28.0. After connecting to the already-running
+application:
+
+| Checkpoint | Allocated | Free |
+| --- | ---: | ---: |
+| Before explicit GC | 150,864 bytes | 54,576 bytes |
+| After `gc.collect()` | 31,200 bytes | 174,240 bytes |
+
+Both `otampy.boot` and `otampy.manager` were present in `sys.modules`. The
+119,664-byte post-GC reduction confirms that an uncollected `MEM` result is not
+a reliable live-heap baseline. This was not a controlled cold boot, so it is
+diagnostic evidence only and does not complete FP-01.
+
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
 rounding. It is not the size of `packages/device` alone.

@@ -1,7 +1,41 @@
+import importlib.util
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
-import shared
 from device_otampy.ota import OTA
+
+import shared
+
+
+def test_package_import_does_not_eagerly_load_operating_modes():
+    package_name = "lazy_device_otampy"
+    package_path = Path(__file__).resolve().parents[1] / "lib" / "otampy"
+    spec = importlib.util.spec_from_file_location(
+        package_name,
+        package_path / "__init__.py",
+        submodule_search_locations=[str(package_path)],
+    )
+    assert spec is not None
+    assert spec.loader is not None
+
+    package = importlib.util.module_from_spec(spec)
+    sys.modules[package_name] = package
+    try:
+        spec.loader.exec_module(package)
+
+        mode_modules = {
+            f"{package_name}.boot",
+            f"{package_name}.manager",
+        }
+        loaded_mode_modules = mode_modules.intersection(sys.modules)
+        assert loaded_mode_modules == set()
+    finally:
+        for module_name in tuple(sys.modules):
+            if module_name == package_name or module_name.startswith(
+                package_name + "."
+            ):
+                del sys.modules[module_name]
 
 
 def test_facade_delegates_to_boot_and_manager():

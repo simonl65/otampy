@@ -27,13 +27,13 @@ led = Pin("LED", Pin.OUT)
 
 led.on()
 
-logger.debug(b"BOOTING...\n")
+logger.debug("BOOTING...")
+
 
 # Check for an update request flag before continuing to the main application.
 ota.boot()
 
-logger.debug(b"Loading MAIN...\n")
-
-sleep_ms(200)
 
 led.off()
+
+logger.debug("Loading MAIN...")

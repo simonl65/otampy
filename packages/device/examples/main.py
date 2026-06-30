@@ -1,4 +1,6 @@
 import config
+import machine  # pyright: ignore[reportMissingImports]
+import utime as time  # pyright: ignore[reportMissingImports]
 from log_to_file import Logger  # type: ignore
 
 from Blink import Blink  # type: ignore
@@ -6,10 +8,6 @@ from otampy import OTA, OTALogger  # type: ignore
 
 blink = Blink(pin="LED")
 
-try:
-    import utime as time  # pyright: ignore[reportMissingImports]
-except ImportError:
-    import time
 
 logger = Logger(
     config.LOG_FILE, "main.py", level=config.LOG_LEVEL
@@ -17,34 +15,13 @@ logger = Logger(
 
 logger.debug("Main start-up...")
 
-# Initialize UART 1 on pins GP4 (TX) and GP5 (RX)
-try:
-    import machine  # pyright: ignore[reportMissingImports]
 
-    uart = machine.UART(
-        config.OTA_PORT,
-        baudrate=config.OTA_BAUDRATE,
-        tx=machine.Pin(config.OTA_TX_PIN),
-        rx=machine.Pin(config.OTA_RX_PIN),
-    )
-except ImportError:
-    logger.warning(
-        "Not running on MicroPython, or machine module not available."
-    )
-    logger.debug("Falling back to a mock/simulated serial for demonstration.")
-
-    # This part is just so the script can be 'run' on desktop without errors
-    class MockUART:
-        def write(self, data):
-            return len(data)
-
-        def read(self, n=None):
-            return b"Mock read data"
-
-        def any(self):
-            return 0
-
-    uart = MockUART()
+uart = machine.UART(
+    config.OTA_PORT,
+    baudrate=config.OTA_BAUDRATE,
+    tx=machine.Pin(config.OTA_TX_PIN),
+    rx=machine.Pin(config.OTA_RX_PIN),
+)
 
 
 # =============================================================================

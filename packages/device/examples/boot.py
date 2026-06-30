@@ -5,7 +5,6 @@ Example boot.py
 import config
 from log_to_file import Logger  # type: ignore
 from machine import UART, Pin  # type: ignore
-from utime import sleep_ms  # type: ignore
 
 from otampy import OTA, OTALogger  # type: ignore
 

@@ -198,10 +198,15 @@ def test_cli_soft_reset_aborted():
         mock_device.assert_not_called()
 
 
-def test_cli_command_missing_port():
+def test_cli_command_missing_port(tmp_path):
     """Test that running connection commands without -p raises an error."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["ping"])
+    with (
+        mock.patch.dict("os.environ", {}, clear=True),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+    ):
+        result = runner.invoke(cli, ["ping"])
     assert result.exit_code != 0
     assert "Error: Missing serial port" in result.output
 

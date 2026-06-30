@@ -1,5 +1,3 @@
-from . import boot as _boot
-from . import manager as _manager
 from .core import OTACore
 
 
@@ -16,10 +14,14 @@ class OTA:
         """
         Call from boot.py. Checks for any pending updates and applies them.
         """
-        _boot.run(self._core, callback)
+        from .boot import run
+
+        run(self._core, callback)
 
     def poll(self, callback=None):
         """
         Call from main.py loop. Polls UART transport for incoming OTA commands.
         """
-        _manager.poll(self._core, callback)
+        from .manager import poll
+
+        poll(self._core, callback)

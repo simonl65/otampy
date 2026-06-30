@@ -77,20 +77,23 @@ Impact labels are directional until the baseline tasks are complete:
   repeated moderate allocations.
 - **Low:** small constants/references or cosmetic source savings.
 
-### F1. The public import eagerly loads both operating modes
+### F1. Operating-mode imports and lifetime
 
 **Impact:** High steady-state RAM; medium flash opportunity  
-**Evidence:** `otampy.__init__` imports `OTA`; `ota.py` imports both `boot` and
-`manager` at module load; `core.py` imports `Urst`; URST then imports its codec,
-protocol, constants, logging compatibility, `math`, and `sys`.
+**Initial evidence:** `otampy.__init__` imported `OTA`; `ota.py` imported both
+`boot` and `manager` at module load; `core.py` imported `Urst`; URST then
+imported its codec, protocol, constants, logging compatibility, `math`, and
+`sys`.
 
-Therefore `from otampy import OTA` loads the update engine even in a
-runtime-only process, and loads the runtime manager during boot. Lazy imports
-inside `OTA.boot()` and `OTA.poll()` are the first step, but are not sufficient
-alone: imported modules remain in `sys.modules`. The boot-only module must
-either be released after a normal boot (where supported and measured), or the
-boot/runtime entry points must be arranged so they do not share a long-lived
-module graph.
+**Progress (2026-06-30):** `OTA.boot()` and `OTA.poll()` now import their
+respective handlers on demand, with an isolated regression test proving that
+package import loads neither operating-mode module. This prevents
+runtime-only and boot-only consumers from loading the unused mode.
+
+This is not sufficient for the normal boot-to-main lifecycle: once imported,
+modules remain in `sys.modules`. The boot-only module must either be released
+after a normal boot (where supported and measured), or the boot/runtime entry
+points must be arranged so they do not share a long-lived module graph.
 
 Compatibility gate: keep `from otampy import OTA`, `OTA.boot()`, and
 `OTA.poll()` working exactly as today.
@@ -306,6 +309,9 @@ contents, configuration, and lifecycle checkpoint.
   (F2). Measure cold boot and post-GC application heap.
 - [ ] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
   state** (F1). Preserve the public facade and test both lifecycle paths.
+  **Progress (2026-06-30):** mode imports are lazy and covered by an isolated
+  regression test; on-device lifecycle measurement and boot-state release
+  remain.
 - [ ] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
   mapping, module, empty, and custom config inputs.
 - [ ] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response

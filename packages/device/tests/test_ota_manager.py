@@ -29,21 +29,6 @@ def test_manager_handles_ping():
     assert core.transport.sent_messages == [b"PONG"]
 
 
-def test_manager_handles_bootloader():
-    uart = shared.FakeUART()
-    logger = shared.FakeLogger()
-    core = OTACore(uart, logger=logger)
-
-    core.transport.incoming_queue.append(b"BL")
-
-    # Clear mock history
-    machine.bootloader.reset_mock()
-
-    manager.poll(core)
-    assert core.transport.sent_messages == [b"BL_OK"]
-    machine.bootloader.assert_called_once()
-
-
 def test_manager_handles_reboot():
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
@@ -100,6 +85,7 @@ def test_manager_handles_ls_default(monkeypatch):
         return ["boot.py", "main.py", "lib"]
 
     import os
+
     original_stat = os.stat
 
     def mock_stat(path, *args, **kwargs):
@@ -129,6 +115,7 @@ def test_manager_handles_ls_path(monkeypatch):
         return ["sensor.py", "subfolder"]
 
     import os
+
     original_stat = os.stat
 
     def mock_stat(path, *args, **kwargs):
@@ -154,6 +141,7 @@ def test_manager_handles_ls_file(monkeypatch):
     core.transport.incoming_queue.append(b"LS:lib/Boot.py")
 
     import os
+
     original_stat = os.stat
 
     def mock_stat(path, *args, **kwargs):
@@ -240,12 +228,15 @@ def test_manager_handles_cat_directory(monkeypatch):
     core.transport.incoming_queue.append(b"CAT:lib")
 
     import os
+
     original_stat = os.stat
 
     def mock_stat(path, *args, **kwargs):
         path_str = str(path)
         if path_str.endswith("lib") or path_str == "lib":
-            return os.stat_result((0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0))  # S_IFDIR
+            return os.stat_result(
+                (0x4000, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            )  # S_IFDIR
         return original_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "stat", mock_stat)
@@ -365,4 +356,6 @@ def test_manager_handles_mem(monkeypatch):
 
     manager.poll(core)
 
-    assert core.transport.sent_messages == [b"MEM_OK:50000,30000,524288,1048576"]
+    assert core.transport.sent_messages == [
+        b"MEM_OK:50000,30000,524288,1048576"
+    ]

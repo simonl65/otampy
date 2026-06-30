@@ -35,7 +35,6 @@ class AliasedGroup(click.Group):
         # Map aliases to the target subcommand names
         aliases = {
             "help": "h",
-            "bootloader": "bl",
             "reboot": "rb",
             "reset": "sr",
             "softreset": "sr",
@@ -304,25 +303,6 @@ def ping(ctx: click.Context) -> None:
     _console().print("[yellow]Sending PING to device...[/yellow]")
     _send_command(ctx, b"PING", b"PONG")
     _console().print("[green]Success: Received PONG from device.[/green]")
-
-
-@cli.command(name="bl")
-@click.pass_context
-def bootloader(ctx: click.Context) -> None:
-    """Reboots device into its bootloader mode."""
-    if not click.confirm(
-        click.style(
-            "Are you sure you want to reboot the device into bootloader mode?",
-            fg="red",
-        ),
-        default=False,
-    ):
-        _console().print("[yellow]Aborted.[/yellow]")
-        return
-    _console().print(
-        "[yellow]Rebooting device into bootloader mode...[/yellow]"
-    )
-    _send_command(ctx, b"BL", b"BL_OK")
 
 
 @cli.command(name="rb")

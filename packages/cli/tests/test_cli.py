@@ -52,39 +52,6 @@ def test_cli_ping():
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
-def test_cli_bootloader():
-    """Test the 'bl' command (reboot into bootloader) with confirmation."""
-    runner = CliRunner()
-    with (
-        mock.patch("serial.Serial") as mock_serial,
-        mock.patch("urst.Urst") as mock_device,
-    ):
-        mock_device_instance = mock_device.return_value
-        mock_device_instance.read.return_value = b"BL_OK"
-
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"], input="y\n")
-        assert result.exit_code == 0
-        assert "Rebooting device into bootloader mode" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
-        mock_device_instance.send.assert_called_once_with(b"BL")
-
-
-def test_cli_bootloader_aborted():
-    """Test that the 'bl' command defaults to aborting when not confirmed."""
-    runner = CliRunner()
-    with (
-        mock.patch("serial.Serial") as mock_serial,
-        mock.patch("urst.Urst") as mock_device,
-    ):
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "bl"], input="\n")
-        assert result.exit_code == 0
-        assert "Aborted." in result.output
-        mock_serial.assert_not_called()
-        mock_device.assert_not_called()
-
-
 def test_cli_ping_response_within_timeout():
     """Test delayed PONG reception within the transport timeout."""
     runner = CliRunner()

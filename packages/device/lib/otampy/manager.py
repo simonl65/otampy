@@ -33,9 +33,6 @@ def poll(core, callback=None):
 
     if cmd == "PING":
         core.transport.send(b"PONG")
-    elif cmd == "BL":
-        core.transport.send(b"BL_OK")
-        machine.bootloader()
     elif cmd == "RB":
         core.transport.send(b"RB_OK")
         machine.reset()

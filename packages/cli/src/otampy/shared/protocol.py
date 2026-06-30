@@ -10,7 +10,6 @@ OTA_COMMANDS = [
     "CAT",
     "LS",
     "RM",
-    "BL",
     "RB",
     "SR",
     "UPDATE_REQUEST",

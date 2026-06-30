@@ -16,6 +16,9 @@ class OTA:
         """
         from .boot import run
 
+        # boot.py and main.py share an interpreter, so always release the
+        # boot-only module after this call. Removing both import references
+        # lets GC reclaim its bytecode; a later boot() call can re-import it.
         try:
             run(self._core, callback)
         finally:

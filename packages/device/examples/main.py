@@ -54,7 +54,7 @@ def do_application_stuff():
     """Placeholder function for main application logic."""
     data = uart.read()
     if data:
-        logger.debug(f"data: {data.decode()} ({data})")
+        logger.debug(f"data: {data}")
 
 
 def prepare_for_shutdown():
@@ -93,7 +93,15 @@ def main():
         logger.info("KeyboardInterrupt: Shutting down application.")
 
     except Exception as ex:
-        logger.error(f"Application exception: {ex}")
+        import io
+        import sys
+
+        s = io.StringIO()
+        sys.print_exception(
+            ex,
+            s,  # type: ignore
+        )
+        logger.error("Application exception:\n%s", s.getvalue())  # type: ignore
 
     finally:
         logger.info("Shutdown started.")

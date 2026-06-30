@@ -38,6 +38,20 @@ def test_package_import_does_not_eagerly_load_operating_modes():
                 del sys.modules[module_name]
 
 
+def test_boot_releases_boot_module_and_can_run_again():
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    package = sys.modules["device_otampy"]
+
+    for _ in range(2):
+        with patch("device_otampy.boot.run") as mock_boot_run:
+            ota.boot()
+            mock_boot_run.assert_called_once_with(ota._core, None)
+
+        assert "device_otampy.boot" not in sys.modules
+        assert not hasattr(package, "boot")
+
+
 def test_facade_delegates_to_boot_and_manager():
     uart = shared.FakeUART()
     ota = OTA(uart)

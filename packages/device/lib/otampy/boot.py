@@ -51,6 +51,7 @@ def _make_dirs(path):
 
 def _run_default_update_loop(core):
     import binascii
+    import gc
     import hashlib
 
     import machine
@@ -58,15 +59,14 @@ def _run_default_update_loop(core):
     # Caching Attributes for speed
     send = core.transport.send
     read = core.transport.read
+    collect = gc.collect
 
-    session = {
-        "files": [],  # list of (target_path, staging_path)
-        "current_file": None,
-        "current_hash": None,
-        "current_size": 0,
-        "written_bytes": 0,
-        "hasher": None,
-    }
+    # Flat target/staging pairs avoid a tuple allocation for every manifest
+    # entry while preserving the complete transaction for atomic commit.
+    files = []
+    current_file = None
+    current_hash = None
+    hasher = None
 
     while True:
         packet = read()
@@ -74,22 +74,34 @@ def _run_default_update_loop(core):
             _sleep_ms(10)
             continue
 
-        if isinstance(packet, bytes):
-            try:
-                cmd_str = packet.decode("utf-8").strip()
-            except UnicodeError:
-                send(b"ERROR:Invalid UTF-8")
-                continue
+        if not isinstance(packet, bytes):
+            packet = str(packet).strip().encode()
         else:
-            cmd_str = str(packet).strip()
+            packet = packet.strip()
 
-        if not cmd_str:
+        if not packet:
             continue
 
-        parts = cmd_str.split(":")
-        cmd = parts[0]
+        # ASCII protocol packets stay as bytes. Validate UTF-8 only when a
+        # high-bit byte makes the old decode error behaviour relevant.
+        for value in packet:
+            if value & 0x80:
+                try:
+                    packet.decode("utf-8")
+                except UnicodeError:
+                    send(b"ERROR:Invalid UTF-8")
+                    packet = None
+                    collect()
+                    break
+                break
+        if packet is None:
+            continue
 
-        if cmd == "UPDATE_START":
+        separator = packet.find(b":")
+        cmd = packet if separator < 0 else packet[:separator]
+
+        if cmd == b"UPDATE_START":
+            parts = packet.split(b":", 2)
             if len(parts) < 3:
                 send(b"ERROR:Invalid manifest")
                 continue
@@ -101,24 +113,31 @@ def _run_default_update_loop(core):
                 continue
 
             free_bytes = _get_free_space()
-            if free_bytes < total_bytes * 1.5:
-                send(b"SPACE_ERR")
-            else:
-                send(b"SPACE_OK")
+            response = (
+                b"SPACE_ERR"
+                if free_bytes * 2 < total_bytes * 3
+                else b"SPACE_OK"
+            )
+            packet = None
+            parts = None
+            collect()
+            send(response)
 
-        elif cmd == "FILE_START":
+        elif cmd == b"FILE_START":
+            parts = packet.split(b":", 3)
             if len(parts) < 4:
                 send(b"ERROR:Invalid file start")
                 continue
-            path = parts[1]
             try:
-                size = int(parts[2])
-            except ValueError:
+                path = parts[1].decode("utf-8")
+                int(parts[2])
+            except (UnicodeError, ValueError):
                 send(b"ERROR:Invalid file size")
                 continue
             sha256 = parts[3]
 
-            staging_path = _resolve_path(path) + ".ota"
+            target_path = _resolve_path(path)
+            staging_path = target_path + ".ota"
             try:
                 _make_dirs(staging_path)
                 """ SIM115:
@@ -128,60 +147,85 @@ def _run_default_update_loop(core):
                   iterations until closed by a FILE_END packet.
                 """
                 f = open(staging_path, "wb")  # noqa: SIM115
-                session["current_file"] = f
-                session["current_hash"] = sha256
-                session["current_size"] = size
-                session["written_bytes"] = 0
-                session["hasher"] = hashlib.sha256()
-                session["files"].append((_resolve_path(path), staging_path))
+                current_file = f
+                current_hash = sha256
+                hasher = hashlib.sha256()
+                files.append(target_path)
+                files.append(staging_path)
+                packet = None
+                parts = None
+                path = None
+                sha256 = None
+                target_path = None
+                staging_path = None
+                collect()
                 send(b"FILE_OK")
             except OSError as e:
                 send(f"FILE_ERR:{e}".encode())
 
-        elif cmd == "CHUNK":
+        elif cmd == b"CHUNK":
+            parts = packet.split(b":", 2)
             if len(parts) < 3:
                 send(b"ERROR:Invalid chunk packet")
                 continue
             seq = parts[1]
             b64_data = parts[2]
 
-            if not session["current_file"]:
+            if current_file is None:
                 send(b"ERROR:No active file session")
                 continue
 
+            decoded = None
             try:
                 decoded = binascii.a2b_base64(b64_data)
-                session["current_file"].write(decoded)
-                session["hasher"].update(decoded)
-                session["written_bytes"] += len(decoded)
-                send(f"CHUNK_ACK:{seq}".encode())
+                current_file.write(decoded)
+                hasher.update(decoded)
+                response = b"CHUNK_ACK:" + seq
+                packet = None
+                parts = None
+                seq = None
+                b64_data = None
+                decoded = None
+                collect()
+                send(response)
             except Exception as e:
                 send(f"CHUNK_ERR:{e}".encode())
 
-        elif cmd == "FILE_END":
-            if not session["current_file"]:
+        elif cmd == b"FILE_END":
+            if current_file is None:
                 send(b"ERROR:No active file session")
                 continue
 
-            session["current_file"].close()
-            session["current_file"] = None
+            current_file.close()
+            current_file = None
 
-            digest = session["hasher"].digest()
-            hex_hash = binascii.hexlify(digest).decode("utf-8")
+            digest = hasher.digest()
+            hex_hash = binascii.hexlify(digest)
 
-            if hex_hash == session["current_hash"]:
-                send(b"FILE_OK")
+            if hex_hash == current_hash:
+                response = b"FILE_OK"
             else:
+                staging_path = files[-1]
                 try:
-                    _os.remove(session["files"][-1][1])
+                    _os.remove(staging_path)
                 except OSError:
                     pass
-                session["files"].pop()
-                send(b"FILE_ERR:Checksum mismatch")
+                files.pop()
+                files.pop()
+                response = b"FILE_ERR:Checksum mismatch"
+            packet = None
+            current_hash = None
+            hasher = None
+            digest = None
+            hex_hash = None
+            collect()
+            send(response)
 
-        elif cmd == "UPDATE_COMMIT":
+        elif cmd == b"UPDATE_COMMIT":
             success = True
-            for target, staging in session["files"]:
+            for index in range(0, len(files), 2):
+                target = files[index]
+                staging = files[index + 1]
                 try:
                     try:
                         _os.remove(target)

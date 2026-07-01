@@ -332,8 +332,15 @@ flight. A fresh-interpreter rerun of the FP-03 matrix measured:
 The other four stress cases retained their expected results, including the
 92,944-byte many-file update peak. Host regressions reassemble every emitted
 fragment and prove exact logical payloads for both large cases; existing
-ordinary-response tests remain byte-for-byte unchanged. The separate OTA UART
-adapter was unavailable for a physical CLI round trip.
+ordinary-response tests remain byte-for-byte unchanged.
+
+The physical OTA UART round trip was completed later on 2026-07-01. CLI
+`PING` returned `PONG`; fragmented `CAT config.py` reassembled 491 bytes with
+SHA-256 `5acd4e06427a59b9afcd97655915fda057558525096de4e98ce24f3dca4930cf`,
+exactly matching the file on the Pico; and fragmented `LS /fp-stress-dir`
+reassembled a 255-byte payload containing exactly 64 expected filenames. The
+temporary directory was removed and verified absent, the board was reset, and
+a final physical CLI `PING` returned `PONG`.
 
 The deployed `manager.py` matched SHA-256
 `e2b63d6c5cff64ff4758982ea21e0b79a025df4b0aab20e03fc1c548f7283b4c`.

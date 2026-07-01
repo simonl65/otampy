@@ -23,6 +23,7 @@ def test_boot_no_flag_file(tmp_path):
 
     boot.run(core, callback=callback)
     assert not callback_called
+    assert core._transport is None
     assert (
         "debug",
         "Checking for update request flag file...",

@@ -21,6 +21,7 @@ def test_package_import_does_not_eagerly_load_operating_modes():
 
     package = importlib.util.module_from_spec(spec)
     sys.modules[package_name] = package
+    urst_module = sys.modules.pop("urst")
     try:
         spec.loader.exec_module(package)
 
@@ -30,7 +31,9 @@ def test_package_import_does_not_eagerly_load_operating_modes():
         }
         loaded_mode_modules = mode_modules.intersection(sys.modules)
         assert loaded_mode_modules == set()
+        assert "urst" not in sys.modules
     finally:
+        sys.modules["urst"] = urst_module
         for module_name in tuple(sys.modules):
             if module_name == package_name or module_name.startswith(
                 package_name + "."

@@ -1,5 +1,3 @@
-from urst import Urst  # type: ignore
-
 from .logger import OTALogger
 
 
@@ -43,4 +41,17 @@ class OTACore:
             raise UartRequiredError("Must provide a UART object")
 
         self.uart = uart
-        self.transport = Urst(self.uart)
+        self._transport = None
+
+    @property
+    def transport(self):
+        """Create the reliable transport only when an operating mode needs it."""
+        if self._transport is None:
+            from urst import Urst  # type: ignore
+
+            self._transport = Urst(self.uart)
+        return self._transport
+
+    @transport.setter
+    def transport(self, transport):
+        self._transport = transport

@@ -1,7 +1,9 @@
 # Device footprint review
 
-**Status:** Initial review  
-**Last updated:** 2026-06-30  
+**Status:** Baseline measurement in progress
+
+**Last updated:** 2026-07-01
+
 **Scope:** `packages/device`, its deployed examples, and the device-side
 dependencies installed by `otampy deploy`
 
@@ -202,6 +204,37 @@ blocks even when it removes relatively little source text.
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
 rounding. It is not the size of `packages/device` alone.
+
+### FP-03 peak-memory stress matrix
+
+On 2026-07-01, `packages/device/tools/footprint_stress.py` ran on the same
+Pico W and MicroPython v1.28.0 firmware as the other baseline probes. It
+samples `gc.mem_free()` from inside transport `read()` and `send()`, including
+the point where the complete response and production temporaries are still
+live on the caller's stack. This is a repeatable protocol-boundary minimum,
+not a VM allocator trace; future comparisons must use the same harness.
+
+| Scenario | Free before | Minimum free | Peak consumed | Free after cleanup | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `CAT`, valid 16 KiB file | 162,704 | 111,440 | 51,264 | 162,704 | PASS |
+| `LS`, directory with 64 files | 162,704 | 139,040 | 23,664 | 162,704 | PASS |
+| Update, maximum 256-byte chunk | 161,808 | 157,856 | 3,952 | 161,808 | PASS |
+| Update, 32-file manifest | 161,616 | 68,672 | 92,944 | 161,616 | PASS |
+| Update, failed checksum | 161,312 | 158,080 | 3,232 | 161,312 | PASS |
+| Interrupted update after one chunk | 161,008 | 158,032 | 2,976 | 161,008 | PASS |
+
+The functional assertions verify the `CAT` response size, prefix, and content;
+all 64 unique `LS` entries; update acknowledgements and committed content;
+checksum rejection and staging-file removal; and that interruption leaves an
+uncommitted staging file without creating its target. The many-file transport
+generates packets on demand so the probe does not retain an artificial packet
+queue in the measured heap.
+
+All three approved fixture roots (`/fp-stress-cat.txt`,
+`/fp-stress-dir`, and `/fp-stress-update`) were verified absent after the run.
+Each scenario returned exactly to its own pre-run free-heap value after
+cleanup and collection. The board was reset and responded over its USB REPL;
+the separate OTA UART adapter was not present for a `PONG` check.
 
 ### Known source payload
 
@@ -459,10 +492,13 @@ contents, configuration, and lifecycle checkpoint.
   log allocations, filesystem geometry, clean-deploy total, and 90,112 bytes
   of filesystem/directory overhead are recorded. The generated two-block log
   exactly explains the change from 196 KiB to 204 KiB used.
-- [ ] **FP-03 — Add a peak-memory stress matrix.** Include a large valid file
+- [x] **FP-03 — Add a peak-memory stress matrix.** Include a large valid file
   for `CAT`, a large directory for `LS`, maximum update chunk, many-file
   manifest, failed checksum, and interrupted update. **Done when:** each case
   reports minimum free heap and passes existing functional assertions.
+  **Completed (2026-07-01):** all six cases pass on the target, report
+  protocol-boundary minimum free heap, verify their functional invariants,
+  clean their fixtures, and recover their per-scenario baseline after GC.
 
 ### P1 — remove the dominant costs
 

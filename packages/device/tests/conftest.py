@@ -14,6 +14,8 @@ class FakeUrst:
         self.uart = uart
         self.sent_messages = []
         self.incoming_queue = []
+        self._msg_id = 0
+        self.protocol = FakeProtocol()
 
     def send(self, data):
         self.sent_messages.append(data)
@@ -24,7 +26,23 @@ class FakeUrst:
         return None
 
 
-sys.modules["urst"] = types.SimpleNamespace(Urst=FakeUrst)  # pyright: ignore[reportArgumentType]
+class FakeProtocol:
+    def __init__(self):
+        self.sent_fragments = []
+
+    def send_reliable(self, frame_type, payload):
+        self.sent_fragments.append((frame_type, bytes(payload)))
+        return True
+
+
+fake_constants = types.SimpleNamespace(
+    FRAME_FRAG=0x04,
+    MAX_PAYLOAD_SIZE=200,
+)
+sys.modules["urst"] = types.SimpleNamespace(  # pyright: ignore[reportArgumentType]
+    Urst=FakeUrst,
+    constants=fake_constants,
+)
 
 # 2. Create a virtual package 'device_otampy' to avoid conflict with CLI
 LIB_PATH = Path(__file__).resolve().parent.parent / "lib"

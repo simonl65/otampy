@@ -83,11 +83,55 @@ class _Transport:
             raise RuntimeError(response)
 
 
+class _FragmentProtocol:
+    def __init__(self, transport):
+        self._transport = transport
+        self._message_id = None
+        self._next_fragment = 0
+        self._total_fragments = 0
+
+    def send_reliable(self, frame_type, payload):
+        transport = self._transport
+        transport._sample()
+        if frame_type != 0x04 or len(payload) < 4:
+            raise RuntimeError("invalid streamed response frame")
+
+        message_id = payload[0]
+        fragment_number = payload[1]
+        total_fragments = payload[2]
+        data_length = payload[3]
+        if (
+            data_length != len(payload) - 4
+            or fragment_number != self._next_fragment
+        ):
+            raise RuntimeError("invalid streamed response sequence")
+        if self._message_id is None:
+            self._message_id = message_id
+            self._total_fragments = total_fragments
+        elif (
+            message_id != self._message_id
+            or total_fragments != self._total_fragments
+        ):
+            raise RuntimeError("streamed response header changed")
+
+        transport._accept_fragment(payload[4:])
+        self._next_fragment += 1
+        if self._next_fragment == self._total_fragments:
+            transport._finish_fragments()
+        return True
+
+
 class _ManagerTransport(_Transport):
-    def __init__(self, gc, packet, validator):
+    def __init__(self, gc, packet, validator, stream_validator=None):
         super().__init__(gc)
         self._packet = packet
         self._validator = validator
+        self._stream_validator = stream_validator
+        self._fragment_response = (
+            None if stream_validator is not None else bytearray()
+        )
+        self._msg_id = 0
+        self.protocol = _FragmentProtocol(self)
         self.response_seen = False
 
     def read(self):
@@ -100,6 +144,39 @@ class _ManagerTransport(_Transport):
         self._sample()
         self._validator(response)
         self.response_seen = True
+
+    def _accept_fragment(self, fragment):
+        if self._stream_validator is not None:
+            self._stream_validator.feed(fragment)
+        else:
+            self._fragment_response.extend(fragment)
+
+    def _finish_fragments(self):
+        if self._stream_validator is not None:
+            self._stream_validator.finish()
+        else:
+            self._validator(bytes(self._fragment_response))
+            self._fragment_response = None
+        self.response_seen = True
+
+
+class _CatStreamValidator:
+    def __init__(self):
+        self._offset = 0
+
+    def feed(self, fragment):
+        prefix = b"CAT_OK:"
+        offset = self._offset
+        for value in fragment:
+            expected = prefix[offset] if offset < len(prefix) else ord("x")
+            if value != expected:
+                raise RuntimeError("CAT streamed-content assertion failed")
+            offset += 1
+        self._offset = offset
+
+    def finish(self):
+        if self._offset != 7 + 16 * 1024:
+            raise RuntimeError("CAT streamed-length assertion failed")
 
 
 class _PacketTransport(_Transport):
@@ -194,7 +271,12 @@ def _cat_scenario(gc, manager):
         ):
             raise RuntimeError("CAT functional assertion failed")
 
-    transport = _ManagerTransport(gc, f"CAT:{_CAT_PATH}".encode(), validate)
+    transport = _ManagerTransport(
+        gc,
+        f"CAT:{_CAT_PATH}".encode(),
+        validate,
+        _CatStreamValidator(),
+    )
     manager.poll(_Core(transport))
     if not transport.response_seen:
         raise RuntimeError("CAT did not respond")

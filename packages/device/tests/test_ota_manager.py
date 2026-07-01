@@ -183,10 +183,14 @@ def test_manager_handles_cat(monkeypatch):
     core.transport.incoming_queue.append(b"CAT:boot.py")
 
     class MockFile:
-        def read(self):
-            return "import config"
+        def read(self, _size):
+            if self.exhausted:
+                return b""
+            self.exhausted = True
+            return b"import config"
 
         def __enter__(self):
+            self.exhausted = False
             return self
 
         def __exit__(self, *args):
@@ -194,13 +198,75 @@ def test_manager_handles_cat(monkeypatch):
 
     def mock_open(path, mode="r"):
         assert path == "boot.py"
-        assert mode == "r"
+        assert mode == "rb"
         return MockFile()
 
+    import os
+
     monkeypatch.setattr(builtins, "open", mock_open)
+    monkeypatch.setattr(
+        os,
+        "stat",
+        lambda _path: os.stat_result(
+            (0x8000, 0, 0, 0, 0, 0, len(b"import config"), 0, 0, 0)
+        ),
+    )
 
     manager.poll(core)
     assert core.transport.sent_messages == [b"CAT_OK:import config"]
+
+
+def _reassemble_fragments(transport):
+    fragments = transport.protocol.sent_fragments
+    assert fragments
+    message_id = fragments[0][1][0]
+    total = fragments[0][1][2]
+    assert len(fragments) == total
+
+    payload = bytearray()
+    for index, (frame_type, fragment) in enumerate(fragments):
+        assert frame_type == 0x04
+        assert fragment[0] == message_id
+        assert fragment[1] == index
+        assert fragment[2] == total
+        assert fragment[3] == len(fragment[4:])
+        assert len(fragment[4:]) <= 194
+        payload.extend(fragment[4:])
+    return bytes(payload)
+
+
+def test_manager_streams_large_cat_without_full_transport_message(tmp_path):
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == []
+    assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
+
+
+def test_manager_streams_large_directory_without_full_transport_message(
+    tmp_path,
+):
+    directory = tmp_path / "many"
+    directory.mkdir()
+    expected = set()
+    for index in range(64):
+        name = f"file-{index:02d}.txt"
+        (directory / name).touch()
+        expected.add(name.encode())
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"LS:{directory}".encode())
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == []
+    response = _reassemble_fragments(core.transport)
+    assert response.startswith(b"LS_OK:")
+    assert set(response[6:].split(b",")) == expected
 
 
 def test_manager_handles_cat_error(monkeypatch):

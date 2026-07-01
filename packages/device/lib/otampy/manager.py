@@ -5,7 +5,129 @@ try:
 except ImportError:
     import os as _os
 
+from urst import constants as _urst_constants  # type: ignore
+
 from .core import _get_config
+
+_MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
+_MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
+
+
+def _send_response(transport, total_size, parts):
+    if total_size > _MAX_RESPONSE_SIZE:
+        transport.send(b"ERROR:Response too large")
+        return
+
+    protocol = getattr(transport, "protocol", None)
+    if (
+        total_size <= _MAX_FRAGMENT_DATA
+        or protocol is None
+        or not hasattr(transport, "_msg_id")
+    ):
+        response = bytearray()
+        for part in parts:
+            response.extend(part)
+        transport.send(bytes(response))
+        return
+
+    total_fragments = (
+        total_size + _MAX_FRAGMENT_DATA - 1
+    ) // _MAX_FRAGMENT_DATA
+    message_id = transport._msg_id
+    transport._msg_id = (message_id + 1) & 0xFF
+    fragment = bytearray()
+    fragment_number = 0
+
+    for part in parts:
+        offset = 0
+        while offset < len(part):
+            remaining = _MAX_FRAGMENT_DATA - len(fragment)
+            end = offset + remaining
+            fragment.extend(part[offset:end])
+            offset = end
+            if len(fragment) == _MAX_FRAGMENT_DATA:
+                header = bytes(
+                    (
+                        message_id,
+                        fragment_number,
+                        total_fragments,
+                        len(fragment),
+                    )
+                )
+                if not protocol.send_reliable(
+                    _urst_constants.FRAME_FRAG,
+                    header + bytes(fragment),
+                ):
+                    return
+                fragment_number += 1
+                del fragment[:]
+
+    if fragment:
+        header = bytes(
+            (
+                message_id,
+                fragment_number,
+                total_fragments,
+                len(fragment),
+            )
+        )
+        protocol.send_reliable(
+            _urst_constants.FRAME_FRAG,
+            header + bytes(fragment),
+        )
+
+
+def _file_parts(source):
+    yield b"CAT_OK:"
+    while True:
+        chunk = source.read(_MAX_FRAGMENT_DATA)
+        if not chunk:
+            return
+        yield chunk
+
+
+def _directory_entries(path):
+    try:
+        entries = _os.ilistdir(path)
+        detailed = True
+    except AttributeError:
+        entries = _os.listdir(path)
+        detailed = False
+
+    for entry in entries:
+        if detailed:
+            item = entry[0]
+            item_is_dir = entry[1] & 0x4000
+        else:
+            item = entry
+            full_path = path.rstrip("/") + "/" + item
+            try:
+                item_is_dir = _os.stat(full_path)[0] & 0x4000
+            except OSError:
+                item_is_dir = False
+        if item_is_dir:
+            item += "/"
+        yield item.encode()
+
+
+def _directory_size(path):
+    total_size = len(b"LS_OK:")
+    for entry_count, entry in enumerate(_directory_entries(path)):
+        total_size += len(entry)
+        if entry_count:
+            total_size += 1
+    return total_size
+
+
+def _directory_parts(path):
+    yield b"LS_OK:"
+    first = True
+    for entry in _directory_entries(path):
+        if first:
+            first = False
+        else:
+            yield b","
+        yield entry
 
 
 def poll(core, callback=None):
@@ -67,20 +189,12 @@ def poll(core, callback=None):
                 name = path.split("/")[-1]
                 core.transport.send(f"LS_OK:{name}".encode())
             else:
-                items = []
-                for item in _os.listdir(path):
-                    full_path = path.rstrip("/") + "/" + item
-                    try:
-                        st = _os.stat(full_path)
-                        item_is_dir = st[0] & 0x4000
-                        if item_is_dir:
-                            items.append(item + "/")
-                        else:
-                            items.append(item)
-                    except OSError:
-                        items.append(item)
-                items_str = ",".join(items)
-                core.transport.send(f"LS_OK:{items_str}".encode())
+                total_size = _directory_size(path)
+                _send_response(
+                    core.transport,
+                    total_size,
+                    _directory_parts(path),
+                )
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "CAT":
@@ -98,9 +212,13 @@ def poll(core, callback=None):
             if is_dir:
                 core.transport.send(b"ERROR:EISDIR")
             else:
-                with open(filename) as f:  # noqa: SIM115
-                    content = f.read()
-                core.transport.send(f"CAT_OK:{content}".encode())
+                size = _os.stat(filename)[6]
+                with open(filename, "rb") as source:
+                    _send_response(
+                        core.transport,
+                        len(b"CAT_OK:") + size,
+                        _file_parts(source),
+                    )
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "RM":

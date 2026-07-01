@@ -63,7 +63,7 @@ def _send_response(transport, total_size, parts):
                 ):
                     return
                 fragment_number += 1
-                del fragment[:]
+                fragment = bytearray()
                 collect()
         if part_number & 7 == 7:
             collect()
@@ -81,7 +81,7 @@ def _send_response(transport, total_size, parts):
             _urst_constants.FRAME_FRAG,
             header + bytes(fragment),
         )
-        del fragment[:]
+        fragment = None
         collect()
 
 

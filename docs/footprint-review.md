@@ -70,12 +70,13 @@ The boot-only checkpoint and two normal-lifecycle runs produced:
 | Boot only | 25,440 bytes | 180,000 bytes | Yes | No |
 | Normal boot-to-main, run 1 | 29,952 bytes | 175,488 bytes | Yes | Yes |
 | Normal boot-to-main, run 2 | 29,952 bytes | 175,488 bytes | Yes | Yes |
+| Boot only, after release | 22,064 bytes | 183,376 bytes | No | No |
+| Normal boot-to-main, after release | 26,400 bytes | 179,040 bytes | No | Yes |
 
-The isolated mode behaviour works on the target. The normal lifecycle was
-1,248 bytes lower than the single pre-refactor post-GC diagnostic, but this is
-not yet a controlled A/B benchmark and should not be treated as a guaranteed
-saving. More importantly, boot-to-main still retains both modules, confirming
-the remaining half of FP-05.
+The isolated mode behaviour and explicit boot-module release work on the
+target. Releasing `boot` recovered 3,376 bytes in the boot-only checkpoint and
+3,552 bytes in the normal lifecycle compared with the lazy-import-only
+deployment. The normal application retains only the runtime `manager` module.
 
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
@@ -122,14 +123,10 @@ imported its codec, protocol, constants, logging compatibility, `math`, and
 respective handlers on demand, with an isolated regression test proving that
 package import loads neither operating-mode module. This prevents
 runtime-only and boot-only consumers from loading the unused mode. A Pico W
-boot-only measurement confirmed that `manager` was absent from `sys.modules`;
-two normal boot-to-main measurements confirmed that both modes remain
-resident.
-
-This is not sufficient for the normal boot-to-main lifecycle: once imported,
-modules remain in `sys.modules`. The boot-only module must either be released
-after a normal boot (where supported and measured), or the boot/runtime entry
-points must be arranged so they do not share a long-lived module graph.
+measurement confirmed that `OTA.boot()` removes the boot module from both
+`sys.modules` and the package after use, then collects at the boot/main
+boundary. A later `boot()` call safely re-imports it. Normal runtime retains
+only `manager`.
 
 Compatibility gate: keep `from otampy import OTA`, `OTA.boot()`, and
 `OTA.poll()` working exactly as today.
@@ -343,12 +340,12 @@ contents, configuration, and lifecycle checkpoint.
 
 - [ ] **FP-04 — Defer URST import and construction on the no-flag boot path**
   (F2). Measure cold boot and post-GC application heap.
-- [ ] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
+- [x] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
   state** (F1). Preserve the public facade and test both lifecycle paths.
-  **Progress (2026-06-30):** mode imports are lazy and covered by an isolated
-  regression test. Target measurements confirm isolated boot avoids
-  `manager`, while normal boot-to-main retains both modes; boot-state release
-  remains.
+  **Completed (2026-06-30):** regression tests cover lazy imports, release,
+  repeated calls, and MicroPython's missing `__package__` global. Pico W
+  measurements confirm boot-only retains neither mode and normal runtime
+  retains only `manager`, recovering 3,552 bytes in the measured lifecycle.
 - [ ] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
   mapping, module, empty, and custom config inputs.
 - [ ] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response

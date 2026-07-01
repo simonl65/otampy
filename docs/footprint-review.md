@@ -236,6 +236,40 @@ Each scenario returned exactly to its own pre-run free-heap value after
 cleanup and collection. The board was reset and responded over its USB REPL;
 the separate OTA UART adapter was not present for a `PONG` check.
 
+### FP-04 lazy transport measurement
+
+On 2026-07-01, commit `755b90e` changed `OTACore.transport` to import and
+construct URST on first access. Configuration, logger, UART validation, and
+the public `core.transport` interface are unchanged. Runtime polling and a
+flagged boot still create one cached transport; a no-flag boot never creates
+one.
+
+The FP-01 cold-boot probe was rerun on the same Pico W and MicroPython v1.28.0
+firmware. Values below are allocated bytes immediately after `gc.collect()`:
+
+| Checkpoint | Before FP-04 | After FP-04 | Change |
+| --- | ---: | ---: | ---: |
+| `clean_boot` | 6,448 | 6,448 | 0 |
+| `import_otampy` | 19,216 | 10,160 | -9,056 |
+| `ota_inputs_ready` | 22,416 | 13,392 | -9,024 |
+| `ota_constructed` | 22,816 | 13,552 | -9,264 |
+| `no_flag_boot` | 23,376 | 15,072 | **-8,304** |
+| `first_poll` | 25,440 | 25,616 | +176 |
+| `idle_poll` | 25,440 | 25,616 | +176 |
+
+The identical clean checkpoint confirms a comparable run. The no-update path
+recovers 8,304 bytes, while first polling pays the deferred import and returns
+to effectively the previous application heap. The 176-byte runtime increase
+is the cached property state and accessor bytecode cost; it is deliberately
+paid only by code that actually uses the transport.
+
+The probe exercised no-flag boot followed by first and idle polling. Its
+production `/boot.py` was then restored and verified against SHA-256
+`befeba4209e37170699a9dbdc3470fa32bfbaee8413d7a83f7e4dceb83ffd4f3`.
+The deployed `core.py` matched the committed source SHA-256
+`a4b5674401780389ba3041c70de6df86f6858fe823455339fe6ff8c78a760964`,
+and the board was reset and verified responsive over USB.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
@@ -299,6 +333,12 @@ Make the flag check precede transport import/construction, or lazily create
 `boot.py` and `main.py` share globals. If they do, reuse one UART/logger/OTA;
 if they do not, explicitly discard boot objects and collect before starting
 the application. Do not assume either behaviour across ports without a test.
+
+**Progress (2026-07-01):** `OTACore` now lazily imports and constructs URST on
+first transport access. Target measurements recover 8,304 bytes after a
+no-flag boot, while first polling constructs and caches the same reliable
+transport used previously. UART/logger reuse remains a separate possible
+lifecycle refinement.
 
 Compatibility gate: an update-flag boot must still announce `READY`, perform
 the update, verify hashes, commit, and reset.
@@ -502,8 +542,12 @@ contents, configuration, and lifecycle checkpoint.
 
 ### P1 — remove the dominant costs
 
-- [ ] **FP-04 — Defer URST import and construction on the no-flag boot path**
+- [x] **FP-04 — Defer URST import and construction on the no-flag boot path**
   (F2). Measure cold boot and post-GC application heap.
+  **Completed (2026-07-01):** package import and `OTA` construction no longer
+  load URST; no-flag boot recovers 8,304 bytes after GC, and first/idle polling
+  preserves runtime transport behaviour. Covered by target checkpoints and
+  regression tests in commit `755b90e`.
 - [x] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
   state** (F1). Preserve the public facade and test both lifecycle paths.
   **Completed (2026-06-30):** regression tests cover lazy imports, release,

@@ -129,6 +129,76 @@ acknowledgements, and removed its flag, target, and staging files:
 The three probe paths were verified absent afterward, the board was reset, and
 normal OTA operation was verified with `PONG`.
 
+### FP-02 filesystem inventory
+
+On 2026-07-01, `packages/device/tools/footprint_fs.py` inventoried the running
+device without modifying it. The filesystem geometry was:
+
+| Property | Value |
+| --- | ---: |
+| Block/fragment size | 4,096 bytes |
+| Total blocks | 212 |
+| Free/available blocks | 161 |
+| Used blocks | 51 |
+| Total | 868,352 bytes (848 KiB) |
+| Current used | 208,896 bytes (204 KiB) |
+| Current free | 659,456 bytes (644 KiB) |
+
+Every deployed file was captured:
+
+| File | Logical bytes | Minimum rounded bytes |
+| --- | ---: | ---: |
+| `/boot.py` | 688 | 4,096 |
+| `/config.py` | 491 | 4,096 |
+| `/main.py` | 2,568 | 4,096 |
+| `/lib/Blink.py` | 346 | 4,096 |
+| `/lib/log_to_file/__init__.py` | 5,018 | 8,192 |
+| `/lib/otampy/__init__.py` | 190 | 4,096 |
+| `/lib/otampy/boot.py` | 8,244 | 12,288 |
+| `/lib/otampy/core.py` | 1,308 | 4,096 |
+| `/lib/otampy/logger.py` | 2,319 | 4,096 |
+| `/lib/otampy/manager.py` | 4,204 | 8,192 |
+| `/lib/otampy/ota.py` | 1,584 | 4,096 |
+| `/lib/shared/performance_timer.py` | 966 | 4,096 |
+| `/lib/shared/protocol.py` | 513 | 4,096 |
+| `/lib/urst/__init__.py` | 671 | 4,096 |
+| `/lib/urst/codec_layer.py` | 4,705 | 8,192 |
+| `/lib/urst/constants.py` | 1,106 | 4,096 |
+| `/lib/urst/core_handler.py` | 4,393 | 8,192 |
+| `/lib/urst/protocol_layer.py` | 9,104 | 12,288 |
+| `/lib/urst/transport_layer.py` | 223 | 4,096 |
+| `/logs/ota.log` | 4,957 | 8,192 |
+
+The six directories were `/lib`, `/lib/log_to_file`, `/lib/otampy`,
+`/lib/shared`, `/lib/urst`, and `/logs`. No update flag or `.ota` staging file
+was present.
+
+| Content group | Logical bytes | Rounded file bytes |
+| --- | ---: | ---: |
+| Root application/config | 3,747 | 12,288 |
+| `Blink.py` | 346 | 4,096 |
+| MIP `log_to_file` | 5,018 | 8,192 |
+| OTAmpy | 17,849 | 36,864 |
+| MIP shared helpers | 1,479 | 8,192 |
+| MIP URST | 20,202 | 40,960 |
+| Generated OTA log | 4,957 | 8,192 |
+| **Current total** | **53,598** | **118,784** |
+| **Clean-deploy files (without generated log)** | **48,641** | **110,592** |
+
+The current filesystem is exactly 8,192 bytes above the originally reported
+196 KiB use, matching the two blocks occupied by the generated log. Removing
+that generated allocation mathematically reconciles the original clean
+baseline:
+
+- 49 used blocks = 200,704 bytes (196 KiB);
+- clean deployed files require at least 27 blocks = 110,592 bytes;
+- the remaining 22 blocks = 90,112 bytes are directory, filesystem metadata,
+  and LittleFS allocation overhead.
+
+Consequently the clean deployment occupies about 4.13 times its 48,641 bytes
+of logical content. Module/file consolidation may therefore save whole 4 KiB
+blocks even when it removes relatively little source text.
+
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
 rounding. It is not the size of `packages/device` alone.
@@ -380,11 +450,15 @@ contents, configuration, and lifecycle checkpoint.
   **Completed (2026-07-01):** reusable boot and update probes, all named
   checkpoint results, the exact target/firmware, a fragmentation map, and
   restoration checks are committed.
-- [ ] **FP-02 — Inventory the deployed filesystem.** Capture every file's
+- [x] **FP-02 — Inventory the deployed filesystem.** Capture every file's
   logical size, `statvfs` block size/count, logs, `.ota` files, MIP-installed
   dependency files, and clean-deploy total. Reconcile the 196.0 KB figure.
   **Done when:** known files plus measured filesystem overhead explain the
   clean baseline.
+  **Completed (2026-07-01):** all 20 files and six directories, dependency and
+  log allocations, filesystem geometry, clean-deploy total, and 90,112 bytes
+  of filesystem/directory overhead are recorded. The generated two-block log
+  exactly explains the change from 196 KiB to 204 KiB used.
 - [ ] **FP-03 — Add a peak-memory stress matrix.** Include a large valid file
   for `CAT`, a large directory for `LS`, maximum update chunk, many-file
   manifest, failed checksum, and interrupted update. **Done when:** each case

@@ -380,8 +380,8 @@ def main():
                 raise RuntimeError("interrupted update created its target")
             except OSError:
                 pass
-            if os.stat(_UPDATE_PATH + "/single.ota")[6] != len(b"interrupted"):
-                raise RuntimeError("interrupted staging assertion failed")
+            if os.stat(_UPDATE_PATH + "/single.ota")[0] & 0x4000:
+                raise RuntimeError("interrupted staging path is not a file")
             return transport
 
         _run_measured(

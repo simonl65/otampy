@@ -116,9 +116,18 @@ After result printing, `micropython.mem_info(1)` reported:
 - largest allocated run: 68 blocks;
 - largest free run: 9,917 blocks.
 
-Flagged boot, one update chunk, and update commit remain outstanding because
-they require a controlled write transaction. FP-01 stays open until those
-checkpoints are captured and committed.
+`packages/device/tools/footprint_update.py` then ran a controlled five-byte
+update. It intercepted the updater reset, measured from inside transport
+acknowledgements, and removed its flag, target, and staging files:
+
+| Update checkpoint | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `flagged_boot` | 62,784 | 142,656 | 31,120 | 174,320 | baseline |
+| `update_chunk` | 33,616 | 171,824 | 33,072 | 172,368 | +1,952 |
+| `update_commit` | 33,552 | 171,888 | 33,264 | 172,176 | +192 |
+
+The three probe paths were verified absent afterward, the board was reset, and
+normal OTA operation was verified with `PONG`.
 
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
@@ -362,15 +371,15 @@ contents, configuration, and lifecycle checkpoint.
 
 ### P0 — establish trustworthy baselines
 
-- [ ] **FP-01 — Build a repeatable RAM checkpoint harness.** Record
+- [x] **FP-01 — Build a repeatable RAM checkpoint harness.** Record
   `gc.mem_alloc/free()` before and after `gc.collect()` at: clean boot,
   `import otampy`, `OTA` construction, first/idle poll, no-flag boot, flagged
   boot, one update chunk, update commit, representative `LS`, and
   representative `CAT`. Capture `micropython.mem_info(1)` for fragmentation.
   **Done when:** results and exact board/firmware revision are committed.
-  **Progress (2026-07-01):** the reusable boot probe, safe lifecycle results,
-  fragmentation map, representative `LS`, and representative `CAT` are
-  committed. Flagged boot, update chunk, and update commit remain.
+  **Completed (2026-07-01):** reusable boot and update probes, all named
+  checkpoint results, the exact target/firmware, a fragmentation map, and
+  restoration checks are committed.
 - [ ] **FP-02 — Inventory the deployed filesystem.** Capture every file's
   logical size, `statvfs` block size/count, logs, `.ota` files, MIP-installed
   dependency files, and clean-deploy total. Reconcile the 196.0 KB figure.

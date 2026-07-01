@@ -288,9 +288,8 @@ def help_cmd() -> None:
     """Shows helpful information about OTAmpy and its commands."""
     ctx = click.get_current_context()
     _console().print(
-        "[bold cyan]OTAmpy[/bold cyan] - Over the Air (OTA) File Management CLI"
+        "[bold cyan]OTAmpy[/bold cyan] - Serial Over the Air (OTA) File Management CLI"
     )
-    _console().print("Show helpful information about OTAmpy and its commands.")
     _console().print()
     if ctx.parent:
         _console().print(ctx.parent.get_help())

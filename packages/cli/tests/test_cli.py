@@ -15,7 +15,7 @@ def test_cli_help():
     assert result_help.exit_code == 0
     assert (
         "Show this message and exit." in result_help.output
-        or "Show helpful information" in result_help.output
+        or "Over the Air (OTA) File Management CLI" in result_help.output
     )
 
     # Test -h
@@ -23,13 +23,13 @@ def test_cli_help():
     assert result_h_opt.exit_code == 0
     assert (
         "Show this message and exit." in result_h_opt.output
-        or "Show helpful information" in result_h_opt.output
+        or "Over the Air (OTA) File Management CLI" in result_h_opt.output
     )
 
     # Test 'h' command
     result_h_cmd = runner.invoke(cli, ["h"])
     assert result_h_cmd.exit_code == 0
-    assert "Show helpful information" in result_h_cmd.output
+    assert "Over the Air (OTA) File Management CLI" in result_h_cmd.output
 
 
 def test_cli_ping():

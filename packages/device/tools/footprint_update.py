@@ -78,6 +78,12 @@ class _Core:
         self.transport = transport
 
 
+class _Machine:
+    @staticmethod
+    def reset():
+        pass
+
+
 def _remove_if_present(os, path):
     try:
         os.remove(path)
@@ -98,8 +104,7 @@ def main():
     import gc
     import hashlib
     import os
-
-    import machine
+    import sys
 
     from otampy import boot
 
@@ -121,12 +126,12 @@ def main():
     with open(_FLAG_PATH, "w") as flag_file:
         flag_file.write("1")
 
-    reset = machine.reset
-    machine.reset = lambda: None
+    machine = sys.modules["machine"]
+    sys.modules["machine"] = _Machine()
     try:
         boot.run(core)
     finally:
-        machine.reset = reset
+        sys.modules["machine"] = machine
         _remove_if_present(os, _FLAG_PATH)
         _remove_if_present(os, _TARGET_PATH)
         _remove_if_present(os, _TARGET_PATH + ".ota")

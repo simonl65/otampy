@@ -78,6 +78,48 @@ target. Releasing `boot` recovered 3,376 bytes in the boot-only checkpoint and
 3,552 bytes in the normal lifecycle compared with the lazy-import-only
 deployment. The normal application retains only the runtime `manager` module.
 
+### FP-01 RAM checkpoint baseline
+
+On 2026-07-01, `packages/device/tools/footprint_boot.py` was temporarily
+installed as `/boot.py` on the same Pico W running MicroPython v1.28.0. The
+production boot file was backed up, restored byte-for-byte, and verified with
+SHA-256 `befeba4209e37170699a9dbdc3470fa32bfbaee8413d7a83f7e4dceb83ffd4f3`.
+OTA operation was verified with `PONG` after restoration.
+
+The probe is excluded from normal deployment. Its fixed result buffer and
+bytecode are therefore included in every probe checkpoint; compare future
+results using the same probe and firmware rather than treating `clean_boot` as
+the production application's absolute floor.
+
+| Checkpoint | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `clean_boot` | 8,704 | 196,736 | 6,448 | 198,992 | baseline |
+| `import_otampy` | 40,432 | 165,008 | 19,216 | 186,224 | +12,768 |
+| `ota_inputs_ready` | 26,608 | 178,832 | 22,416 | 183,024 | +3,200 |
+| `ota_constructed` | 23,008 | 182,432 | 22,816 | 182,624 | +400 |
+| `no_flag_boot` | 23,376 | 182,064 | 23,376 | 182,064 | +560 |
+| `first_poll` | 27,600 | 177,840 | 25,440 | 180,000 | +2,064 |
+| `idle_poll` | 25,488 | 179,952 | 25,440 | 180,000 | 0 |
+| `LS /` | 63,760 | 141,680 | 25,792 | 179,648 | operation |
+| `CAT config.py` (491 bytes) | 64,992 | 140,448 | 25,808 | 179,632 | operation |
+
+The deltas are between adjacent post-GC boot-probe checkpoints. `LS` and `CAT`
+were measured independently after a normal reset, successful command, and
+immediate USB-REPL capture. They expose substantial collectible allocation but
+do not measure the in-operation peak; FP-03 owns peak stress testing.
+
+After result printing, `micropython.mem_info(1)` reported:
+
+- stack use: 820 of 7,936 bytes;
+- GC heap: 205,440 total, 27,312 used, 178,128 free;
+- 314 one-block allocations and 66 two-block allocations;
+- largest allocated run: 68 blocks;
+- largest free run: 9,917 blocks.
+
+Flagged boot, one update chunk, and update commit remain outstanding because
+they require a controlled write transaction. FP-01 stays open until those
+checkpoints are captured and committed.
+
 The flash figure comes from `statvfs("/")`. It includes every deployed
 application/dependency/log/staging file plus filesystem metadata and block
 rounding. It is not the size of `packages/device` alone.
@@ -326,6 +368,9 @@ contents, configuration, and lifecycle checkpoint.
   boot, one update chunk, update commit, representative `LS`, and
   representative `CAT`. Capture `micropython.mem_info(1)` for fragmentation.
   **Done when:** results and exact board/firmware revision are committed.
+  **Progress (2026-07-01):** the reusable boot probe, safe lifecycle results,
+  fragmentation map, representative `LS`, and representative `CAT` are
+  committed. Flagged boot, update chunk, and update commit remain.
 - [ ] **FP-02 — Inventory the deployed filesystem.** Capture every file's
   logical size, `statvfs` block size/count, logs, `.ota` files, MIP-installed
   dependency files, and clean-deploy total. Reconcile the 196.0 KB figure.

@@ -5,18 +5,32 @@ class UartRequiredError(Exception):
     pass
 
 
+class _ModuleConfig:
+    """Expose module attributes through the mapping reads OTAmpy uses."""
+
+    __slots__ = ("_source",)
+
+    def __init__(self, source):
+        self._source = source
+
+    def get(self, name, default=None):
+        try:
+            return getattr(self._source, name)
+        except Exception:
+            return default
+
+    def __getitem__(self, name):
+        try:
+            return getattr(self._source, name)
+        except Exception as error:
+            raise KeyError(name) from error
+
+
 def _normalize_config(config):
     if config is None:
         config = {}
     elif not hasattr(config, "get"):
-        normalized = {}
-        for name in dir(config):
-            if name.isupper():
-                try:
-                    normalized[name] = getattr(config, name)
-                except Exception:
-                    pass
-        config = normalized
+        config = _ModuleConfig(config)
     return config
 
 

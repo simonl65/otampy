@@ -56,18 +56,64 @@ def test_core_default_config():
     assert core.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
 
 
-def test_core_normalizes_module_like_config():
+def test_core_populates_defaults_in_provided_empty_mapping():
+    config = {}
+    core = OTACore(shared.FakeUART(), config=config)
+
+    assert core.config is config
+    assert config == {
+        "LOG_LEVEL": "DEBUG",
+        "LOG_FILE": "/logs/ota.log",
+        "UPDATE_REQUEST_FLAG_FILE": "update_requested.flag",
+    }
+
+
+def test_core_keeps_nonempty_mapping_and_custom_settings():
+    custom_value = object()
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": "custom.flag",
+        "CUSTOM_SETTING": custom_value,
+    }
+    core = OTACore(shared.FakeUART(), config=config)
+
+    assert core.config is config
+    assert core.config.get("UPDATE_REQUEST_FLAG_FILE") == "custom.flag"
+    assert core.config["CUSTOM_SETTING"] is custom_value
+
+
+def test_core_keeps_custom_mapping_type():
+    class CustomConfig:
+        def __init__(self):
+            self.values = {"UPDATE_REQUEST_FLAG_FILE": "custom.flag"}
+
+        def get(self, name, default=None):
+            return self.values.get(name, default)
+
+    config = CustomConfig()
+    core = OTACore(shared.FakeUART(), config=config)
+
+    assert core.config is config
+    assert core.config.get("UPDATE_REQUEST_FLAG_FILE") == "custom.flag"
+    assert core.config.get("MISSING", "fallback") == "fallback"
+
+
+def test_core_adapts_module_like_config_without_copying():
+    custom_value = object()
+
     class ConfigModule:
         UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
         LOG_LEVEL = "DEBUG"
         LOG_FILE = "/logs/ota.log"
+        CUSTOM_SETTING = custom_value
 
     uart = shared.FakeUART()
     core = OTACore(uart, config=ConfigModule)
 
+    assert core.config._source is ConfigModule
     assert core.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
     assert core.config["LOG_LEVEL"] == "DEBUG"
     assert core.config["LOG_FILE"] == "/logs/ota.log"
-    assert (
-        core.config.get("UPDATE_REQUEST_FLAG_FILE") == "update_requested.flag"
-    )
+    assert core.config.get("CUSTOM_SETTING") is custom_value
+    assert core.config.get("MISSING", "fallback") == "fallback"
+    with pytest.raises(KeyError):
+        core.config["MISSING"]

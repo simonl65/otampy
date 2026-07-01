@@ -5,33 +5,11 @@ class UartRequiredError(Exception):
     pass
 
 
-class _ModuleConfig:
-    """Expose module attributes through the mapping reads OTAmpy uses."""
-
-    __slots__ = ("_source",)
-
-    def __init__(self, source):
-        self._source = source
-
-    def get(self, name, default=None):
-        try:
-            return getattr(self._source, name)
-        except Exception:
-            return default
-
-    def __getitem__(self, name):
-        try:
-            return getattr(self._source, name)
-        except Exception as error:
-            raise KeyError(name) from error
-
-
-def _normalize_config(config):
-    if config is None:
-        config = {}
-    elif not hasattr(config, "get"):
-        config = _ModuleConfig(config)
-    return config
+def _get_config(config, name, default=None):
+    getter = getattr(config, "get", None)
+    if getter is not None:
+        return getter(name, default)
+    return getattr(config, name, default)
 
 
 class OTACore:
@@ -41,7 +19,8 @@ class OTACore:
     """
 
     def __init__(self, uart, config=None, logger=None):
-        config = _normalize_config(config)
+        if config is None:
+            config = {}
         if config == {}:
             config["LOG_LEVEL"] = "DEBUG"
             config["LOG_FILE"] = "/logs/ota.log"

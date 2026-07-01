@@ -5,6 +5,8 @@ try:
 except ImportError:
     import os as _os
 
+from .core import _get_config
+
 
 def poll(core, callback=None):
     """
@@ -43,7 +45,7 @@ def poll(core, callback=None):
         core.logger.debug("UPDATE REQUESTED")
         if callback is not None:
             callback()
-        flag = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+        flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
         if flag:
             try:
                 with open(flag, "w") as f:

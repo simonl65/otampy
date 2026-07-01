@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from device_otampy.core import OTACore, UartRequiredError
+from device_otampy.core import OTACore, UartRequiredError, _get_config
 
 import shared
 
@@ -97,7 +97,7 @@ def test_core_keeps_custom_mapping_type():
     assert core.config.get("MISSING", "fallback") == "fallback"
 
 
-def test_core_adapts_module_like_config_without_copying():
+def test_core_keeps_module_like_config_without_copying():
     custom_value = object()
 
     class ConfigModule:
@@ -109,11 +109,12 @@ def test_core_adapts_module_like_config_without_copying():
     uart = shared.FakeUART()
     core = OTACore(uart, config=ConfigModule)
 
-    assert core.config._source is ConfigModule
-    assert core.config["UPDATE_REQUEST_FLAG_FILE"] == "update_requested.flag"
-    assert core.config["LOG_LEVEL"] == "DEBUG"
-    assert core.config["LOG_FILE"] == "/logs/ota.log"
-    assert core.config.get("CUSTOM_SETTING") is custom_value
-    assert core.config.get("MISSING", "fallback") == "fallback"
-    with pytest.raises(KeyError):
-        core.config["MISSING"]
+    assert core.config is ConfigModule
+    assert (
+        _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
+        == "update_requested.flag"
+    )
+    assert _get_config(core.config, "LOG_LEVEL") == "DEBUG"
+    assert _get_config(core.config, "LOG_FILE") == "/logs/ota.log"
+    assert _get_config(core.config, "CUSTOM_SETTING") is custom_value
+    assert _get_config(core.config, "MISSING", "fallback") == "fallback"

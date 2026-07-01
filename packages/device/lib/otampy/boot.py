@@ -3,6 +3,8 @@ try:
 except ImportError:
     import os as _os
 
+from .core import _get_config
+
 
 def _sleep_ms(ms):
     try:
@@ -196,7 +198,10 @@ def _run_default_update_loop(core):
             else:
                 send(b"COMMIT_ERR")
 
-            flag_file = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+            flag_file = _get_config(
+                core.config,
+                "UPDATE_REQUEST_FLAG_FILE",
+            )
             if flag_file:
                 try:
                     _os.remove(flag_file)
@@ -245,7 +250,7 @@ def run(core, callback=None):
     perform the update, and remove the flag file.
     """
     core.logger.debug("Checking for update request flag file...")
-    flag = core.config.get("UPDATE_REQUEST_FLAG_FILE")
+    flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 
     if not flag:
         core.logger.error("Missing filename for update request flag file")

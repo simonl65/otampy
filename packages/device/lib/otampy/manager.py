@@ -33,12 +33,15 @@ def _send_response(transport, total_size, parts):
     total_fragments = (
         total_size + _MAX_FRAGMENT_DATA - 1
     ) // _MAX_FRAGMENT_DATA
+    import gc
+
+    collect = gc.collect
     message_id = transport._msg_id
     transport._msg_id = (message_id + 1) & 0xFF
     fragment = bytearray()
     fragment_number = 0
 
-    for part in parts:
+    for part_number, part in enumerate(parts):
         offset = 0
         while offset < len(part):
             remaining = _MAX_FRAGMENT_DATA - len(fragment)
@@ -61,6 +64,9 @@ def _send_response(transport, total_size, parts):
                     return
                 fragment_number += 1
                 del fragment[:]
+                collect()
+        if part_number & 7 == 7:
+            collect()
 
     if fragment:
         header = bytes(
@@ -75,6 +81,8 @@ def _send_response(transport, total_size, parts):
             _urst_constants.FRAME_FRAG,
             header + bytes(fragment),
         )
+        del fragment[:]
+        collect()
 
 
 def _file_parts(source):
@@ -111,11 +119,16 @@ def _directory_entries(path):
 
 
 def _directory_size(path):
+    import gc
+
     total_size = len(b"LS_OK:")
     for entry_count, entry in enumerate(_directory_entries(path)):
         total_size += len(entry)
         if entry_count:
             total_size += 1
+        if entry_count & 7 == 7:
+            gc.collect()
+    gc.collect()
     return total_size
 
 

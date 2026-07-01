@@ -304,6 +304,44 @@ and runtime polling. Production `/boot.py` was restored to its established
 SHA-256, all three changed modules matched their committed checksums, and the
 board was reset and verified responsive over USB.
 
+### FP-07 bounded CAT and LS responses
+
+On 2026-07-01, commits `d262479`, `64e2393`, and `633d42f` changed large
+`CAT` and `LS` responses to feed URST's reliable protocol in bounded 194-byte
+logical fragments. The wire-level message remains one `CAT_OK:` or `LS_OK:`
+payload: existing URST receivers reassemble the same bytes as before.
+
+`CAT` now reads a binary file one fragment at a time. `LS` uses `ilistdir`
+where available, walks the directory once to determine the fragment count,
+and walks it again to emit names and separators without building a second
+entry list or joined string. Responses above URST's one-byte fragment-count
+limit return `ERROR:Response too large` instead of failing while constructing
+an invalid header.
+
+MicroPython does not reclaim unreachable temporary frame objects immediately.
+The first target run therefore showed that structural streaming alone still
+accumulated garbage. Collection now occurs after each acknowledged fragment
+and periodically during directory walks, safe points where no frame is in
+flight. A fresh-interpreter rerun of the FP-03 matrix measured:
+
+| Scenario | FP-03 peak | FP-07 peak | Reduction | FP-07 minimum free | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `CAT`, valid 16 KiB file | 51,264 | 4,416 | **46,848 (91.4%)** | 157,248 | PASS |
+| `LS`, directory with 64 files | 23,664 | 2,800 | **20,864 (88.2%)** | 158,864 | PASS |
+
+The other four stress cases retained their expected results, including the
+92,944-byte many-file update peak. Host regressions reassemble every emitted
+fragment and prove exact logical payloads for both large cases; existing
+ordinary-response tests remain byte-for-byte unchanged. The separate OTA UART
+adapter was unavailable for a physical CLI round trip.
+
+The deployed `manager.py` matched SHA-256
+`e2b63d6c5cff64ff4758982ea21e0b79a025df4b0aab20e03fc1c548f7283b4c`.
+Its source grew from 4,244 to 7,501 bytes but remained inside the same 8 KiB
+filesystem allocation, with device free space unchanged at 651,264 bytes.
+All stress fixtures were absent afterward; the board was reset and verified
+responsive over USB.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
@@ -419,6 +457,12 @@ cannot stream safely.
 
 Compatibility gate: the CLI output and protocol payload must remain
 byte-for-byte compatible for ordinary inputs.
+
+**Completed (2026-07-01):** target-side production is bounded to one
+194-byte logical fragment plus URST's frame temporaries, with collection at
+safe fragment boundaries. Target stress peaks fell 91.4% for 16 KiB `CAT` and
+88.2% for 64-entry `LS`; fragment reassembly and ordinary-response regressions
+prove wire compatibility.
 
 ### F5. Update parsing and update-session state create avoidable copies
 
@@ -599,9 +643,12 @@ contents, configuration, and lifecycle checkpoint.
   **Completed (2026-07-01):** all input forms retain their settings without a
   copied dictionary; target lifecycle measurements and 79 host regressions
   pass in commits `43810bd` and `df5ebef`.
-- [ ] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response
+- [x] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response
   production with URST** (F4). Prove the peak no longer scales as multiple
   full-response copies.
+  **Completed (2026-07-01):** bounded URST fragments preserve exact logical
+  payloads and reduce target peaks by 46,848 bytes for `CAT` and 20,864 bytes
+  for `LS`, without consuming another filesystem block.
 - [ ] **FP-08 — Parse update commands as bytes and compact update state**
   (F5). Record peak heap for the stress matrix before and after.
 - [ ] **FP-09 — Define and test a MicroPython-specific URST artifact** (F6).

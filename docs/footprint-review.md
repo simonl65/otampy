@@ -270,6 +270,40 @@ The deployed `core.py` matched the committed source SHA-256
 `a4b5674401780389ba3041c70de6df86f6858fe823455339fe6ff8c78a760964`,
 and the board was reset and verified responsive over USB.
 
+### FP-06 configuration measurement
+
+On 2026-07-01, commits `43810bd` and `df5ebef` removed module configuration
+copying. `OTACore.config` now retains the caller's mapping or module directly;
+one small accessor reads mappings with `.get()` and modules with `getattr()`.
+Empty mappings still receive the same defaults, and custom mappings/settings
+remain intact.
+
+An initial mapping-adapter class was rejected after target measurement: its
+class, methods, and instance cost 320–384 bytes more than the copied
+dictionary. The final function-based design was then measured with the same
+FP-01 probe:
+
+| Checkpoint | After FP-04 | After FP-06 | Change |
+| --- | ---: | ---: | ---: |
+| `clean_boot` | 6,448 | 6,448 | 0 |
+| `import_otampy` | 10,160 | 10,128 | -32 |
+| `ota_inputs_ready` | 13,392 | 13,456 | +64 |
+| `ota_constructed` | 13,552 | 13,536 | -16 |
+| `no_flag_boot` | 15,072 | 14,912 | **-160** |
+| `first_poll` | 25,616 | 25,408 | **-208** |
+| `idle_poll` | 25,616 | 25,408 | **-208** |
+
+The `ota_inputs_ready` checkpoint precedes `OTACore` construction, so its
+64-byte movement is allocator/layout variation rather than retained
+configuration state. The lifecycle checkpoints where configuration is live
+show a small but real reduction. This confirms that a dedicated adapter would
+be over-engineering on this MicroPython build.
+
+The probe exercised the deployed module-style `config.py` through no-flag boot
+and runtime polling. Production `/boot.py` was restored to its established
+SHA-256, all three changed modules matched their committed checksums, and the
+board was reset and verified responsive over USB.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
@@ -355,6 +389,12 @@ attributes, or normalise individual values once into compact fields. This
 removes the temporary `dir()` list and the duplicate dictionary, keys, and
 references while retaining support for both module-style and dict-style
 configuration.
+
+**Completed (2026-07-01):** a shared accessor now reads the original mapping
+or module without copying it. Tests cover default, empty, non-empty, custom
+mapping, module, missing, and extra settings. Target measurements recover 160
+bytes on no-flag boot and 208 bytes after first/idle polling. A class adapter
+was measured and rejected because it increased target heap use.
 
 Compatibility gate: preserve dict configs, module configs, defaults, and
 unknown extra settings.
@@ -554,8 +594,11 @@ contents, configuration, and lifecycle checkpoint.
   repeated calls, and MicroPython's missing `__package__` global. Pico W
   measurements confirm boot-only retains neither mode and normal runtime
   retains only `manager`, recovering 3,552 bytes in the measured lifecycle.
-- [ ] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
+- [x] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
   mapping, module, empty, and custom config inputs.
+  **Completed (2026-07-01):** all input forms retain their settings without a
+  copied dictionary; target lifecycle measurements and 79 host regressions
+  pass in commits `43810bd` and `df5ebef`.
 - [ ] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response
   production with URST** (F4). Prove the peak no longer scales as multiple
   full-response copies.

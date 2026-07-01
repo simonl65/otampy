@@ -26,11 +26,6 @@ def test_cli_help():
         or "Over the Air (OTA) File Management CLI" in result_h_opt.output
     )
 
-    # Test 'h' command
-    result_h_cmd = runner.invoke(cli, ["h"])
-    assert result_h_cmd.exit_code == 0
-    assert "Over the Air (OTA) File Management CLI" in result_h_cmd.output
-
 
 def test_cli_ping():
     """Test the 'ping' command."""

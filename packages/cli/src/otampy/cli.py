@@ -34,7 +34,6 @@ class AliasedGroup(click.Group):
             return rv
         # Map aliases to the target subcommand names
         aliases = {
-            "help": "h",
             "reboot": "rb",
             "reset": "sr",
             "softreset": "sr",
@@ -281,18 +280,6 @@ def _send_command(
     ctx: click.Context, command: bytes, expected_response: bytes
 ) -> None:
     _query(ctx, command, expected_response)
-
-
-@cli.command(name="h")
-def help_cmd() -> None:
-    """Shows helpful information about OTAmpy and its commands."""
-    ctx = click.get_current_context()
-    _console().print(
-        "[bold cyan]OTAmpy[/bold cyan] - Serial Over the Air (OTA) File Management CLI"
-    )
-    _console().print()
-    if ctx.parent:
-        _console().print(ctx.parent.get_help())
 
 
 @cli.command(name="ping")

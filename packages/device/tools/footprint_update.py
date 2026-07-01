@@ -126,12 +126,15 @@ def main():
     with open(_FLAG_PATH, "w") as flag_file:
         flag_file.write("1")
 
-    machine = sys.modules["machine"]
-    sys.modules["machine"] = _Machine()
+    machine = sys.modules.get("machine")
     try:
+        sys.modules["machine"] = _Machine()
         boot.run(core)
     finally:
-        sys.modules["machine"] = machine
+        if machine is None:
+            del sys.modules["machine"]
+        else:
+            sys.modules["machine"] = machine
         _remove_if_present(os, _FLAG_PATH)
         _remove_if_present(os, _TARGET_PATH)
         _remove_if_present(os, _TARGET_PATH + ".ota")

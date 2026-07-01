@@ -85,6 +85,14 @@ def _remove_if_present(os, path):
         pass
 
 
+def _assert_absent(os, path):
+    try:
+        os.stat(path)
+    except OSError:
+        return
+    raise RuntimeError(f"Refusing update probe: {path} already exists")
+
+
 def main():
     import binascii
     import gc
@@ -107,9 +115,9 @@ def main():
     ]
     core = _Core(_Transport(packets, gc))
 
-    _remove_if_present(os, _FLAG_PATH)
-    _remove_if_present(os, _TARGET_PATH)
-    _remove_if_present(os, _TARGET_PATH + ".ota")
+    _assert_absent(os, _FLAG_PATH)
+    _assert_absent(os, _TARGET_PATH)
+    _assert_absent(os, _TARGET_PATH + ".ota")
     with open(_FLAG_PATH, "w") as flag_file:
         flag_file.write("1")
 

@@ -271,7 +271,8 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
             if response.startswith(b"ERROR:"):
                 err_msg = response[6:].decode("utf-8", errors="replace")
                 friendly = _friendly_error(err_msg, command)
-                raise click.ClickException(f"Device error: {friendly}")
+                _console().print(f"[red]Error: {friendly}[/red]")
+                raise SystemExit(1)
 
             if not response.startswith(expected_prefix):
                 resp_str = (

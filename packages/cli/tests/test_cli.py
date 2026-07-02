@@ -331,7 +331,7 @@ def test_cli_friendly_errors():
             )
             assert result.exit_code == 1
             assert (
-                "Device error: No such file or directory: 'lib/Boot.py'"
+                "Error: No such file or directory: 'lib/Boot.py'"
                 in result.output
             )
 
@@ -348,7 +348,7 @@ def test_cli_friendly_errors():
             )
             assert result.exit_code == 1
             assert (
-                "Device error: No such file or directory: 'missing.py'"
+                "Error: No such file or directory: 'missing.py'"
                 in result.output
             )
 
@@ -364,9 +364,7 @@ def test_cli_friendly_errors():
                 cli, ["-p", "/dev/ttyFake", "rm", "system.py"], input="y\n"
             )
             assert result.exit_code == 1
-            assert (
-                "Device error: Permission denied: 'system.py'" in result.output
-            )
+            assert "Error: Permission denied: 'system.py'" in result.output
 
         # 4. CAT command on directory (EISDIR)
         with (
@@ -378,7 +376,7 @@ def test_cli_friendly_errors():
 
             result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "lib"])
             assert result.exit_code == 1
-            assert "Device error: Is a directory: 'lib/'" in result.output
+            assert "Error: Is a directory: 'lib/'" in result.output
 
 
 def test_cli_update_default():

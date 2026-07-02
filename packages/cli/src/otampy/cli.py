@@ -1107,6 +1107,17 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
     help="Install log-to-file for development logging.",
 )
 @click.option(
+    "--bytecode",
+    "--mpy",
+    is_flag=True,
+    help="Deploy target-matched .mpy libraries.",
+)
+@click.option(
+    "--mpy-cross",
+    default="mpy-cross",
+    help="mpy-cross executable or command to use.",
+)
+@click.option(
     "--no-reset",
     is_flag=True,
     help="Skip resetting the device after deployment.",
@@ -1121,6 +1132,8 @@ def deploy_cmd(
     mpremote: str,
     no_mip: bool,
     with_logger: bool,
+    bytecode: bool,
+    mpy_cross: str,
     no_reset: bool,
     dry_run: bool,
 ) -> None:
@@ -1130,6 +1143,8 @@ def deploy_cmd(
         mpremote=mpremote,  # type: ignore
         no_mip=no_mip,  # type: ignore
         with_logger=with_logger,  # type: ignore
+        bytecode=bytecode,  # type: ignore
+        mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
     )
@@ -1143,6 +1158,8 @@ def deploy_cmd(
         deploy.print_deploy_error(error)
         ctx = click.get_current_context()
         ctx.exit(error.returncode or 1)
+    except deploy.BytecodeDeployError as error:
+        raise click.ClickException(str(error)) from error
 
 
 def main() -> None:

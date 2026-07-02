@@ -551,7 +551,9 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "deploy",
                 "--port",
                 "/dev/ttyACM0",
-                "--with-logger",
+                "--bytecode",
+                "--mpy-cross",
+                "uvx custom-cross",
                 "--dry-run",
             ],
         )
@@ -561,7 +563,9 @@ def test_cli_deploy_forwards_to_deploy_module():
     called_args = mock_deploy.call_args.args[0]  # type: ignore
     assert called_args.port == "/dev/ttyACM0"
     assert called_args.no_mip is False
-    assert called_args.with_logger is True
+    assert called_args.with_logger is False
+    assert called_args.bytecode is True
+    assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.no_reset is False
     assert called_args.dry_run is True
 

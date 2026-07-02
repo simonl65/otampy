@@ -249,6 +249,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.port = None
     mock_args.mpremote = "mpremote"
     mock_args.no_mip = True
+    mock_args.bytecode = False
     mock_args.no_reset = True
     mock_args.dry_run = True
 
@@ -312,3 +313,243 @@ def test_no_mip_skips_optional_logger():
 
     assert "mip" not in command
     assert "github:simonl65/log-to-file" not in command
+
+
+def test_bytecode_command_uses_staged_lib_and_skips_mip(tmp_path):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    staged_lib = tmp_path / "lib"
+
+    command = deploy.deploy_command(args, staged_lib)
+
+    assert str(staged_lib) in command
+    assert "mip" not in command
+    assert "github:simonl65/URST-mpy" not in command
+
+
+def test_query_target_mpy_parses_runtime_capabilities():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    result = mock.Mock(
+        returncode=0,
+        stdout=(
+            "unrelated output\n"
+            "OTAMPY_MPY|4870|32|MicroPython v1.28.0\n"
+        ),
+        stderr="",
+    )
+
+    with mock.patch("subprocess.run", return_value=result):
+        target = deploy.query_target_mpy(args)
+
+    assert target.value == 4870
+    assert target.version == 6
+    assert target.small_int_bits == 32
+    assert target.runtime == "MicroPython v1.28.0"
+
+
+def test_query_target_mpy_rejects_missing_support():
+    args = deploy.DeployArgs(
+        port=None,
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    result = mock.Mock(
+        returncode=0,
+        stdout="OTAMPY_MPY|None|32|MicroPython\n",
+        stderr="",
+    )
+
+    with (
+        mock.patch("subprocess.run", return_value=result),
+        pytest.raises(deploy.BytecodeDeployError, match="_mpy"),
+    ):
+        deploy.query_target_mpy(args)
+
+
+def test_validate_mpy_header_rejects_incompatible_version(tmp_path):
+    compiled = tmp_path / "module.mpy"
+    compiled.write_bytes(bytes((ord("M"), 5, 0, 32)))
+    target = deploy.TargetMpy(
+        value=4870,
+        small_int_bits=32,
+        runtime="MicroPython v1.28.0",
+    )
+
+    with pytest.raises(
+        deploy.BytecodeDeployError,
+        match="target requires version 6",
+    ):
+        deploy._validate_mpy_header(compiled, target)
+
+
+def test_validate_mpy_header_rejects_excess_small_int_bits(tmp_path):
+    compiled = tmp_path / "module.mpy"
+    compiled.write_bytes(bytes((ord("M"), 6, 0, 64)))
+    target = deploy.TargetMpy(
+        value=4870,
+        small_int_bits=32,
+        runtime="MicroPython v1.28.0",
+    )
+
+    with pytest.raises(
+        deploy.BytecodeDeployError,
+        match="target supports 32",
+    ):
+        deploy._validate_mpy_header(compiled, target)
+
+
+def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
+    source_lib = tmp_path / "source-lib"
+    (source_lib / "otampy").mkdir(parents=True)
+    (source_lib / "Blink.py").write_text("class Blink: pass\n")
+    (source_lib / "otampy" / "__init__.py").write_text("VALUE = 1\n")
+    (source_lib / "data.bin").write_bytes(b"asset")
+
+    urst_source = tmp_path / "urst-source"
+    urst_source.mkdir()
+    (urst_source / "__init__.py").write_text("class Urst: pass\n")
+
+    destination = tmp_path / "build" / "lib"
+    target = deploy.TargetMpy(
+        value=4870,
+        small_int_bits=32,
+        runtime="MicroPython v1.28.0",
+    )
+    args = deploy.DeployArgs(
+        port=None,
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+        mpy_cross="custom-cross --flag",
+    )
+    calls = []
+
+    def fake_cross(_args, arguments):
+        calls.append(arguments)
+        if arguments == ["--version"]:
+            return mock.Mock(
+                returncode=0,
+                stdout="mpy-cross emitting mpy v6.3",
+                stderr="",
+            )
+        output = Path(arguments[arguments.index("-o") + 1])
+        output.write_bytes(bytes((ord("M"), 6, 0, 32)) + b"payload")
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(deploy, "LIB_DIR", source_lib)
+    monkeypatch.setattr(deploy, "_urst_source_dir", lambda: urst_source)
+    monkeypatch.setattr(deploy, "_run_mpy_cross", fake_cross)
+
+    count = deploy.build_bytecode_lib(args, destination, target)
+
+    assert count == 3
+    assert (destination / "Blink.mpy").is_file()
+    assert (destination / "otampy" / "__init__.mpy").is_file()
+    assert (destination / "urst" / "__init__.mpy").is_file()
+    assert not (destination / "Blink.py").exists()
+    assert (destination / "data.bin").read_bytes() == b"asset"
+    assert any("/lib/Blink.py" in call for call in calls)
+    assert any("/lib/urst/__init__.py" in call for call in calls)
+
+
+def test_bytecode_deploy_rejects_development_logger():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=True,
+        no_reset=False,
+        dry_run=True,
+        bytecode=True,
+    )
+
+    with pytest.raises(
+        deploy.BytecodeDeployError,
+        match="cannot be combined",
+    ):
+        deploy.deploy(args)
+
+
+def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    target = deploy.TargetMpy(
+        value=4870,
+        small_int_bits=32,
+        runtime="MicroPython v1.28.0",
+    )
+    calls = []
+
+    def fake_query(_args):
+        calls.append("query")
+        return target
+
+    def fake_build(_args, lib_dir, received_target):
+        assert lib_dir.name == "lib"
+        assert received_target is target
+        calls.append("build")
+        return 12
+
+    def fake_run(_args, command):
+        assert "mip" not in command
+        assert any("otampy-mpy-" in item for item in command)
+        calls.append("deploy")
+
+    monkeypatch.setattr(deploy, "query_target_mpy", fake_query)
+    monkeypatch.setattr(deploy, "build_bytecode_lib", fake_build)
+    monkeypatch.setattr(deploy, "run_mpremote", fake_run)
+
+    deploy.deploy(args)
+
+    assert calls == ["query", "build", "deploy"]
+
+
+def test_missing_mpy_cross_has_clear_error():
+    args = deploy.DeployArgs(
+        port=None,
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+        mpy_cross="missing-cross",
+    )
+
+    with (
+        mock.patch("subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(
+            deploy.BytecodeDeployError,
+            match="Could not find mpy-cross command",
+        ),
+    ):
+        deploy._run_mpy_cross(args, ["--version"])

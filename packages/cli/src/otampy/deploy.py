@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -105,6 +107,10 @@ class DeployError(Exception):
         self.output = output
 
 
+class BytecodeDeployError(Exception):
+    """Raised when a target-matched bytecode deployment cannot be built."""
+
+
 @dataclass(frozen=True)
 class DeployArgs:
     port: str | None
@@ -113,6 +119,19 @@ class DeployArgs:
     with_logger: bool
     no_reset: bool
     dry_run: bool
+    bytecode: bool = False
+    mpy_cross: str = "mpy-cross"
+
+
+@dataclass(frozen=True)
+class TargetMpy:
+    value: int
+    small_int_bits: int
+    runtime: str
+
+    @property
+    def version(self) -> int:
+        return self.value & 0xFF
 
 
 def mpremote_prefix(args: DeployArgs) -> list[str]:
@@ -143,6 +162,208 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
         print(result.stderr, end="", file=sys.stderr)
 
 
+def query_target_mpy(args: DeployArgs) -> TargetMpy:
+    code = (
+        "import sys\n"
+        "value=getattr(sys.implementation,'_mpy',None)\n"
+        "n=sys.maxsize\n"
+        "bits=1\n"
+        "while n:\n"
+        " bits+=1\n"
+        " n>>=1\n"
+        "print('OTAMPY_MPY|%s|%s|%s' % "
+        "(value,bits,sys.version.replace('|','/')))"
+    )
+    command = [*mpremote_prefix(args), "resume", "+", "exec", code, "+", "reset"]
+    print("$ " + shlex.join(command), flush=True)
+
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        output = (result.stdout or "") + (result.stderr or "")
+        raise DeployError(result.returncode, output)
+
+    for line in result.stdout.splitlines():
+        if not line.startswith("OTAMPY_MPY|"):
+            continue
+        _, value, small_int_bits, runtime = line.split("|", 3)
+        if value == "None":
+            break
+        try:
+            return TargetMpy(
+                value=int(value),
+                small_int_bits=int(small_int_bits),
+                runtime=runtime,
+            )
+        except ValueError:
+            break
+
+    raise BytecodeDeployError(
+        "The target did not report a valid sys.implementation._mpy value."
+    )
+
+
+def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
+    prefix = shlex.split(args.mpy_cross)
+    if not prefix:
+        raise BytecodeDeployError("The mpy-cross command cannot be empty.")
+    return prefix
+
+
+def _run_mpy_cross(
+    args: DeployArgs, arguments: list[str]
+) -> subprocess.CompletedProcess[str]:
+    command = [*_mpy_cross_prefix(args), *arguments]
+    try:
+        return subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise BytecodeDeployError(
+            f"Could not find mpy-cross command: {command[0]!r}. "
+            "Install a compatible compiler or pass --mpy-cross."
+        ) from error
+
+
+def _validate_mpy_header(path: Path, target: TargetMpy) -> None:
+    header = path.read_bytes()[:4]
+    if len(header) != 4 or header[0] != ord("M"):
+        raise BytecodeDeployError(
+            f"{path.name} is not a valid .mpy file."
+        )
+    if header[1] != target.version:
+        raise BytecodeDeployError(
+            f"{path.name} uses .mpy version {header[1]}, but the target "
+            f"requires version {target.version}. Install a compatible "
+            "mpy-cross or pass --mpy-cross."
+        )
+
+    feature_flags = header[2]
+    native_arch = (feature_flags >> 2) & 0x0F
+    if native_arch or feature_flags & 0x40:
+        raise BytecodeDeployError(
+            f"{path.name} unexpectedly contains architecture-specific code."
+        )
+    if header[3] > target.small_int_bits:
+        raise BytecodeDeployError(
+            f"{path.name} requires {header[3]} small-int bits, but the "
+            f"target supports {target.small_int_bits}."
+        )
+
+
+def _compile_module(
+    args: DeployArgs,
+    source: Path,
+    destination: Path,
+    device_source: str,
+    target: TargetMpy,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    arguments = [
+        f"-msmall-int-bits={target.small_int_bits}",
+        "-s",
+        device_source,
+        "-o",
+        str(destination),
+        str(source),
+    ]
+    result = _run_mpy_cross(args, arguments)
+    if result.returncode:
+        output = (result.stdout or "") + (result.stderr or "")
+        raise BytecodeDeployError(
+            f"mpy-cross failed for {source}: {output.strip()}"
+        )
+    _validate_mpy_header(destination, target)
+
+
+def _copy_compiled_tree(
+    args: DeployArgs,
+    source_root: Path,
+    destination_root: Path,
+    device_root: str,
+    target: TargetMpy,
+) -> int:
+    count = 0
+    for source in sorted(source_root.rglob("*")):
+        relative = source.relative_to(source_root)
+        if source.is_dir() or "__pycache__" in relative.parts:
+            continue
+        if source.suffix == ".py":
+            destination = (destination_root / relative).with_suffix(".mpy")
+            device_source = (
+                device_root.rstrip("/") + "/" + relative.as_posix()
+            )
+            _compile_module(
+                args,
+                source,
+                destination,
+                device_source,
+                target,
+            )
+            count += 1
+        elif source.suffix != ".pyc":
+            destination = destination_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+    return count
+
+
+def _urst_source_dir() -> Path:
+    spec = importlib.util.find_spec("urst")
+    locations = None if spec is None else spec.submodule_search_locations
+    if not locations:
+        raise BytecodeDeployError(
+            "Could not locate the installed URST source package."
+        )
+    source_dir = Path(next(iter(locations)))
+    if not source_dir.is_dir():
+        raise BytecodeDeployError(
+            f"Installed URST source directory does not exist: {source_dir}"
+        )
+    return source_dir
+
+
+def build_bytecode_lib(
+    args: DeployArgs,
+    destination: Path,
+    target: TargetMpy,
+) -> int:
+    result = _run_mpy_cross(args, ["--version"])
+    if result.returncode:
+        output = (result.stdout or "") + (result.stderr or "")
+        raise BytecodeDeployError(
+            f"Could not run mpy-cross: {output.strip()}"
+        )
+
+    count = _copy_compiled_tree(
+        args,
+        LIB_DIR,
+        destination,
+        "/lib",
+        target,
+    )
+    count += _copy_compiled_tree(
+        args,
+        _urst_source_dir(),
+        destination / "urst",
+        "/lib/urst",
+        target,
+    )
+    compiler_version = (result.stdout or result.stderr).strip()
+    print(
+        f"Built {count} target-matched .mpy modules "
+        f"with {compiler_version}."
+    )
+    return count
+
+
 def validate_deploy_sources() -> None:
     """Ensure local deploy sources exist before any destructive device operation."""
     missing = [
@@ -167,7 +388,10 @@ def validate_deploy_sources() -> None:
     raise SystemExit(1)
 
 
-def deploy_command(args: DeployArgs) -> list[str]:
+def deploy_command(
+    args: DeployArgs,
+    lib_dir: Path = LIB_DIR,
+) -> list[str]:
     command = [
         "resume",
         "rm",
@@ -176,14 +400,14 @@ def deploy_command(args: DeployArgs) -> list[str]:
         "+",
         "cp",
         "-r",
-        str(LIB_DIR),
+        str(lib_dir),
         str(CONFIG_FILE),
         str(MAIN_FILE),
         str(BOOT_FILE),
         ":",
     ]
 
-    if not args.no_mip:
+    if not args.bytecode and not args.no_mip:
         command.extend(("+", "mip", "install", *MIP_PACKAGES))
         if args.with_logger:
             command.append(LOGGER_MIP_PACKAGE)
@@ -207,7 +431,55 @@ def _remove_pycache_dirs() -> None:
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources()
     _remove_pycache_dirs()
-    run_mpremote(args, deploy_command(args))
+    if not args.bytecode:
+        run_mpremote(args, deploy_command(args))
+        return
+
+    if args.with_logger:
+        raise BytecodeDeployError(
+            "--bytecode cannot be combined with --with-logger; "
+            "use the source profile for development logging."
+        )
+
+    if args.dry_run:
+        query = [
+            *mpremote_prefix(args),
+            "resume",
+            "+",
+            "exec",
+            "<query target .mpy compatibility>",
+            "+",
+            "reset",
+        ]
+        print("$ " + shlex.join(query))
+        print(
+            "$ "
+            + shlex.join(
+                [
+                    *_mpy_cross_prefix(args),
+                    "<target flags>",
+                    "<OTAmpy and URST sources>",
+                ]
+            )
+        )
+        run_mpremote(
+            args,
+            deploy_command(
+                args,
+                Path("<target-matched-mpy-lib>"),
+            ),
+        )
+        return
+
+    target = query_target_mpy(args)
+    print(
+        f"Target reports .mpy version {target.version}, "
+        f"{target.small_int_bits} small-int bits."
+    )
+    with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
+        lib_dir = Path(temp_dir) / "lib"
+        build_bytecode_lib(args, lib_dir, target)
+        run_mpremote(args, deploy_command(args, lib_dir))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -236,6 +508,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-logger",
         action="store_true",
         help="Install log-to-file for development logging.",
+    )
+    parser.add_argument(
+        "--bytecode",
+        "--mpy",
+        dest="bytecode",
+        action="store_true",
+        help="Deploy target-matched .mpy libraries.",
+    )
+    parser.add_argument(
+        "--mpy-cross",
+        default="mpy-cross",
+        help="mpy-cross executable or command to use.",
     )
     parser.add_argument(
         "--no-reset",
@@ -296,6 +580,9 @@ def main(argv: list[str] | None = None) -> int:
     except DeployError as error:
         print_deploy_error(error)
         return error.returncode or 1
+    except BytecodeDeployError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
 
     return 0
 

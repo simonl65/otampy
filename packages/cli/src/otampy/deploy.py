@@ -168,7 +168,7 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
         "import sys\n"
         "value=getattr(sys.implementation,'_mpy',None)\n"
         "n=sys.maxsize\n"
-        "bits=1\n"
+        "bits=0\n"
         "while n:\n"
         " bits+=1\n"
         " n>>=1\n"

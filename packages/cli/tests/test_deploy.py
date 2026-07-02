@@ -348,7 +348,7 @@ def test_query_target_mpy_parses_runtime_capabilities():
         returncode=0,
         stdout=(
             "unrelated output\n"
-            "OTAMPY_MPY|4870|32|MicroPython v1.28.0\n"
+            "OTAMPY_MPY|4870|31|MicroPython v1.28.0\n"
         ),
         stderr="",
     )
@@ -358,7 +358,7 @@ def test_query_target_mpy_parses_runtime_capabilities():
 
     assert target.value == 4870
     assert target.version == 6
-    assert target.small_int_bits == 32
+    assert target.small_int_bits == 31
     assert target.runtime == "MicroPython v1.28.0"
 
 

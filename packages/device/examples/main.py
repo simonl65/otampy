@@ -22,7 +22,7 @@ else:
         or NullLogger()
     )
 
-logger.debug("Main start-up...")
+logger.debug("MAIN start-up...")
 
 
 uart = machine.UART(
@@ -54,6 +54,7 @@ def prepare_for_shutdown():
 # MAIN FUNCTION
 # =============================================================================
 def main():
+    # Instantiate OTA with our UART (and optionally config and logger)
     ota = OTA(uart, config=config, logger=logger)
 
     # Cache attributes/methods to eliminate loop lookup overhead

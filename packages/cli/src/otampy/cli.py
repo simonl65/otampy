@@ -571,7 +571,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
 @click.argument("file", required=True)
 @click.pass_context
 def remove(ctx: click.Context, file: str) -> None:
-    """Remove specified file or directory from device (may be wildcarded)."""
+    """Remove specified file or directory from device."""
     if not click.confirm(
         click.style(
             f"Are you sure you want to remove '{file}' from the device?",

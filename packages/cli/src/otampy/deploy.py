@@ -96,6 +96,7 @@ BOOT_FILE = DEVICE_ROOT / "examples" / "boot.py"
 MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
 
 MIP_PACKAGES = ("github:simonl65/URST-mpy",)
+LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
 
 
 class DeployError(Exception):
@@ -109,6 +110,7 @@ class DeployArgs:
     port: str | None
     mpremote: str
     no_mip: bool
+    with_logger: bool
     no_reset: bool
     dry_run: bool
 
@@ -183,6 +185,8 @@ def deploy_command(args: DeployArgs) -> list[str]:
 
     if not args.no_mip:
         command.extend(("+", "mip", "install", *MIP_PACKAGES))
+        if args.with_logger:
+            command.append(LOGGER_MIP_PACKAGE)
 
     if not args.no_reset:
         command.extend(("+", "reset"))
@@ -224,6 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-mip",
         action="store_true",
         help="Skip installing MicroPython dependencies with mip.",
+    )
+    parser.add_argument(
+        "--with-logger",
+        action="store_true",
+        help="Install log-to-file for development logging.",
     )
     parser.add_argument(
         "--no-reset",

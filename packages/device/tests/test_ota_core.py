@@ -1,7 +1,12 @@
 from unittest.mock import patch
 
 import pytest
-from device_otampy.core import OTACore, UartRequiredError, _get_config
+from device_otampy.core import (
+    NullLogger,
+    OTACore,
+    UartRequiredError,
+    _get_config,
+)
 
 import shared
 
@@ -13,6 +18,18 @@ def test_core_init_uses_provided_uart():
     assert core.uart is uart
     assert core.logger is logger
     assert core._transport is None
+
+
+def test_core_uses_silent_logger_by_default():
+    core = OTACore(shared.FakeUART())
+
+    assert isinstance(core.logger, NullLogger)
+    assert core.logger.min_level > 0
+    core.logger.debug("ignored %s", "message")
+    core.logger.info("ignored")
+    core.logger.warning("ignored")
+    core.logger.error("ignored")
+    core.logger.critical("ignored")
 
 
 def test_core_creates_transport_once_on_first_access():

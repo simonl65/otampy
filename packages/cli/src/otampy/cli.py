@@ -1011,6 +1011,11 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
     help="Skip installing MicroPython dependencies with mip.",
 )
 @click.option(
+    "--with-logger",
+    is_flag=True,
+    help="Install log-to-file for development logging.",
+)
+@click.option(
     "--no-reset",
     is_flag=True,
     help="Skip resetting the device after deployment.",
@@ -1024,6 +1029,7 @@ def deploy_cmd(
     port: str | None,
     mpremote: str,
     no_mip: bool,
+    with_logger: bool,
     no_reset: bool,
     dry_run: bool,
 ) -> None:
@@ -1032,6 +1038,7 @@ def deploy_cmd(
         port=port,  # type: ignore
         mpremote=mpremote,  # type: ignore
         no_mip=no_mip,  # type: ignore
+        with_logger=with_logger,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
     )

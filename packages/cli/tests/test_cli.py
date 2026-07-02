@@ -415,14 +415,22 @@ def test_cli_deploy_forwards_to_deploy_module():
     runner = CliRunner()
     with mock.patch("otampy.cli.deploy.deploy") as mock_deploy:
         result = runner.invoke(
-            cli, ["deploy", "--port", "/dev/ttyACM0", "--no-mip", "--dry-run"]
+            cli,
+            [
+                "deploy",
+                "--port",
+                "/dev/ttyACM0",
+                "--with-logger",
+                "--dry-run",
+            ],
         )
 
     assert result.exit_code == 0
     mock_deploy.assert_called_once()  # type: ignore
     called_args = mock_deploy.call_args.args[0]  # type: ignore
     assert called_args.port == "/dev/ttyACM0"
-    assert called_args.no_mip is True
+    assert called_args.no_mip is False
+    assert called_args.with_logger is True
     assert called_args.no_reset is False
     assert called_args.dry_run is True
 

@@ -1,4 +1,12 @@
-from .logger import OTALogger
+class NullLogger:
+    """Logger-compatible sink used when an application does not inject one."""
+
+    min_level = 6
+
+    def log(self, *_args):
+        pass
+
+    debug = info = warning = error = critical = log
 
 
 class UartRequiredError(Exception):
@@ -27,7 +35,7 @@ class OTACore:
             config["UPDATE_REQUEST_FLAG_FILE"] = "update_requested.flag"
         self.config = config
 
-        self.logger = logger if logger is not None else OTALogger(level="DEBUG")
+        self.logger = logger if logger is not None else NullLogger()
 
         if uart is None:
             self.logger.critical("Must provide a UART object")

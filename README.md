@@ -43,6 +43,8 @@ uv tool install -e packages/cli
    ```bash
    otampy deploy --port /dev/ttyACM0
    ```
+   Add `--with-logger` to install the optional `log-to-file` development
+   logger. Without it, the example application runs silently.
 2. Set up the OTA configuration on your device as shown in `packages/device/examples/config.example.py`.
 3. Call `ota.poll()` inside your application main loop to enable on-demand background listening (see `packages/device/examples/main.py`).
 

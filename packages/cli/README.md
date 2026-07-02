@@ -21,7 +21,7 @@ otampy command [args]
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
 | **upd**    | [src]<sup>1</sup> dest [,&nbsp;[src]&nbsp;dest] | Updates application firmware on device<sup>2</sup>                                               |
 | **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
-| **deploy** | None                                            | Deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device                                 |
+| **deploy** | `--with-logger`                                 | Deploy OTAmpy lib/, boot.py, and main.py; optionally install development file logging             |
 
 **<sup>1</sup>** Update source is optional and will be the current folder if not supplied.
 

@@ -3,16 +3,20 @@ import machine  # pyright: ignore[reportMissingImports]
 import utime as time  # pyright: ignore[reportMissingImports]
 
 from Blink import Blink  # type: ignore
-from otampy import OTA, OTALogger  # type: ignore
+from otampy import OTA, NullLogger  # type: ignore
 
 blink = Blink(pin="LED")
 
 
-logger = OTALogger(
-    config.LOG_FILE,
-    level=config.LOG_LEVEL,
-    source="main.py",
-)
+try:
+    from log_to_file import Logger  # type: ignore
+except ImportError:
+    logger = NullLogger()
+else:
+    logger = (
+        Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
+        or NullLogger()
+    )
 
 logger.debug("Main start-up...")
 

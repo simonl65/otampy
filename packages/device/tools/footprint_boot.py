@@ -71,7 +71,7 @@ def main():
 
     _checkpoint(gc)
 
-    from otampy import OTA, OTALogger
+    from otampy import OTA
 
     _checkpoint(gc)
 
@@ -79,11 +79,6 @@ def main():
     from machine import UART, Pin
 
     _assert_update_flag_absent(config)
-    logger = OTALogger(
-        config.LOG_FILE,
-        level=config.LOG_LEVEL,
-        source="footprint",
-    )
     uart = UART(
         config.OTA_PORT,
         baudrate=config.OTA_BAUDRATE,
@@ -92,7 +87,7 @@ def main():
     )
     _checkpoint(gc)
 
-    ota = OTA(uart, config=config, logger=logger)
+    ota = OTA(uart, config=config)
     _checkpoint(gc)
 
     ota.boot()

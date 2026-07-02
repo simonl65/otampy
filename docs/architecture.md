@@ -38,7 +38,7 @@ classDiagram
     class OTACore {
         +dict config
         +Urst transport
-        +OTALogger logger
+        +Logger logger
         +UART uart
     }
 
@@ -50,7 +50,7 @@ classDiagram
         +poll(OTACore, callback)
     }
 
-    class OTALogger {
+    class Logger {
         +debug(msg)
         +info(msg)
         +warning(msg)
@@ -61,7 +61,7 @@ classDiagram
     OTA --> OTACore : instantiates
     OTA ..> boot : delegates boot() to
     OTA ..> manager : delegates poll() to
-    OTACore --> OTALogger : uses
+    OTACore --> Logger : injected or no-op
 ```
 
 ### Module Responsibilities
@@ -70,9 +70,13 @@ classDiagram
 | ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `ota.py`     | `OTA`                  | The public **Facade** class. Exposes a simple interface to developers.                                       |
 | `core.py`    | `OTACore`              | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
-| `logger.py`  | `OTALogger`            | Lightweight logging utilities that log to `/logs/ota.log` or fallback to stdout on file system lockups.      |
 | `boot.py`    | `run(core, callback)`  | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag.       |
 | `manager.py` | `poll(core, callback)` | Run-time polling function. Periodically inspects serial transport for command payloads and dispatches them.  |
+
+Applications may inject any logger with the methods shown above. If they do
+not, `OTACore` uses the allocation-light `NullLogger`. The example application
+selects the optional `log-to-file` logger when installed and otherwise remains
+silent.
 
 ---
 

@@ -5,13 +5,17 @@ Example boot.py
 import config
 from machine import UART, Pin  # type: ignore
 
-from otampy import OTA, OTALogger  # type: ignore
+from otampy import OTA, NullLogger  # type: ignore
 
-logger = OTALogger(
-    config.LOG_FILE,
-    level=config.LOG_LEVEL,
-    source="boot.py",
-)
+try:
+    from log_to_file import Logger  # type: ignore
+except ImportError:
+    logger = NullLogger()
+else:
+    logger = (
+        Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL)
+        or NullLogger()
+    )
 
 uart = UART(
     config.OTA_PORT,

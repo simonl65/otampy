@@ -266,11 +266,12 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     assert called, "run_mpremote should be called after cleanup"
 
 
-def test_deploy_installs_only_urst_mip_dependency():
+def test_deploy_installs_only_urst_mip_dependency_by_default():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
         no_mip=False,
+        with_logger=False,
         no_reset=False,
         dry_run=True,
     )
@@ -279,3 +280,35 @@ def test_deploy_installs_only_urst_mip_dependency():
 
     assert "github:simonl65/URST-mpy" in command
     assert not any("log-to-file" in item for item in command)
+
+
+def test_deploy_installs_optional_logger():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=True,
+        no_reset=False,
+        dry_run=True,
+    )
+
+    command = deploy.deploy_command(args)
+
+    assert "github:simonl65/URST-mpy" in command
+    assert "github:simonl65/log-to-file" in command
+
+
+def test_no_mip_skips_optional_logger():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=True,
+        no_reset=False,
+        dry_run=True,
+    )
+
+    command = deploy.deploy_command(args)
+
+    assert "mip" not in command
+    assert "github:simonl65/log-to-file" not in command

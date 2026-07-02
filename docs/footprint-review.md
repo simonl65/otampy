@@ -2,7 +2,7 @@
 
 **Status:** Baseline measurement in progress
 
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-02
 
 **Scope:** `packages/device`, its deployed examples, and the device-side
 dependencies installed by `otampy deploy`
@@ -389,6 +389,47 @@ The deployed `boot.py` matched SHA-256
 Its source grew from 8,340 to 9,628 bytes but stayed within the same 12 KiB
 filesystem allocation.
 
+### FP-10 consolidated device logging
+
+On 2026-07-02, commit `e82df83` made `OTALogger` the sole device logger.
+It now preserves the example-visible behaviour previously supplied by
+`log-to-file`: level filtering including `NONE` and `ALWAYS`, source labels,
+padded formatting, `%` arguments, parent-directory creation, size-based
+rotation, and file-write fallback to stdout. The public
+`from otampy import OTALogger` interface remains.
+
+The examples and RAM probe now construct `OTALogger` directly. Deployment no
+longer installs `log-to-file`; URST is its only MIP dependency.
+
+The same cold-boot probe measured allocated bytes after GC:
+
+| Checkpoint | Before FP-10 | After FP-10 | Clean-adjusted change |
+| --- | ---: | ---: | ---: |
+| `clean_boot` | 6,448 | 6,304 | baseline |
+| `import_otampy` | 10,128 | 10,912 | +928 |
+| `ota_inputs_ready` | 13,456 | 11,760 | **-1,552** |
+| `ota_constructed` | 13,536 | 11,840 | **-1,552** |
+| `no_flag_boot` | 14,944 | 13,360 | **-1,440** |
+| `first_poll` | 28,640 | 26,240 | **-2,256** |
+| `idle_poll` | 28,640 | 26,240 | **-2,256** |
+
+The richer sole logger costs 928 bytes more than the old minimal fallback when
+OTAmpy is imported in isolation. The application lifecycle wins because it no
+longer imports and constructs the separate logger implementation.
+
+Before consolidation, `/lib/otampy/logger.py` and
+`/lib/log_to_file/__init__.py` occupied 4,096 and 8,192 bytes respectively.
+The consolidated `logger.py` is 4,070 logical bytes and still occupies one
+4 KiB block, guaranteeing an 8 KiB file-allocation saving. The in-place
+filesystem reported 24,576 additional free bytes after removal and file
+replacement; the extra 16 KiB is LittleFS directory/copy-on-write cleanup and
+is not treated as a guaranteed clean-deploy saving.
+
+On MicroPython, source-labelled `%` formatting and one-backup rotation both
+passed. The deployed logger, boot, and main files matched their committed
+SHA-256 values; `/lib/log_to_file` was verified absent; temporary fixtures
+were removed; and a final physical CLI `PING` returned `PONG`.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
@@ -565,6 +606,11 @@ removed without losing logging functionality. Otherwise, remove the fallback
 implementation and depend on `log-to-file`. The exact saving must be measured
 from the files actually installed by `mip`.
 
+**Logging completed (2026-07-02):** `OTALogger` now preserves source labels,
+formatting arguments, rotation, levels, directory creation, and stdout
+fallback. Removing the second implementation saves 8 KiB of guaranteed file
+allocation and 2,256 bytes at the measured runtime checkpoint.
+
 Compatibility gate: run OTAmpy's protocol/update tests against both host and
 device URST variants and add corrupted, duplicate, fragmented, retry, and
 timeout cases.
@@ -710,9 +756,14 @@ contents, configuration, and lifecycle checkpoint.
 - [ ] **FP-09 — Define and test a MicroPython-specific URST artifact** (F6).
   Keep all reliability semantics and publish its source, `.mpy`, import-RAM,
   and peak-buffer deltas.
-- [ ] **FP-10 — Consolidate device logging to one implementation** (F6).
+  **Deferred (2026-07-02):** intentionally skipped for now; retain this item
+  for later work in the canonical URST repository.
+- [x] **FP-10 — Consolidate device logging to one implementation** (F6).
   Preserve levels, file fallback, module labels, and formatting used by the
   examples before removing either dependency.
+  **Completed (2026-07-02):** `OTALogger` is the sole feature-complete device
+  logger, runtime heap falls 2,256 bytes, guaranteed file allocation falls
+  8 KiB, target logging checks and physical OTA pass, and 87 regressions pass.
 - [ ] **FP-11 — Add a target-matched `.mpy` deployment profile** (F7). Fail
   deployment clearly on incompatible bytecode and retain source deployment
   for development.

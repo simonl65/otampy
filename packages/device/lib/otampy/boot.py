@@ -179,7 +179,7 @@ def _run_default_update_loop(core):
             try:
                 decoded = binascii.a2b_base64(b64_data)
                 current_file.write(decoded)
-                hasher.update(decoded)
+                hasher.update(decoded)  # type: ignore
                 response = b"CHUNK_ACK:" + seq
                 packet = None
                 parts = None
@@ -199,7 +199,7 @@ def _run_default_update_loop(core):
             current_file.close()
             current_file = None
 
-            digest = hasher.digest()
+            digest = hasher.digest()  # type: ignore
             hex_hash = binascii.hexlify(digest)
 
             if hex_hash == current_hash:
@@ -330,4 +330,5 @@ def run(core, callback=None):
             except Exception:
                 core.logger.debug(f"Could not remove update flag: {flag}")
     else:
+        core.logger.debug(f"No update request flag found: {flag}")
         _cleanup_orphaned_ota(core)

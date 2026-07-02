@@ -462,7 +462,7 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
         resp, _ = _query(ctx, cmd, b"LS_OK")
     except DeviceError as e:
         _handle_device_error(e)
-    items_str = resp.decode("utf-8", errors="replace")
+    items_str = resp.decode("utf-8", errors="replace")  # type: ignore
     if items_str:
         items = items_str.split(",")
         for item in items:
@@ -481,7 +481,7 @@ def cat(ctx: click.Context, file: str) -> None:
         resp, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
     except DeviceError as e:
         _handle_device_error(e)
-    content = resp.decode("utf-8", errors="replace")
+    content = resp.decode("utf-8", errors="replace")  # type: ignore
     _console().print(content)
 
 
@@ -615,7 +615,7 @@ def memory_info(ctx: click.Context) -> None:
         resp, _ = _query(ctx, b"MEM", b"MEM_OK")
     except DeviceError as e:
         _handle_device_error(e)
-    payload = resp.decode("utf-8", errors="replace")
+    payload = resp.decode("utf-8", errors="replace")  # type: ignore
 
     try:
         parts = payload.split(",")

@@ -389,46 +389,50 @@ The deployed `boot.py` matched SHA-256
 Its source grew from 8,340 to 9,628 bytes but stayed within the same 12 KiB
 filesystem allocation.
 
-### FP-10 consolidated device logging
+### FP-10 optional device logging
 
-On 2026-07-02, commit `e82df83` made `OTALogger` the sole device logger.
-It now preserves the example-visible behaviour previously supplied by
-`log-to-file`: level filtering including `NONE` and `ALWAYS`, source labels,
-padded formatting, `%` arguments, parent-directory creation, size-based
-rotation, and file-write fallback to stdout. The public
-`from otampy import OTALogger` interface remains.
+Commit `e82df83` first consolidated logging into a feature-complete bundled
+`OTALogger`. Commit `add1d72` then removed that implementation from the
+production import graph: `OTACore` now uses a tiny `NullLogger` unless the
+application injects another compatible logger.
 
-The examples and RAM probe now construct `OTALogger` directly. Deployment no
-longer installs `log-to-file`; URST is its only MIP dependency.
+The examples try to construct `log_to_file.Logger` and fall back to
+`NullLogger` when the package is absent. The standard deployment therefore
+installs only URST and runs silently. `otampy deploy --with-logger` additionally
+installs `log-to-file` for development, and applications remain free to inject
+another logger. Removing the former public `OTALogger` is an intentional
+breaking API change.
 
 The same cold-boot probe measured allocated bytes after GC:
 
 | Checkpoint | Before FP-10 | After FP-10 | Clean-adjusted change |
 | --- | ---: | ---: | ---: |
-| `clean_boot` | 6,448 | 6,304 | baseline |
-| `import_otampy` | 10,128 | 10,912 | +928 |
-| `ota_inputs_ready` | 13,456 | 11,760 | **-1,552** |
-| `ota_constructed` | 13,536 | 11,840 | **-1,552** |
-| `no_flag_boot` | 14,944 | 13,360 | **-1,440** |
-| `first_poll` | 28,640 | 26,240 | **-2,256** |
-| `idle_poll` | 28,640 | 26,240 | **-2,256** |
+| `clean_boot` | 6,448 | 6,560 | baseline |
+| `import_otampy` | 10,128 | 8,624 | **-1,616** |
+| `ota_inputs_ready` | 13,456 | 9,456 | **-4,112** |
+| `ota_constructed` | 13,536 | 9,552 | **-4,096** |
+| `no_flag_boot` | 14,944 | 10,576 | **-4,480** |
+| `first_poll` | 28,640 | 23,296 | **-5,456** |
+| `idle_poll` | 28,640 | 23,296 | **-5,456** |
 
-The richer sole logger costs 928 bytes more than the old minimal fallback when
-OTAmpy is imported in isolation. The application lifecycle wins because it no
-longer imports and constructs the separate logger implementation.
+Changes are adjusted for the 112-byte difference between clean-boot
+baselines. Relative to the intermediate bundled-logger result, the final
+silent profile saves 3,200 bytes at first and idle poll.
 
-Before consolidation, `/lib/otampy/logger.py` and
+Before FP-10, `/lib/otampy/logger.py` and
 `/lib/log_to_file/__init__.py` occupied 4,096 and 8,192 bytes respectively.
-The consolidated `logger.py` is 4,070 logical bytes and still occupies one
-4 KiB block, guaranteeing an 8 KiB file-allocation saving. The in-place
-filesystem reported 24,576 additional free bytes after removal and file
-replacement; the extra 16 KiB is LittleFS directory/copy-on-write cleanup and
-is not treated as a guaranteed clean-deploy saving.
+The production profile contains neither, guaranteeing a 12 KiB
+file-allocation saving. The development profile restores the 8 KiB external
+logger but still avoids the bundled 4 KiB implementation. Relative to the
+intermediate consolidated deployment, the clean production deployment
+reported 20,480 additional free bytes; LittleFS metadata and copy-on-write
+cleanup mean only the 4 KiB removed file is guaranteed by that comparison.
 
-On MicroPython, source-labelled `%` formatting and one-backup rotation both
-passed. The deployed logger, boot, and main files matched their committed
-SHA-256 values; `/lib/log_to_file` was verified absent; temporary fixtures
-were removed; and a final physical CLI `PING` returned `PONG`.
+On MicroPython, the production profile used `NullLogger`, both logger modules
+were absent, deployed source hashes matched, and physical CLI `PING` returned
+`PONG`. After installing the optional package, the examples loaded
+`log_to_file`, a source-labelled WARNING entry was written successfully, and
+another physical `PING` returned `PONG`.
 
 ### Known source payload
 
@@ -436,18 +440,18 @@ These are host-side raw `.py` byte counts, not on-device allocation:
 
 | Deployed content | Files | Raw bytes |
 | --- | ---: | ---: |
-| `lib/otampy` | 6 | 17,007 |
+| `lib/otampy` | 5 | 20,608 |
 | `lib/Blink.py` | 1 | 346 |
-| deployed `boot.py`, `main.py`, and current `config.py` | 3 | 3,747 |
+| deployed `boot.py`, `main.py`, and current `config.py` | 3 | 3,858 |
 | locally installed URST package | 6 | 20,232 |
-| **Known subtotal** | **16** | **41,332** |
+| **Known subtotal** | **15** | **45,044** |
 
 This subtotal excludes `log-to-file`, logs, orphaned `.ota` files, other
 application files, and filesystem overhead. Consequently, source minification
 cannot explain or recover most of the reported 196 KB by itself.
 
-Within `lib/otampy`, `boot.py` is 8,244 bytes (48% of the package) and
-`manager.py` is 4,204 bytes (25%). Import lifetime matters more than shaving a
+Within `lib/otampy`, `boot.py` is 9,727 bytes (47% of the package) and
+`manager.py` is 7,501 bytes (36%). Import lifetime matters more than shaving a
 few expressions from the smaller modules.
 
 ## Findings
@@ -580,14 +584,13 @@ verified byte-for-byte.
 Compatibility gate: preserve transaction atomicity, per-file SHA-256
 verification, acknowledgements, cleanup, and reset behaviour.
 
-### F6. URST is at least as large as OTAmpy and carries desktop compatibility
+### F6. URST is similar in size to OTAmpy and carries desktop compatibility
 
 **Impact:** High combined RAM/flash potential  
-**Evidence:** the local URST source is 20,232 bytes versus 17,007 bytes for
+**Evidence:** the local URST source is 20,232 bytes versus 20,608 bytes for
 `lib/otampy`. Its device import path includes logging fallbacks, typing
 fallbacks, desktop serial branches, time shims, `math.ceil`, multiple module
 loggers, growing buffers, and general fragmentation/reassembly structures.
-The deploy also installs `log-to-file`, while OTAmpy ships `OTALogger`.
 
 Create and measure a device-specific URST build/profile rather than weakening
 reliability:
@@ -600,16 +603,10 @@ reliability:
 - preallocate or cap receive/reassembly buffers;
 - omit genuinely unused device modules from the deployment.
 
-Separately, select one logging implementation. If `OTALogger` absorbs the
-module-name and formatting features used by the examples, `log-to-file` can be
-removed without losing logging functionality. Otherwise, remove the fallback
-implementation and depend on `log-to-file`. The exact saving must be measured
-from the files actually installed by `mip`.
-
-**Logging completed (2026-07-02):** `OTALogger` now preserves source labels,
-formatting arguments, rotation, levels, directory creation, and stdout
-fallback. Removing the second implementation saves 8 KiB of guaranteed file
-allocation and 2,256 bytes at the measured runtime checkpoint.
+**Logging completed (2026-07-02):** production uses an injected/no-op logger;
+development can request `log-to-file` with `--with-logger`. The production
+profile saves 12 KiB of guaranteed file allocation and 5,456 clean-adjusted
+bytes at the measured runtime checkpoint.
 
 Compatibility gate: run OTAmpy's protocol/update tests against both host and
 device URST variants and add corrupted, duplicate, fragmented, retry, and
@@ -644,7 +641,7 @@ References:
 ### F8. Module dictionaries and filesystem blocks can be reduced after F1
 
 **Impact:** Medium flash; low-to-medium RAM  
-**Evidence:** OTAmpy uses six package modules, including several small ones;
+**Evidence:** OTAmpy uses five package modules, including several small ones;
 URST uses six more. Every imported module has globals/module-table overhead,
 and every filesystem file may consume at least one allocation unit plus
 metadata.
@@ -664,14 +661,12 @@ paths should only be removed after checking downstream users.
 
 Candidates to measure after the architectural work:
 
-- replace `OTALogger.log_levels`' string-keyed dictionary with compact integer
-  constants/conversion logic;
-- test `__slots__` for `OTA`, `OTACore`, `OTALogger`, and URST classes on every
+- test `__slots__` for `OTA`, `OTACore`, and URST classes on every
   supported MicroPython version;
 - remove duplicate object references only where ownership remains clear;
 - use deliberate `gc.collect()` checkpoints after boot and update completion,
   and evaluate `gc.threshold()` with a fragmentation stress test;
-- write log line segments directly or reuse a buffer if logging is shown to
+- profile an injected logger separately if application logging is shown to
   cause a relevant peak.
 
 These should not distract from import lifetime, duplicate construction, and
@@ -761,9 +756,10 @@ contents, configuration, and lifecycle checkpoint.
 - [x] **FP-10 — Consolidate device logging to one implementation** (F6).
   Preserve levels, file fallback, module labels, and formatting used by the
   examples before removing either dependency.
-  **Completed (2026-07-02):** `OTALogger` is the sole feature-complete device
-  logger, runtime heap falls 2,256 bytes, guaranteed file allocation falls
-  8 KiB, target logging checks and physical OTA pass, and 87 regressions pass.
+  **Completed (2026-07-02):** production defaults to `NullLogger`, development
+  can install `log-to-file` with `--with-logger`, runtime heap falls 5,456
+  clean-adjusted bytes, guaranteed production file allocation falls 12 KiB,
+  both target profiles and physical OTA pass, and 78 regressions pass.
 - [ ] **FP-11 — Add a target-matched `.mpy` deployment profile** (F7). Fail
   deployment clearly on incompatible bytecode and retain source deployment
   for development.

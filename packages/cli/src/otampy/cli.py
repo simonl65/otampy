@@ -1,12 +1,27 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 
 import otampy.deploy as deploy
 
+if TYPE_CHECKING:
+    from urst import Urst
+
 logger = logging.getLogger(__name__)
+
+
+class DeviceError(Exception):
+    """Exception raised for device errors."""
+
+    def __init__(self, error_msg: str, command: bytes = b""):
+        self.error_msg = error_msg
+        self.command = command
+        super().__init__(error_msg)
 
 
 def _console() -> Console:
@@ -221,7 +236,18 @@ def _friendly_error(err_msg: str, command: bytes) -> str:
     return err_msg
 
 
-def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
+def _query(
+    ctx: click.Context,
+    command: bytes,
+    expected_prefix: bytes,
+    transport: Urst | None = None,
+) -> tuple[bytes, Urst | None]:
+    """Query device. If transport is provided, reuse it; otherwise create new.
+
+    Returns: (response_data, transport_to_close_or_none)
+    If transport was provided, returns (data, None) - caller manages connection.
+    If transport was created, returns (data, transport) - caller should close it.
+    """
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
@@ -234,6 +260,46 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
     import serial
     from urst import Urst
 
+    # If transport provided, use it directly (single attempt)
+    if transport is not None:
+        if not transport.send(command):
+            raise click.ClickException("Failed to send command over transport.")
+
+        response = transport.read()
+        if not response:
+            raise click.ClickException(
+                f"Timeout waiting for response to command: {command.decode()}"
+            )
+
+        # Check for device error response
+        if response.startswith(b"ERROR:"):
+            err_msg = response[6:].decode("utf-8", errors="replace")
+            raise DeviceError(err_msg, command)
+
+        if not response.startswith(expected_prefix):
+            resp_str = (
+                response.decode("utf-8", errors="replace")
+                if isinstance(response, bytes)
+                else str(response)
+            )
+            raise click.ClickException(
+                f"Unexpected response to command '{command.decode()}'. "
+                f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
+            )
+
+        # Return payload after prefix and potential colon separator
+        prefix_len = len(expected_prefix)
+        if (
+            len(response) > prefix_len
+            and response[prefix_len : prefix_len + 1] == b":"
+        ):
+            res = response[prefix_len + 1 :]
+        else:
+            res = response[prefix_len:]
+
+        return res, None
+
+    # Create new transport with retry logic
     last_err = None
 
     for attempt in range(3):
@@ -247,21 +313,21 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
                 pass
             ser.reset_input_buffer()
             ser.reset_output_buffer()
-            transport = Urst(ser)
+            new_transport = Urst(ser)
 
             # Clear any unsolicited messages (e.g. boot notifications) from the receive queue
             try:
-                transport.protocol._recv_queue.clear()
+                new_transport.protocol._recv_queue.clear()
             except Exception:
                 pass
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
-            if not transport.send(command):
+            if not new_transport.send(command):
                 raise click.ClickException(
                     "Failed to send command over transport."
                 )
 
-            response = transport.read()
+            response = new_transport.read()
             if not response:
                 raise click.ClickException(
                     f"Timeout waiting for response to command: {command.decode()}"
@@ -270,9 +336,8 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
             # Check for device error response
             if response.startswith(b"ERROR:"):
                 err_msg = response[6:].decode("utf-8", errors="replace")
-                friendly = _friendly_error(err_msg, command)
-                _console().print(f"[red]Error: {friendly}[/red]")
-                raise SystemExit(1)
+                ser.close()
+                raise DeviceError(err_msg, command)
 
             if not response.startswith(expected_prefix):
                 resp_str = (
@@ -280,6 +345,7 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
                     if isinstance(response, bytes)
                     else str(response)
                 )
+                ser.close()
                 raise click.ClickException(
                     f"Unexpected response to command '{command.decode()}'. "
                     f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
@@ -296,8 +362,11 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
                 res = response[prefix_len:]
 
             ser.close()
-            return res
+            return res, None
 
+        except DeviceError:
+            # Re-raise DeviceError without catching it in the broader exception handler
+            raise
         except Exception as e:
             if ser:
                 try:
@@ -311,9 +380,17 @@ def _query(ctx: click.Context, command: bytes, expected_prefix: bytes) -> bytes:
     raise click.ClickException(str(last_err))
 
 
+def _handle_device_error(device_error: DeviceError) -> None:
+    """Display a friendly error message and exit."""
+    friendly = _friendly_error(device_error.error_msg, device_error.command)
+    _console().print(f"[red]Error: {friendly}[/red]")
+    raise SystemExit(1)
+
+
 def _send_command(
     ctx: click.Context, command: bytes, expected_response: bytes
 ) -> None:
+    """Send command and verify response (backward compatible)."""
     _query(ctx, command, expected_response)
 
 
@@ -322,7 +399,10 @@ def _send_command(
 def ping(ctx: click.Context) -> None:
     """Connection health check with the device."""
     _console().print("[yellow]Sending PING to device...[/yellow]")
-    _send_command(ctx, b"PING", b"PONG")
+    try:
+        _send_command(ctx, b"PING", b"PONG")
+    except DeviceError as e:
+        _handle_device_error(e)
     _console().print("[green]Success: Received PONG from device.[/green]")
 
 
@@ -339,7 +419,10 @@ def reboot(ctx: click.Context) -> None:
         _console().print("[yellow]Aborted.[/yellow]")
         return
     _console().print("[yellow]Hard rebooting the device...[/yellow]")
-    _send_command(ctx, b"RB", b"RB_OK")
+    try:
+        _send_command(ctx, b"RB", b"RB_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
 
 
 @cli.command(name="sr")
@@ -355,7 +438,10 @@ def soft_reset(ctx: click.Context) -> None:
         _console().print("[yellow]Aborted.[/yellow]")
         return
     _console().print("[yellow]Soft resetting the device...[/yellow]")
-    _send_command(ctx, b"SR", b"SR_OK")
+    try:
+        _send_command(ctx, b"SR", b"SR_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
 
 
 @cli.command(name="ls")
@@ -372,7 +458,10 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
         )
         cmd = b"LS"
 
-    resp = _query(ctx, cmd, b"LS_OK")
+    try:
+        resp, _ = _query(ctx, cmd, b"LS_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
     items_str = resp.decode("utf-8", errors="replace")
     if items_str:
         items = items_str.split(",")
@@ -388,16 +477,101 @@ def cat(ctx: click.Context, file: str) -> None:
     _console().print(
         f"[green]Showing content of specified file: {file}[/green]"
     )
-    resp = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
+    try:
+        resp, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
     content = resp.decode("utf-8", errors="replace")
     _console().print(content)
+
+
+def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
+    """Recursively remove directory using a persistent connection."""
+    import serial
+    from urst import Urst
+
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
+        )
+
+    ser = None
+    try:
+        # Establish persistent connection
+        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+        try:
+            ser.dtr = False
+            ser.rts = False
+        except Exception:
+            pass
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+        transport = Urst(ser)
+
+        try:
+            transport.protocol._recv_queue.clear()
+        except Exception:
+            pass
+
+        # List directory contents
+        resp, _ = _query(
+            ctx, f"LS:{path}".encode(), b"LS_OK", transport=transport
+        )
+        items_str = resp.decode("utf-8", errors="replace")
+        if items_str:
+            items = items_str.split(",")
+            for item in items:
+                item = item.strip()
+                if not item:
+                    continue
+                item_path = f"{path.rstrip('/')}/{item}"
+                _console().print(f"  Removing: {item_path}")
+                try:
+                    _query(
+                        ctx,
+                        f"RM:{item_path}".encode(),
+                        b"RM_OK",
+                        transport=transport,
+                    )
+                except DeviceError as e:
+                    # If it's a directory, recurse into it
+                    friendly = _friendly_error(e.error_msg, e.command)
+                    if "directory not empty" in friendly.lower():
+                        _recursive_rm_with_connection(ctx, item_path)
+                        # Try to remove the now-empty directory with same transport
+                        try:
+                            _query(
+                                ctx,
+                                f"RM:{item_path}".encode(),
+                                b"RM_OK",
+                                transport=transport,
+                            )
+                        except DeviceError:
+                            # If still fails, move on to next item
+                            pass
+                    else:
+                        raise
+        # Finally remove the now-empty directory
+        _query(ctx, f"RM:{path}".encode(), b"RM_OK", transport=transport)
+    except DeviceError as e:
+        friendly = _friendly_error(e.error_msg, e.command)
+        _console().print(f"[red]Error: {friendly}[/red]")
+        raise SystemExit(1) from None
+    finally:
+        if ser:
+            try:
+                ser.close()
+            except Exception:
+                pass
 
 
 @cli.command(name="rm")
 @click.argument("file", required=True)
 @click.pass_context
 def remove(ctx: click.Context, file: str) -> None:
-    """Remove specified file from device (may be wildcarded)."""
+    """Remove specified file or directory from device (may be wildcarded)."""
     if not click.confirm(
         click.style(
             f"Are you sure you want to remove '{file}' from the device?",
@@ -408,7 +582,28 @@ def remove(ctx: click.Context, file: str) -> None:
         _console().print("[yellow]Aborted.[/yellow]")
         return
     _console().print(f"[red]Removing file: {file}[/red]")
-    _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
+    try:
+        _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
+    except DeviceError as e:
+        friendly = _friendly_error(e.error_msg, e.command)
+        if "directory not empty" in friendly.lower():
+            _console().print(f"[yellow]{friendly}[/yellow]")
+            if click.confirm(
+                "Directory is not empty. Remove all contents recursively?",
+                default=False,
+            ):
+                _console().print(
+                    "[yellow]Recursively removing directory on device...[/yellow]"
+                )
+                _recursive_rm_with_connection(ctx, file)
+                _console().print(
+                    "[green]Directory removed successfully.[/green]"
+                )
+            else:
+                _console().print("[yellow]Aborted.[/yellow]")
+        else:
+            _console().print(f"[red]Error: {friendly}[/red]")
+            raise SystemExit(1) from None
 
 
 @cli.command(name="mem")
@@ -416,7 +611,10 @@ def remove(ctx: click.Context, file: str) -> None:
 def memory_info(ctx: click.Context) -> None:
     """Queries and displays device memory (RAM and Storage/Flash) info."""
     _console().print("[yellow]Querying device memory info...[/yellow]")
-    resp = _query(ctx, b"MEM", b"MEM_OK")
+    try:
+        resp, _ = _query(ctx, b"MEM", b"MEM_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
     payload = resp.decode("utf-8", errors="replace")
 
     try:

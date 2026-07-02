@@ -10,7 +10,7 @@ OTAmpy operates on top of the **Universal Reliable Serial Transport (URST)** pro
 
 - **Robust OTA Firmware Updates**: Stages incoming `.ota` files on the device filesystem and atomically swaps them upon a successful checksum validation.
 - **Interactive File Management**: Upload, download, view (`cat`), or remove (`rm`) files on-device remotely.
-- **Hardware Remote Controls**: Remotely trigger hardware reboots (`rb`), soft resets (`sr`), or boot into bootloader mode (`bl`).
+- **Hardware Remote Controls**: Remotely trigger hardware reboots (`rb`) or soft resets (`sr`).
 - **Telemetry Compatibility**: Safe coexistence of background raw telemetry output streams (ASCII) with on-demand OTAmpy command frames on a single shared UART connection.
 - **Fail-Safe Warnings**: Red-colored validation prompts in the CLI before running invasive or destructive commands.
 - **Resilient Connectivity**: Smart connection attempts and retries built into the CLI to accommodate sleeping transceivers or high-latency links.
@@ -21,6 +21,7 @@ OTAmpy operates on top of the **Universal Reliable Serial Transport (URST)** pro
 ## Repository Structure
 
 The codebase is split into two packages:
+
 1. **`packages/device/`**: MicroPython firmware running on the microcontroller.
 2. **`packages/cli/`**: Python CLI developer tool running on the host computer.
 
@@ -29,6 +30,7 @@ The codebase is split into two packages:
 ## Installation
 
 ### 1. Developer CLI Installation
+
 First, ensure you have [UV](https://github.com/astral-sh/uv) installed. Then install the `otampy` command-line utility:
 
 ```bash
@@ -36,6 +38,7 @@ uv tool install -e packages/cli
 ```
 
 ### 2. Device Firmware Installation
+
 1. Deploy dependencies and the core `otampy` library to your device:
    ```bash
    otampy deploy --port /dev/ttyACM0
@@ -48,21 +51,25 @@ uv tool install -e packages/cli
 ## Usage
 
 Check device health:
+
 ```bash
 otampy --port /dev/ttyUSB0 ping
 ```
 
 List files on the device:
+
 ```bash
 otampy --port /dev/ttyUSB0 ls
 ```
 
 Query device memory and storage space:
+
 ```bash
 otampy --port /dev/ttyUSB0 mem
 ```
 
 Trigger an OTA firmware update:
+
 ```bash
 otampy --port /dev/ttyUSB0 upd
 ```

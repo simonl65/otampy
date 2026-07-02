@@ -1,9 +1,11 @@
+import json
+import logging
 import time
 import unittest.mock as mock
 
 from click.testing import CliRunner
 
-from otampy.cli import cli
+from otampy.cli import cli, get_default_log_level, set_default_port
 
 
 def test_cli_help():
@@ -17,6 +19,7 @@ def test_cli_help():
         "Show this message and exit." in result_help.output
         or "Over the Air (OTA) File Management CLI" in result_help.output
     )
+    assert "--log-level" in result_help.output
 
     # Test -h
     result_h_opt = runner.invoke(cli, ["-h"])
@@ -25,6 +28,134 @@ def test_cli_help():
         "Show this message and exit." in result_h_opt.output
         or "Over the Air (OTA) File Management CLI" in result_h_opt.output
     )
+
+
+def test_cli_log_level_for_current_command():
+    runner = CliRunner()
+    previous_level = logging.getLogger().level
+
+    try:
+        result = runner.invoke(
+            cli,
+            ["--log-level", "DEBUG", "ports", "--show"],
+            input="c\n",
+        )
+
+        assert result.exit_code == 0
+        assert "Keep DEBUG as the log level?" in result.output
+        assert logging.getLogger().level == logging.DEBUG
+    finally:
+        logging.getLogger().setLevel(previous_level)
+
+
+def test_cli_log_level_can_be_saved_permanently(tmp_path):
+    runner = CliRunner()
+    previous_level = logging.getLogger().level
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=123),
+    ):
+        try:
+            config_file = tmp_path / ".config" / "otampy" / "config.json"
+            config_file.parent.mkdir(parents=True)
+            config_file.write_text(
+                json.dumps({"default_port": "/dev/ttySaved"})
+            )
+
+            result = runner.invoke(
+                cli,
+                ["--log-level", "debug", "ports", "--show"],
+                input="p\n",
+            )
+
+            assert result.exit_code == 0
+            assert "Permanent log level set to: DEBUG" in result.output
+            assert json.loads(config_file.read_text()) == {
+                "default_port": "/dev/ttySaved",
+                "log_level": "DEBUG",
+            }
+
+            result = runner.invoke(cli, ["ports", "--show"])
+
+            assert result.exit_code == 0
+            assert "Keep DEBUG as the log level?" not in result.output
+            assert logging.getLogger().level == logging.DEBUG
+        finally:
+            logging.getLogger().setLevel(previous_level)
+
+
+def test_cli_log_level_can_be_saved_for_session(tmp_path):
+    runner = CliRunner()
+    previous_level = logging.getLogger().level
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=456),
+    ):
+        try:
+            result = runner.invoke(
+                cli,
+                ["--log-level", "INFO", "ports", "--show"],
+                input="s\n",
+            )
+
+            assert result.exit_code == 0
+            assert "Session log level set to: INFO" in result.output
+            session_file = tmp_path / "otampy_session_456.json"
+            assert json.loads(session_file.read_text())["log_level"] == "INFO"
+
+            result = runner.invoke(cli, ["ports", "--show"])
+
+            assert result.exit_code == 0
+            assert "Keep INFO as the log level?" not in result.output
+            assert logging.getLogger().level == logging.INFO
+        finally:
+            logging.getLogger().setLevel(previous_level)
+
+
+def test_cli_rejects_invalid_log_level():
+    result = CliRunner().invoke(
+        cli, ["--log-level", "VERBOSE", "ports", "--show"]
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--log-level'" in result.output
+
+
+def test_log_level_precedence_is_environment_session_permanent(tmp_path):
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({"log_level": "DEBUG"}))
+    (tmp_path / "otampy_session_789.json").write_text(
+        json.dumps({"log_level": "INFO"})
+    )
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=789),
+    ):
+        assert get_default_log_level() == "INFO"
+        with mock.patch.dict(
+            "os.environ", {"OTAMPY_LOG_LEVEL": "WARNING"}
+        ):
+            assert get_default_log_level() == "WARNING"
+
+
+def test_clearing_port_preserves_permanent_log_level(tmp_path):
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(
+        json.dumps({"default_port": "/dev/ttyFake", "log_level": "DEBUG"})
+    )
+
+    with mock.patch("pathlib.Path.home", return_value=tmp_path):
+        set_default_port(None)
+
+    assert json.loads(config_file.read_text()) == {"log_level": "DEBUG"}
 
 
 def test_cli_ping():

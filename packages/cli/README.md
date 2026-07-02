@@ -8,6 +8,29 @@ This provides a command-line interface to enable over the air (OTA) file managem
 otampy [global-options] command [command-options]
 ```
 
+### Global options
+
+| Option | Effect |
+| --- | --- |
+| `-p`, `--port` | Select the OTA UART adapter. |
+| `-b`, `--baud` | Set the OTA UART baud rate. |
+| `--log-level` | Set host CLI logging to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+
+The default host log level is `ERROR`. Supplying an explicit level prompts for
+its scope:
+
+```bash
+otampy --log-level DEBUG --port /dev/ttyUSB0 ping
+```
+
+- `p` stores it permanently in `~/.config/otampy/config.json`;
+- `s` keeps it for commands launched from the current shell session;
+- `c` applies it only to the current command.
+
+The `OTAMPY_LOG_LEVEL` environment variable overrides saved settings.
+Host CLI logging is independent of the optional device file logger installed
+by `otampy deploy --with-logger`.
+
 ### Commands
 
 | Command    | Args                                            | Description                                                                                      |

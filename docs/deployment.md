@@ -76,6 +76,10 @@ Use `--no-mip` only when the required packages are frozen into the firmware or
 will be installed separately; after the filesystem erase, OTAmpy cannot poll
 without URST.
 
+The global `otampy --log-level LEVEL` option controls host CLI diagnostics; it
+does not enable device logging. When supplied explicitly, the CLI offers to
+retain that level for the shell session or permanently.
+
 ## Verification
 
 After deployment, verify the OTA UART through its host-side adapter:

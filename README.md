@@ -82,6 +82,16 @@ Query device memory and storage space:
 otampy --port /dev/ttyUSB0 mem
 ```
 
+Enable host CLI diagnostics for the current command:
+
+```bash
+otampy --log-level DEBUG --port /dev/ttyUSB0 ping
+```
+
+When `--log-level` is supplied, OTAmpy offers to retain it for the current
+shell session or permanently. This host option is separate from device file
+logging enabled by `otampy deploy --with-logger`.
+
 Trigger an OTA firmware update:
 
 ```bash

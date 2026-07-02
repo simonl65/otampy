@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from click.core import ParameterSource
 from rich.console import Console
 
 import otampy.deploy as deploy
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from urst import Urst
 
 logger = logging.getLogger(__name__)
+
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
 class DeviceError(Exception):
@@ -82,17 +85,48 @@ def get_default_port() -> str | None:
             pass
 
     # Check permanent config
-    config_path = Path.home() / ".config" / "otampy" / "config.json"
-    if config_path.is_file():
-        import json
+    port = _read_json(_config_path()).get("default_port")
+    return port if isinstance(port, str) else None
 
-        try:
-            with open(config_path) as f:
-                data = json.load(f)
-                return data.get("default_port")
-        except Exception:
-            pass
-    return None
+
+def _config_path() -> Path:
+    return Path.home() / ".config" / "otampy" / "config.json"
+
+
+def _session_config_path() -> Path:
+    import os
+    import tempfile
+
+    return (
+        Path(tempfile.gettempdir())
+        / f"otampy_session_{os.getppid()}.json"
+    )
+
+
+def _read_json(path: Path) -> dict:
+    import json
+
+    if not path.is_file():
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_json(path: Path, data: dict) -> None:
+    import json
+
+    if not data:
+        if path.is_file():
+            path.unlink()
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
 
 
 def set_default_port(port: str | None, session: bool = False) -> None:
@@ -118,33 +152,69 @@ def set_default_port(port: str | None, session: bool = False) -> None:
                 ) from e
         return
 
-    import json
-
-    config_dir = Path.home() / ".config" / "otampy"
-    config_path = config_dir / "config.json"
-
-    if port is None:
-        if config_path.is_file():
-            try:
-                config_path.unlink()
-            except Exception:
-                pass
-        return
-
     try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        data = {}
-        if config_path.is_file():
-            try:
-                with open(config_path) as f:
-                    data = json.load(f)
-            except Exception:
-                pass
-        data["default_port"] = port
-        with open(config_path, "w") as f:
-            json.dump(data, f, indent=4)  # type: ignore
+        config_path = _config_path()
+        data = _read_json(config_path)
+        if port is None:
+            data.pop("default_port", None)
+        else:
+            data["default_port"] = port
+        _write_json(config_path, data)
     except Exception as e:
         raise click.ClickException(f"Failed to save default port: {e}") from e
+
+
+def get_default_log_level() -> str:
+    import os
+
+    if "OTAMPY_LOG_LEVEL" in os.environ:
+        return os.environ["OTAMPY_LOG_LEVEL"].upper()
+
+    for path in (_session_config_path(), _config_path()):
+        value = _read_json(path).get("log_level")
+        if isinstance(value, str) and value.upper() in LOG_LEVELS:
+            return value.upper()
+
+    return "ERROR"
+
+
+def set_default_log_level(
+    level: str | None, session: bool = False
+) -> None:
+    path = _session_config_path() if session else _config_path()
+    try:
+        data = _read_json(path)
+        if level is None:
+            data.pop("log_level", None)
+        else:
+            data["log_level"] = level.upper()
+        _write_json(path, data)
+    except Exception as e:
+        scope = "session" if session else "permanent"
+        raise click.ClickException(
+            f"Failed to save {scope} log level: {e}"
+        ) from e
+
+
+def _offer_to_save_log_level(level: str) -> None:
+    choice = click.prompt(
+        f"Keep {level} as the log level? "
+        "(p=permanent, s=session, c=current command only)",
+        type=click.Choice(("p", "s", "c"), case_sensitive=False),
+        default="c",
+    ).lower()
+
+    if choice == "p":
+        set_default_log_level(level)
+        set_default_log_level(None, session=True)
+        _console().print(
+            f"[green]Permanent log level set to: {level}[/green]"
+        )
+    elif choice == "s":
+        set_default_log_level(level, session=True)
+        _console().print(
+            f"[green]Session log level set to: {level}[/green]"
+        )
 
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -164,12 +234,33 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     type=int,
     help="Baud rate to use for communication (default: 57600).",
 )
+@click.option(
+    "--log-level",
+    type=click.Choice(LOG_LEVELS, case_sensitive=False),
+    default=get_default_log_level,
+    help="CLI logging verbosity (default: saved setting or ERROR).",
+)
 @click.pass_context
-def cli(ctx: click.Context, port: str | None, baud: int) -> None:
+def cli(
+    ctx: click.Context,
+    port: str | None,
+    baud: int,
+    log_level: str,
+) -> None:
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
+    log_level = log_level.upper()
+    logging.getLogger().setLevel(getattr(logging, log_level))
+
+    if (
+        ctx.get_parameter_source("log_level")
+        == ParameterSource.COMMANDLINE
+    ):
+        _offer_to_save_log_level(log_level)
+
     ctx.ensure_object(dict)
     ctx.obj["port"] = port
     ctx.obj["baud"] = baud
+    ctx.obj["log_level"] = log_level
 
 
 def _friendly_error(err_msg: str, command: bytes) -> str:

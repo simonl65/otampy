@@ -15,7 +15,7 @@ class FixedLevelFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         ol, on = record.levelname, record.name
-        record.levelname = ol.ljust(self.level_width)[: self.level_width]
+        record.levelname = ol.ljust(self.level_width)[: self.level_width]  # type: ignore
         record.name = on.ljust(self.name_width)[: self.name_width]
         try:
             return super().format(record)
@@ -25,7 +25,7 @@ class FixedLevelFormatter(logging.Formatter):
 
 def logging_formatter(
     fmt: str = "[%(levelname)s] [%(name)s] %(message)s",
-    level: int = logging.DEBUG,
+    level: int = logging.ERROR,
     level_width: int = 5,
     name_width: int = 20,
     handler: logging.Handler | None = None,

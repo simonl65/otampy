@@ -51,9 +51,12 @@ uv tool install -e packages/cli
    > [!WARNING]
    > `deploy` erases the device filesystem before copying the deployment.
 
-3. For development file logging, add `--with-logger`. The standard production
-   profile does not install a logger and runs silently.
-4. Call `ota.poll()` inside your application main loop to enable on-demand
+3. For development file logging, add `--with-logger`. The default source
+   profile otherwise runs silently.
+4. For a smaller target-matched deployment, install `mpy-cross` and add
+   `--bytecode`. This compiles OTAmpy and URST after checking the connected
+   device's `.mpy` compatibility.
+5. Call `ota.poll()` inside your application main loop to enable on-demand
    background listening.
 
 See the [deployment guide](docs/deployment.md) and

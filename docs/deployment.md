@@ -21,7 +21,7 @@ Use a dry run to inspect the operation without changing the device:
 otampy deploy --port /dev/ttyACM0 --dry-run
 ```
 
-## Production profile
+## Source profile
 
 The default profile installs:
 
@@ -36,6 +36,9 @@ otampy deploy --port /dev/ttyACM0
 
 No file logger is installed. OTAmpy and the examples use `NullLogger`, so the
 application runs silently without importing a file-logging implementation.
+
+This profile keeps OTAmpy and URST as editable `.py` files and is the
+recommended development profile.
 
 ## Development logging profile
 
@@ -60,21 +63,63 @@ logger = MyLogger()
 ota = OTA(uart, config=config, logger=logger)
 ```
 
+## Target-matched bytecode profile
+
+Install MicroPython's `mpy-cross` tool, or provide a command that runs it:
+
+```bash
+uv tool install mpy-cross
+```
+
+Then deploy with `--bytecode` (also available as `--mpy`):
+
+```bash
+otampy deploy --port /dev/ttyACM0 --bytecode
+```
+
+The bytecode profile:
+
+1. queries `sys.implementation._mpy` and the target's positive small-int
+   width;
+2. compiles OTAmpy, `Blink`, and the CLI's installed URST package into a
+   temporary `/lib` tree;
+3. rejects wrong `.mpy` versions, excessive small-int widths, and unexpected
+   architecture-specific output before erasing the device;
+4. deploys only `.mpy` library/dependency modules. `boot.py`, `main.py`, and
+   `config.py` remain source files.
+
+Use `--mpy-cross` when the compiler is not directly on `PATH`, for example:
+
+```bash
+otampy deploy --port /dev/ttyACM0 --bytecode --mpy-cross "uvx --from mpy-cross mpy-cross"
+```
+
+The compiler only emits portable MicroPython bytecode; OTAmpy does not request
+native architecture output. Rebuild for each target firmware rather than
+copying `.mpy` files between devices. MicroPython source files take precedence
+over matching `.mpy` files, so do not mix both forms in `/lib`.
+
+The bytecode profile already packages URST and therefore performs no MIP
+installation. It cannot be combined with `--with-logger`; use the source
+profile for development file logging.
+
 ## Options
 
-| Option | Description |
-| --- | --- |
-| `-p`, `--port PORT` | Select the device port, such as `/dev/ttyACM0` or `COM3`. |
-| `--with-logger` | Install `log-to-file` for development logging. |
-| `--no-mip` | Skip every MIP dependency, including URST and the optional logger. |
-| `--no-reset` | Do not reset the device after deployment. |
-| `--dry-run` | Print the `mpremote` command without executing it. |
-| `--mpremote PATH` | Select a different `mpremote` executable. |
+| Option                | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `-p`, `--port PORT`   | Select the device port, such as `/dev/ttyACM0` or `COM3`.          |
+| `--with-logger`       | Install `log-to-file` for development logging.                     |
+| `--bytecode`, `--mpy` | Compile and deploy target-matched `.mpy` libraries.                |
+| `--mpy-cross COMMAND` | Select the compiler executable or command.                         |
+| `--no-mip`            | Skip every MIP dependency, including URST and the optional logger. |
+| `--no-reset`          | Do not reset the device after deployment.                          |
+| `--dry-run`           | Print the `mpremote` command without executing it.                 |
+| `--mpremote PATH`     | Select a different `mpremote` executable.                          |
 
 `--with-logger` has no effect when combined with `--no-mip`.
 Use `--no-mip` only when the required packages are frozen into the firmware or
 will be installed separately; after the filesystem erase, OTAmpy cannot poll
-without URST.
+without URST. `--no-mip` has no additional effect on the bytecode profile.
 
 The global `otampy --log-level LEVEL` option controls host CLI diagnostics; it
 does not enable device logging. When supplied explicitly, the CLI offers to

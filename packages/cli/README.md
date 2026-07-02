@@ -78,8 +78,7 @@ Check device connection health:
 otampy --port /dev/ttyUSB0 ping
 ```
 
-Deploy the standard silent production profile over the board's USB serial
-port:
+Deploy the default silent source profile over the board's USB serial port:
 
 ```bash
 otampy deploy --port /dev/ttyACM0
@@ -91,6 +90,13 @@ Deploy with development file logging:
 otampy deploy --port /dev/ttyACM0 --with-logger
 ```
 
+Deploy target-matched bytecode libraries:
+
+```bash
+uv tool install mpy-cross
+otampy deploy --port /dev/ttyACM0 --bytecode
+```
+
 > [!WARNING]
 > `deploy` erases the device filesystem before copying files.
 
@@ -100,6 +106,8 @@ Deployment options:
 | --- | --- |
 | `-p`, `--port` | Select the USB/serial device used by `mpremote`. |
 | `--with-logger` | Install the optional `log-to-file` package. |
+| `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
+| `--mpy-cross` | Select the `mpy-cross` executable or command. |
 | `--no-mip` | Install neither URST nor the optional logger. |
 | `--no-reset` | Leave the board without a final reset. |
 | `--dry-run` | Print the complete `mpremote` command without running it. |
@@ -108,7 +116,8 @@ Deployment options:
 The standard profile installs URST only. See the
 [deployment guide](../../docs/deployment.md) for prerequisites and the exact
 files copied. Use `--no-mip` only when URST is frozen into the firmware or
-will be installed separately.
+will be installed separately. The bytecode profile packages the installed URST
+dependency itself, skips MIP, and cannot be combined with `--with-logger`.
 
 List content of `/lib`:
 

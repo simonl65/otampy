@@ -34,6 +34,17 @@ MicroPython code to be placed on the device to enable OTA functionality.
    The example scripts automatically use `log_to_file.Logger` when it is
    installed and otherwise use `NullLogger`.
 
+5. For a smaller deployment without development file logging, install
+   `mpy-cross` and use the target-matched bytecode profile:
+
+   ```bash
+   otampy deploy --port <your-device-port> --bytecode
+   ```
+
+   OTAmpy checks the connected firmware's `.mpy` format and small-int width
+   before erasing the device. It compiles OTAmpy, `Blink`, and URST; the root
+   `boot.py`, `main.py`, and `config.py` remain readable source.
+
 See the repository [deployment guide](../../docs/deployment.md) for all deploy
 options.
 

@@ -434,23 +434,79 @@ were absent, deployed source hashes matched, and physical CLI `PING` returned
 `log_to_file`, a source-labelled WARNING entry was written successfully, and
 another physical `PING` returned `PONG`.
 
+### FP-11 target-matched bytecode deployment
+
+Commits `9531a05`, `0b59daa`, and `0ad410a` add a separate
+`otampy deploy --bytecode` profile while retaining source deployment as the
+default. Before erasing the device, deployment now:
+
+- reads `sys.implementation._mpy` and derives the positive small-int width
+  from `sys.maxsize`;
+- compiles OTAmpy, `Blink`, and the installed URST 1.0.0 package with
+  device-relative source names;
+- validates every `.mpy` header's magic, major version, small-int requirement,
+  and absence of architecture-specific output;
+- waits for the board to reconnect after preflight.
+
+The Raspberry Pi Pico W ran MicroPython v1.28.0 and reported `_mpy=4870`:
+`.mpy` major version 6 and a 31-bit positive small-int width. `mpy-cross`
+v1.27.0 emitted v6.3 bytecode with deployed headers `4d 06 00 1f`. OTAmpy's
+profile deliberately emits bytecode rather than native code, so the `.mpy`
+minor/native-architecture compatibility rules do not apply.
+
+Only library and dependency modules are compiled. Root `boot.py`, `main.py`,
+and `config.py` remain source files. The bytecode profile packages URST itself,
+does not run MIP, and rejects `--with-logger`; source plus optional
+`log-to-file` remains the development profile.
+
+The clean library tree measured:
+
+| Content | Source bytes | Source allocation | `.mpy` bytes | `.mpy` allocation | Allocated saving |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Blink` | 346 | 4,096 | 263 | 4,096 | 0 |
+| OTAmpy | 21,002 | 32,768 | 7,506 | 20,480 | 12,288 |
+| URST | 20,232 | 40,960 | 6,779 | 24,576 | 16,384 |
+| **Library total** | **41,580** | **77,824** | **14,548** | **49,152** | **28,672 (36.8%)** |
+
+The raw payload fell by 27,032 bytes (65.0%). Clean in-place free space rose
+from 712,704 to 778,240 bytes, an observed 65,536-byte increase. LittleFS
+cleanup and metadata account for the difference beyond the guaranteed
+28,672-byte file-allocation saving.
+
+The same cold-boot probe measured allocated bytes after GC:
+
+| Checkpoint | Source | `.mpy` | Change |
+| --- | ---: | ---: | ---: |
+| `clean_boot` | 6,560 | 6,560 | baseline |
+| `import_otampy` | 8,624 | 8,640 | +16 |
+| `ota_inputs_ready` | 9,456 | 9,440 | -16 |
+| `ota_constructed` | 9,552 | 9,536 | -16 |
+| `no_flag_boot` | 10,576 | 10,272 | **-304** |
+| `first_poll` | 23,296 | 22,624 | **-672** |
+| `idle_poll` | 23,296 | 22,624 | **-672** |
+
+As expected, `.mpy` primarily saves flash: its steady heap improvement is only
+672 bytes because imported bytecode still occupies RAM. All 12 modules
+imported on target; no `.py` library files were present; no-flag boot,
+physical `PING`, `LS`, and `CAT` passed; and all 95 host regressions passed.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
 
 | Deployed content | Files | Raw bytes |
 | --- | ---: | ---: |
-| `lib/otampy` | 5 | 20,608 |
+| `lib/otampy` | 5 | 21,002 |
 | `lib/Blink.py` | 1 | 346 |
-| deployed `boot.py`, `main.py`, and current `config.py` | 3 | 3,858 |
+| deployed `boot.py`, `main.py`, and current `config.py` | 3 | 3,874 |
 | locally installed URST package | 6 | 20,232 |
-| **Known subtotal** | **15** | **45,044** |
+| **Known subtotal** | **15** | **45,454** |
 
 This subtotal excludes `log-to-file`, logs, orphaned `.ota` files, other
 application files, and filesystem overhead. Consequently, source minification
 cannot explain or recover most of the reported 196 KB by itself.
 
-Within `lib/otampy`, `boot.py` is 9,727 bytes (47% of the package) and
+Within `lib/otampy`, `boot.py` is 10,121 bytes (48% of the package) and
 `manager.py` is 7,501 bytes (36%). Import lifetime matters more than shaving a
 few expressions from the smaller modules.
 
@@ -587,7 +643,7 @@ verification, acknowledgements, cleanup, and reset behaviour.
 ### F6. URST is similar in size to OTAmpy and carries desktop compatibility
 
 **Impact:** High combined RAM/flash potential  
-**Evidence:** the local URST source is 20,232 bytes versus 20,608 bytes for
+**Evidence:** the local URST source is 20,232 bytes versus 21,002 bytes for
 `lib/otampy`. Its device import path includes logging fallbacks, typing
 fallbacks, desktop serial branches, time shims, `math.ceil`, multiple module
 loggers, growing buffers, and general fragmentation/reassembly structures.
@@ -632,6 +688,11 @@ heap. `.mpy` compatibility must be checked against
 `sys.implementation._mpy`; a mismatched file fails to import.
 
 Do not quote a saving until the exact target firmware and compiler are used.
+
+**Completed (2026-07-02):** `--bytecode` performs target preflight, compiles
+OTAmpy plus URST into portable bytecode, and rejects incompatible headers
+before erase. On the RP2040 target it guarantees 28,672 bytes of file
+allocation, saves 672 steady heap bytes, and preserves physical OTA behaviour.
 
 References:
 
@@ -760,9 +821,13 @@ contents, configuration, and lifecycle checkpoint.
   can install `log-to-file` with `--with-logger`, runtime heap falls 5,456
   clean-adjusted bytes, guaranteed production file allocation falls 12 KiB,
   both target profiles and physical OTA pass, and 78 regressions pass.
-- [ ] **FP-11 — Add a target-matched `.mpy` deployment profile** (F7). Fail
+- [x] **FP-11 — Add a target-matched `.mpy` deployment profile** (F7). Fail
   deployment clearly on incompatible bytecode and retain source deployment
   for development.
+  **Completed (2026-07-02):** the profile validates target version/small-int
+  compatibility before erase, saves 28,672 allocated file bytes and 672
+  steady heap bytes, passes 95 regressions, and completes physical
+  import/boot/`PING`/`LS`/`CAT` checks.
 
 ### P2 — compound the gains
 

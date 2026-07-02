@@ -160,7 +160,11 @@ def cli(ctx: click.Context, port: str | None, baud: int) -> None:
 def _friendly_error(err_msg: str, command: bytes) -> str:
     err_msg_lower = err_msg.lower()
     target = ""
-    is_directory_err = "eisdir" in err_msg_lower or "errno 21" in err_msg_lower
+    is_directory_err = (
+        "eisdir" in err_msg_lower
+        or "errno 21" in err_msg_lower
+        or err_msg == "21"
+    )
     try:
         cmd_str = command.decode("utf-8", errors="replace")
         parts = cmd_str.split(":", 1)
@@ -172,18 +176,48 @@ def _friendly_error(err_msg: str, command: bytes) -> str:
     except Exception:
         pass
 
-    if "enoent" in err_msg_lower or "errno 2" in err_msg_lower:
+    if (
+        "enoent" in err_msg_lower
+        or "errno 2" in err_msg_lower
+        or err_msg == "2"
+    ):
         return f"No such file or directory{target}"
-    if "eacces" in err_msg_lower or "errno 13" in err_msg_lower:
+    if (
+        "eacces" in err_msg_lower
+        or "errno 13" in err_msg_lower
+        or err_msg == "13"
+    ):
         return f"Permission denied{target}"
-    if "enospc" in err_msg_lower or "errno 28" in err_msg_lower:
+    if (
+        "enospc" in err_msg_lower
+        or "errno 28" in err_msg_lower
+        or err_msg == "28"
+    ):
         return "No space left on device"
-    if "eexist" in err_msg_lower or "errno 17" in err_msg_lower:
+    if (
+        "eexist" in err_msg_lower
+        or "errno 17" in err_msg_lower
+        or err_msg == "17"
+    ):
         return f"File or directory already exists{target}"
-    if "eisdir" in err_msg_lower or "errno 21" in err_msg_lower:
+    if (
+        "eisdir" in err_msg_lower
+        or "errno 21" in err_msg_lower
+        or err_msg == "21"
+    ):
         return f"Is a directory{target}"
-    if "enotdir" in err_msg_lower or "errno 20" in err_msg_lower:
+    if (
+        "enotdir" in err_msg_lower
+        or "errno 20" in err_msg_lower
+        or err_msg == "20"
+    ):
         return f"Not a directory{target}"
+    if (
+        "enotempty" in err_msg_lower
+        or "errno 39" in err_msg_lower
+        or err_msg == "39"
+    ):
+        return f"Directory not empty{target}"
     return err_msg
 
 

@@ -50,6 +50,7 @@ def _make_dirs(path):
 
 
 def _run_default_update_loop(core):
+    core.logger.debug("Running default OTA update loop")
     import binascii
     import gc
     import hashlib
@@ -259,6 +260,7 @@ def _run_default_update_loop(core):
 
 
 def _cleanup_orphaned_ota(core, path="."):
+    core.logger.debug(f"Cleaning up orphaned OTA files in: {path}")
     resolved_path = _resolve_path(path)
     try:
         # Cache standard methods & check logger levels
@@ -315,14 +317,19 @@ def run(core, callback=None):
         if callback is not None:
             # Handle variable argument callback cleanly
             try:
+                core.logger.debug(f"Executing callback: {callback.__name__}")
                 callback(flag)
             except TypeError:
+                core.logger.debug(
+                    f"Executing callback with flag argument: {callback.__name__}"
+                )
                 callback()
         else:
             _run_default_update_loop(core)
 
         # Remove the flag file
         try:
+            core.logger.debug(f"Removing update request flag file: {flag}")
             _os.remove(flag)
         except OSError:
             try:
@@ -330,5 +337,5 @@ def run(core, callback=None):
             except Exception:
                 core.logger.debug(f"Could not remove update flag: {flag}")
     else:
-        core.logger.debug(f"No update request flag found: {flag}")
+        core.logger.debug(f"{flag} not found")
         _cleanup_orphaned_ota(core)

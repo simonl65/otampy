@@ -1,3 +1,7 @@
+"""
+Example main.py
+"""
+
 import config
 import machine  # pyright: ignore[reportMissingImports]
 import utime as time  # pyright: ignore[reportMissingImports]
@@ -41,9 +45,9 @@ def do_application_stuff():
 
 def prepare_for_shutdown():
     """Make the device safe before shutdown"""
-    logger.info("Making device safe for shutdown.")
+    logger.info("Making device safe for shutdown")
     # TODO: Implement device shutdown procedure
-    logger.info("Device now safe for shutdown.")
+    logger.info("Device now safe for shutdown")
 
 
 # =============================================================================
@@ -58,10 +62,10 @@ def main():
     blink_func = blink.blink
     sleep_func = time.sleep
 
-    logger.debug("Application main loop starting")
+    logger.debug("Application main loop started")
     try:
         while True:
-            """Main application loop."""
+            """Main application loop"""
 
             do_app()
 
@@ -72,7 +76,7 @@ def main():
             sleep_func(0.1)
 
     except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt: Shutting down application.")
+        logger.info("KeyboardInterrupt: Shutting down application")
 
     except Exception as ex:
         import io
@@ -86,13 +90,13 @@ def main():
         logger.error("Application exception:\n%s", s.getvalue())  # type: ignore
 
     finally:
-        logger.info("Shutdown started.")
+        logger.info("Shutdown started")
         for _ in range(10):
             blink.blink(2)
             time.sleep(0.5)
         # Make application safe
         prepare_for_shutdown()
-        logger.info("Shutdown complete.")
+        logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":

@@ -526,11 +526,16 @@ def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
 
     monkeypatch.setattr(deploy, "query_target_mpy", fake_query)
     monkeypatch.setattr(deploy, "build_bytecode_lib", fake_build)
+    monkeypatch.setattr(
+        deploy,
+        "wait_for_target",
+        lambda _args: calls.append("wait"),
+    )
     monkeypatch.setattr(deploy, "run_mpremote", fake_run)
 
     deploy.deploy(args)
 
-    assert calls == ["query", "build", "deploy"]
+    assert calls == ["query", "build", "wait", "deploy"]
 
 
 def test_missing_mpy_cross_has_clear_error():
@@ -553,3 +558,44 @@ def test_missing_mpy_cross_has_clear_error():
         ),
     ):
         deploy._run_mpy_cross(args, ["--version"])
+
+
+def test_wait_for_target_retries_transient_connection_error():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    busy = mock.Mock(
+        returncode=1,
+        stdout="",
+        stderr="device busy",
+    )
+    ready = mock.Mock(
+        returncode=0,
+        stdout="OTAMPY_READY\n",
+        stderr="",
+    )
+
+    with (
+        mock.patch("subprocess.run", side_effect=(busy, ready)) as run,
+        mock.patch("time.sleep") as sleep,
+    ):
+        deploy.wait_for_target(args)
+
+    assert run.call_count == 2
+    sleep.assert_called_once_with(1)
+
+
+def test_print_deploy_error_includes_mpremote_detail(capsys):
+    error = deploy.DeployError(1, "mpremote: failed to access device")
+
+    deploy.print_deploy_error(error)
+
+    captured = capsys.readouterr()
+    assert "mpremote output:" in captured.err
+    assert "failed to access device" in captured.err

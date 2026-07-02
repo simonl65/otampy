@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -205,6 +206,44 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
     raise BytecodeDeployError(
         "The target did not report a valid sys.implementation._mpy value."
     )
+
+
+def wait_for_target(args: DeployArgs) -> None:
+    command = [
+        *mpremote_prefix(args),
+        "resume",
+        "+",
+        "exec",
+        "print('OTAMPY_READY')",
+    ]
+    print("$ " + shlex.join(command), flush=True)
+    last_result = None
+
+    for delay in (0, 1, 2):
+        if delay:
+            time.sleep(delay)
+        last_result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if last_result.returncode == 0 and "OTAMPY_READY" in last_result.stdout:
+            return
+
+        output = ((last_result.stdout or "") + (last_result.stderr or "")).lower()
+        retryable = (
+            "busy" in output
+            or "could not open" in output
+            or "no device" in output
+            or "failed to access" in output
+        )
+        if not retryable:
+            break
+
+    assert last_result is not None
+    output = (last_result.stdout or "") + (last_result.stderr or "")
+    raise DeployError(last_result.returncode or 1, output)
 
 
 def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
@@ -462,6 +501,18 @@ def deploy(args: DeployArgs) -> None:
                 ]
             )
         )
+        print(
+            "$ "
+            + shlex.join(
+                [
+                    *mpremote_prefix(args),
+                    "resume",
+                    "+",
+                    "exec",
+                    "<wait for target>",
+                ]
+            )
+        )
         run_mpremote(
             args,
             deploy_command(
@@ -479,6 +530,7 @@ def deploy(args: DeployArgs) -> None:
     with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
         lib_dir = Path(temp_dir) / "lib"
         build_bytecode_lib(args, lib_dir, target)
+        wait_for_target(args)
         run_mpremote(args, deploy_command(args, lib_dir))
 
 
@@ -559,6 +611,10 @@ def print_deploy_error(error: DeployError) -> None:
         )
     elif "no device" in output or "could not open port" in output:
         print("mpremote could not find or open the device.", file=sys.stderr)
+
+    detail = error.output.strip()
+    if detail:
+        print(f"mpremote output:\n{detail}", file=sys.stderr)
 
     print(
         "Check that the device is connected, not in use by another program, "

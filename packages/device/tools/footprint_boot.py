@@ -76,15 +76,14 @@ def main():
     _checkpoint(gc)
 
     import config
-    from log_to_file import Logger
     from machine import UART, Pin
 
     _assert_update_flag_absent(config)
-    logger = Logger(
+    logger = OTALogger(
         config.LOG_FILE,
-        "footprint",
         level=config.LOG_LEVEL,
-    ) or OTALogger(config.LOG_FILE, level=config.LOG_LEVEL)
+        source="footprint",
+    )
     uart = UART(
         config.OTA_PORT,
         baudrate=config.OTA_BAUDRATE,

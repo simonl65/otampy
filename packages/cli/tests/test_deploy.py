@@ -264,3 +264,18 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
 
     assert not pycache.exists()
     assert called, "run_mpremote should be called after cleanup"
+
+
+def test_deploy_installs_only_urst_mip_dependency():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        no_reset=False,
+        dry_run=True,
+    )
+
+    command = deploy.deploy_command(args)
+
+    assert "github:simonl65/URST-mpy" in command
+    assert not any("log-to-file" in item for item in command)

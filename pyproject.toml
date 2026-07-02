@@ -41,7 +41,6 @@ addopts = "--cov=packages/cli/src/otampy --cov-report=term-missing"
 
 [tool.uv.sources]
 urst = { git = "https://github.com/simonl65/urst-mpy.git" }
-logger = { git = "https://github.com/simonl65/log-to-file.git" }
 
 [tool.uv.workspace]
 members = ["packages/cli"]

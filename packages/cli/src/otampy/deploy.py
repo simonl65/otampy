@@ -95,7 +95,7 @@ CONFIG_FILE = DEVICE_ROOT / "examples" / "config.py"
 BOOT_FILE = DEVICE_ROOT / "examples" / "boot.py"
 MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
 
-MIP_PACKAGES = ("github:simonl65/log-to-file", "github:simonl65/URST-mpy")
+MIP_PACKAGES = ("github:simonl65/URST-mpy",)
 
 
 class DeployError(Exception):

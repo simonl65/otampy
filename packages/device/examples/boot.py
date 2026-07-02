@@ -3,14 +3,15 @@ Example boot.py
 """
 
 import config
-from log_to_file import Logger  # type: ignore
 from machine import UART, Pin  # type: ignore
 
 from otampy import OTA, OTALogger  # type: ignore
 
-logger = Logger(
-    config.LOG_FILE, "boot.py", level=config.LOG_LEVEL
-) or OTALogger(level=config.LOG_LEVEL)
+logger = OTALogger(
+    config.LOG_FILE,
+    level=config.LOG_LEVEL,
+    source="boot.py",
+)
 
 uart = UART(
     config.OTA_PORT,

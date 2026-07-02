@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy OTAmpy device files to a MicroPython board with mpremote."""
+"""Erase and deploy OTAmpy device files with mpremote."""
 
 from __future__ import annotations
 
@@ -212,7 +212,10 @@ def deploy(args: DeployArgs) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device."
+        description=(
+            "Erase and deploy OTAmpy lib/, boot.py, and main.py "
+            "to a MicroPython device."
+        )
     )
     parser.add_argument(
         "-p",
@@ -227,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-mip",
         action="store_true",
-        help="Skip installing MicroPython dependencies with mip.",
+        help="Skip installing all MicroPython dependencies with mip.",
     )
     parser.add_argument(
         "--with-logger",

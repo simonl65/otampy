@@ -58,10 +58,20 @@ classDiagram
         +critical(msg)
     }
 
+    class NullLogger {
+        +int min_level
+        +debug(msg)
+        +info(msg)
+        +warning(msg)
+        +error(msg)
+        +critical(msg)
+    }
+
     OTA --> OTACore : instantiates
     OTA ..> boot : delegates boot() to
     OTA ..> manager : delegates poll() to
     OTACore --> Logger : injected or no-op
+    NullLogger ..|> Logger
 ```
 
 ### Module Responsibilities
@@ -76,7 +86,7 @@ classDiagram
 Applications may inject any logger with the methods shown above. If they do
 not, `OTACore` uses the allocation-light `NullLogger`. The example application
 selects the optional `log-to-file` logger when installed and otherwise remains
-silent.
+silent. OTAmpy does not import a file-logging module in the production profile.
 
 ---
 
@@ -86,7 +96,9 @@ Integrating OTAmpy into a MicroPython device requires simple configuration and i
 
 ### 1. Device Configuration (`config.py`)
 
-Place a `config.py` in the root of the device directory containing UART connection settings:
+Place a `config.py` in the root of the device directory containing UART
+connection settings. `LOG_LEVEL` and `LOG_FILE` are used by the deployed
+examples only when the optional `log-to-file` package is installed:
 
 ```python
 LOG_LEVEL = "DEBUG"
@@ -118,6 +130,9 @@ uart = UART(
 # Run boot checker (non-blocking if no update requested)
 OTA(uart, config=config).boot()
 ```
+
+Pass the same injected logger to `OTA` in both scripts if the application
+wants logging. Omitting it selects `NullLogger`.
 
 ### 3. Application Main Loop (`main.py`)
 

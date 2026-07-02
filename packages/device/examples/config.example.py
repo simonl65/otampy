@@ -2,6 +2,7 @@
 RENAME THIS FILE TO config.py AND EDIT THE VALUES BELOW TO MATCH YOUR ENVIRONMENT
 """
 
+# Used by the examples when optional log-to-file support is installed.
 LOG_LEVEL = "DEBUG"  # NONE, DEBUG, INFO, WARNING, ERROR, CRITICAL, ALWAYS
 LOG_FILE = "/ota.log"
 

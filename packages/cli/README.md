@@ -5,7 +5,7 @@ This provides a command-line interface to enable over the air (OTA) file managem
 ## Usage
 
 ```bash
-otampy command [args]
+otampy [global-options] command [command-options]
 ```
 
 ### Commands
@@ -21,7 +21,7 @@ otampy command [args]
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
 | **upd**    | [src]<sup>1</sup> dest [,&nbsp;[src]&nbsp;dest] | Updates application firmware on device<sup>2</sup>                                               |
 | **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
-| **deploy** | `--with-logger`                                 | Deploy OTAmpy lib/, boot.py, and main.py; optionally install development file logging             |
+| **deploy** | See deployment options below                    | Erase and deploy OTAmpy, examples, and device dependencies                                        |
 
 **<sup>1</sup>** Update source is optional and will be the current folder if not supplied.
 
@@ -54,6 +54,38 @@ Check device connection health:
 ```bash
 otampy --port /dev/ttyUSB0 ping
 ```
+
+Deploy the standard silent production profile over the board's USB serial
+port:
+
+```bash
+otampy deploy --port /dev/ttyACM0
+```
+
+Deploy with development file logging:
+
+```bash
+otampy deploy --port /dev/ttyACM0 --with-logger
+```
+
+> [!WARNING]
+> `deploy` erases the device filesystem before copying files.
+
+Deployment options:
+
+| Option | Effect |
+| --- | --- |
+| `-p`, `--port` | Select the USB/serial device used by `mpremote`. |
+| `--with-logger` | Install the optional `log-to-file` package. |
+| `--no-mip` | Install neither URST nor the optional logger. |
+| `--no-reset` | Leave the board without a final reset. |
+| `--dry-run` | Print the complete `mpremote` command without running it. |
+| `--mpremote` | Use a specific `mpremote` executable. |
+
+The standard profile installs URST only. See the
+[deployment guide](../../docs/deployment.md) for prerequisites and the exact
+files copied. Use `--no-mip` only when URST is frozen into the firmware or
+will be installed separately.
 
 List content of `/lib`:
 

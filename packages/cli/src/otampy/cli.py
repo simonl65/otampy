@@ -1008,7 +1008,7 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
 @click.option(
     "--no-mip",
     is_flag=True,
-    help="Skip installing MicroPython dependencies with mip.",
+    help="Skip installing all MicroPython dependencies with mip.",
 )
 @click.option(
     "--with-logger",
@@ -1033,7 +1033,7 @@ def deploy_cmd(
     no_reset: bool,
     dry_run: bool,
 ) -> None:
-    """Deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device."""
+    """Erase and deploy OTAmpy, examples, and device dependencies."""
     args = deploy.DeployArgs(
         port=port,  # type: ignore
         mpremote=mpremote,  # type: ignore

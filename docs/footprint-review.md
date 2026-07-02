@@ -25,8 +25,8 @@ The best opportunities, in order, are:
 4. Bound the transient memory used by `CAT`, `LS`, command parsing, URST
    fragmentation/reassembly, and update chunks without changing the wire
    protocol.
-5. Produce a MicroPython-specific URST/logging deployment and compare `.mpy`
-   and frozen-module builds.
+5. Produce a MicroPython-specific URST deployment and compare `.mpy` and
+   frozen-module builds.
 
 Native/Viper emitters are not proposed. They optimise execution speed, can
 increase code size, and introduce portability or safety costs without
@@ -768,7 +768,7 @@ contents, configuration, and lifecycle checkpoint.
 
 - [ ] **FP-12 — Evaluate module consolidation using measured filesystem
   allocation and module RAM** (F8). Merge only always-loaded pieces.
-- [ ] **FP-13 — Evaluate compact logger levels, `__slots__`, and ownership
+- [ ] **FP-13 — Evaluate `__slots__`, injected-logger overhead, and ownership
   cleanup** (F9) on all supported ports.
 - [ ] **FP-14 — Add explicit GC checkpoints/threshold only if stress data
   improves** (F9). Record pause-time and fragmentation effects as well as free

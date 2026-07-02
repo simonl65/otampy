@@ -39,14 +39,26 @@ uv tool install -e packages/cli
 
 ### 2. Device Firmware Installation
 
-1. Deploy dependencies and the core `otampy` library to your device:
+1. Create `packages/device/examples/config.py` from
+   `packages/device/examples/config.example.py` and set the UART pins and
+   baud rate for your board.
+2. Deploy OTAmpy, URST, and the example `boot.py` and `main.py`:
+
    ```bash
    otampy deploy --port /dev/ttyACM0
    ```
-   Add `--with-logger` to install the optional `log-to-file` development
-   logger. Without it, the example application runs silently.
-2. Set up the OTA configuration on your device as shown in `packages/device/examples/config.example.py`.
-3. Call `ota.poll()` inside your application main loop to enable on-demand background listening (see `packages/device/examples/main.py`).
+
+   > [!WARNING]
+   > `deploy` erases the device filesystem before copying the deployment.
+
+3. For development file logging, add `--with-logger`. The standard production
+   profile does not install a logger and runs silently.
+4. Call `ota.poll()` inside your application main loop to enable on-demand
+   background listening.
+
+See the [deployment guide](docs/deployment.md) and
+[device integration guide](packages/device/README.md) for logger injection,
+deployment options, and complete examples.
 
 ---
 

@@ -349,6 +349,46 @@ filesystem allocation, with device free space unchanged at 651,264 bytes.
 All stress fixtures were absent afterward; the board was reset and verified
 responsive over USB.
 
+### FP-08 compact update parsing and state
+
+On 2026-07-01, commit `792a349` changed the update loop to retain protocol
+packets as bytes. Command splits are bounded, base64 is decoded directly from
+bytes, chunk acknowledgements concatenate the byte sequence number, and only
+filesystem paths are decoded. The free-space check now uses integer
+arithmetic.
+
+The string-keyed session dictionary was replaced with fixed locals. Atomic
+commit still retains every target and staging path, but in one flat list
+without a tuple per file. Parser and chunk temporaries are released and
+collected immediately before acknowledgements, after the file write and hash
+state are durable and while the host is already waiting.
+
+The fresh-interpreter FP-03 matrix measured:
+
+| Scenario | Before FP-08 | After FP-08 | Reduction | Minimum free | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Maximum 256-byte chunk | 3,952 | 2,432 | 1,520 (38.5%) | 158,224 | PASS |
+| 32-file manifest | 92,944 | 11,488 | **81,456 (87.6%)** | 148,976 | PASS |
+| Failed checksum | 3,232 | 2,256 | 976 (30.2%) | 157,904 | PASS |
+| Interrupted update | 2,976 | 2,256 | 720 (24.2%) | 157,600 | PASS |
+
+The bounded `CAT` and `LS` peaks remained 4,416 and 2,800 bytes. All six
+stress cases passed their content, acknowledgement, checksum, commit,
+interruption, and cleanup assertions.
+
+A physical CLI update then transferred the 491-byte example configuration in
+two chunks to `/fp-stress-update/physical.py`. Runtime request, reboot,
+`READY`, space check, chunk acknowledgements, SHA-256 verification, atomic
+commit, and final reboot all succeeded. The committed file's SHA-256
+`5acd4e06427a59b9afcd97655915fda057558525096de4e98ce24f3dca4930cf`
+matched its source exactly. The temporary target was removed and verified
+absent, and a final physical CLI `PING` returned `PONG`.
+
+The deployed `boot.py` matched SHA-256
+`11685f4f6de3a08c16e4bf6ff2b8ba7e12db15934b5b8fd9b5c726b0859cfe20`.
+Its source grew from 8,340 to 9,628 bytes but stayed within the same 12 KiB
+filesystem allocation.
+
 ### Known source payload
 
 These are host-side raw `.py` byte counts, not on-device allocation:
@@ -489,6 +529,12 @@ a float allocation on ports where floats use the heap.
 
 A transport-level `readinto()`/reusable receive buffer would produce a larger
 gain, but requires coordinated URST work.
+
+**Completed (2026-07-01):** normal update packets stay as bytes, splits are
+bounded, fixed state uses locals, atomic paths use a flat list, and collection
+occurs at safe acknowledgement boundaries. The 32-file peak fell 87.6%, all
+stress semantics passed, and a physical two-chunk CLI update committed and
+verified byte-for-byte.
 
 Compatibility gate: preserve transaction atomicity, per-file SHA-256
 verification, acknowledgements, cleanup, and reset behaviour.
@@ -656,8 +702,11 @@ contents, configuration, and lifecycle checkpoint.
   **Completed (2026-07-01):** bounded URST fragments preserve exact logical
   payloads and reduce target peaks by 46,848 bytes for `CAT` and 20,864 bytes
   for `LS`, without consuming another filesystem block.
-- [ ] **FP-08 — Parse update commands as bytes and compact update state**
+- [x] **FP-08 — Parse update commands as bytes and compact update state**
   (F5). Record peak heap for the stress matrix before and after.
+  **Completed (2026-07-01):** the many-file peak fell from 92,944 to 11,488
+  bytes, maximum-chunk and failure peaks also fell, all stress assertions
+  passed, and a physical CLI update completed and verified successfully.
 - [ ] **FP-09 — Define and test a MicroPython-specific URST artifact** (F6).
   Keep all reliability semantics and publish its source, `.mpy`, import-RAM,
   and peak-buffer deltas.

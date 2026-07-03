@@ -62,7 +62,8 @@ otampy ports
 
 The effective selected port is highlighted in green and marked with `*`.
 This reflects a `--port` override, `OTAMPY_PORT`, a session selection, or the
-permanently saved default.
+permanently saved default. Each USB device also shows its serial number,
+VID:PID, manufacturer, and product when reported by the operating system.
 
 List root content of the device:
 

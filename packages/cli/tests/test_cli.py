@@ -759,10 +759,20 @@ def test_cli_port_interactive(tmp_path):
     mock_port1 = mock.MagicMock()
     mock_port1.device = "/dev/ttyFake1"
     mock_port1.description = "Fake Port 1"
+    mock_port1.serial_number = "SERIAL1"
+    mock_port1.vid = 0x2E8A
+    mock_port1.pid = 0x0005
+    mock_port1.manufacturer = "MicroPython"
+    mock_port1.product = "Board in FS mode"
 
     mock_port2 = mock.MagicMock()
     mock_port2.device = "/dev/ttyFake2"
     mock_port2.description = "Fake Port 2"
+    mock_port2.serial_number = "SERIAL2"
+    mock_port2.vid = 0x0403
+    mock_port2.pid = 0x6001
+    mock_port2.manufacturer = "FTDI"
+    mock_port2.product = "FT232R USB UART"
 
     with (
         mock.patch(
@@ -775,7 +785,10 @@ def test_cli_port_interactive(tmp_path):
         result = runner.invoke(cli, ["ports"], input="1\np\n")
         assert result.exit_code == 0
         assert "Available serial ports:" in result.output
-        assert "1: /dev/ttyFake1 (Fake Port 1)" in result.output
+        assert (
+            "1: /dev/ttyFake1 SERIAL1 2e8a:0005 "
+            "MicroPython Board in FS mode"
+        ) in result.output
         assert "Permanent default port set to: /dev/ttyFake1" in result.output
 
         # Verify file config.json exists and has correct default_port value
@@ -793,8 +806,14 @@ def test_cli_port_interactive(tmp_path):
             input="\n",
         )
         assert result.exit_code == 0
-        assert "    1: /dev/ttyFake1 (Fake Port 1)" in result.output
-        assert "  * 2: /dev/ttyFake2 (Fake Port 2)" in result.output
+        assert (
+            "    1: /dev/ttyFake1 SERIAL1 2e8a:0005 "
+            "MicroPython Board in FS mode"
+        ) in result.output
+        assert (
+            "  * 2: /dev/ttyFake2 SERIAL2 0403:6001 "
+            "FTDI FT232R USB UART"
+        ) in result.output
 
         # 2. Interactive choice: select 2, select session 's'
         result = runner.invoke(cli, ["ports"], input="2\ns\n")

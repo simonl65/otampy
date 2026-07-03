@@ -1034,18 +1034,26 @@ def ports_cmd(
     selected_port = ctx.obj.get("port")
 
     for idx, port_info in enumerate(ports, 1):
-        desc = (
-            f" ({port_info.description})"
-            if port_info.description and port_info.description != "n/a"
-            else ""
-        )
+        details = []
+        if port_info.serial_number:
+            details.append(port_info.serial_number)
+        if port_info.vid is not None and port_info.pid is not None:
+            details.append(f"{port_info.vid:04x}:{port_info.pid:04x}")
+        if port_info.manufacturer:
+            details.append(port_info.manufacturer)
+        if port_info.product:
+            details.append(port_info.product)
+        elif port_info.description and port_info.description != "n/a":
+            details.append(port_info.description)
+
+        port_summary = " ".join((port_info.device, *details))
         if port_info.device == selected_port:
             _console().print(
-                f"  [bold green]* {idx}: {port_info.device}{desc}[/bold green]"
+                f"  [bold green]* {idx}: {port_summary}[/bold green]"
             )
         else:
             _console().print(
-                f"    [bold]{idx}[/bold]: [cyan]{port_info.device}[/cyan]{desc}"
+                f"    [bold]{idx}[/bold]: [cyan]{port_summary}[/cyan]"
             )
 
     # Ask the user to select a port

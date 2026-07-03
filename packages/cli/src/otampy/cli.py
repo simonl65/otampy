@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
-from click.core import ParameterSource
 from rich.console import Console
 
 import otampy.deploy as deploy
@@ -59,6 +58,7 @@ class AliasedGroup(click.Group):
             "remove": "rm",
             "update": "upd",
             "memory": "mem",
+            "loglevel": "log-level",
         }
         if normalized_name in aliases:
             return click.Group.get_command(self, ctx, aliases[normalized_name])
@@ -230,7 +230,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     "--log-level",
     type=click.Choice(LOG_LEVELS, case_sensitive=False),
     default=get_default_log_level,
-    help="CLI logging verbosity (default: saved setting or ERROR).",
+    help="CLI logging verbosity for this command. Use 'otampy log-level' to view or save the default.",
 )
 @click.pass_context
 def cli(
@@ -242,9 +242,6 @@ def cli(
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
     log_level = log_level.upper()
     logging.getLogger().setLevel(getattr(logging, log_level))
-
-    if ctx.get_parameter_source("log_level") == ParameterSource.COMMANDLINE:
-        _offer_to_save_log_level(log_level)
 
     ctx.ensure_object(dict)
     ctx.obj["port"] = port
@@ -1405,6 +1402,80 @@ def ports_cmd(
         _console().print(
             f"[green]Session default port set to: {selected_port}[/green]"
         )
+    else:
+        _console().print("Cancelled.")
+
+
+@cli.command(name="log-level")
+@click.option("--show", is_flag=True, help="Show the current default log level.")
+@click.option(
+    "--set",
+    "set_level",
+    type=click.Choice(LOG_LEVELS, case_sensitive=False),
+    help="Set the default log level permanently.",
+)
+@click.option("--clear", is_flag=True, help="Clear the saved log level (resets to ERROR).")
+def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
+    """Show or manage the saved CLI log level.
+
+    With no options, lists available levels and prompts to choose one.
+    The saved level is used as the default for every subsequent command.
+    Override it for a single command with 'otampy --log-level LEVEL <cmd>'.
+    """
+    if show:
+        level = get_default_log_level()
+        _console().print(f"Current log level: [green]{level}[/green]")
+        return
+
+    if clear:
+        set_default_log_level(None)
+        set_default_log_level(None, session=True)
+        _console().print("[green]Saved log level cleared (will default to ERROR).[/green]")
+        return
+
+    if set_level:
+        set_default_log_level(set_level.upper())
+        set_default_log_level(None, session=True)
+        _console().print(
+            f"[green]Permanent log level set to: {set_level.upper()}[/green]"
+        )
+        return
+
+    # Interactive mode — show current and prompt to change
+    current = get_default_log_level()
+    _console().print(f"Current log level: [bold]{current}[/bold]")
+    _console().print(
+        f"Available levels: {', '.join(LOG_LEVELS)}"
+    )
+
+    selection = click.prompt(
+        "\nEnter a log level to set as default (or press Enter to cancel)",
+        default="",
+        show_default=False,
+    ).strip().upper()
+
+    if not selection:
+        _console().print("Cancelled.")
+        return
+
+    if selection not in LOG_LEVELS:
+        raise click.ClickException(
+            f"Invalid log level '{selection}'. "
+            f"Choose from: {', '.join(LOG_LEVELS)}"
+        )
+
+    choice = click.prompt(
+        f"Set {selection} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
+        default="p",
+    ).strip().lower()
+
+    if choice == "p":
+        set_default_log_level(selection)
+        set_default_log_level(None, session=True)
+        _console().print(f"[green]Permanent log level set to: {selection}[/green]")
+    elif choice == "s":
+        set_default_log_level(selection, session=True)
+        _console().print(f"[green]Session log level set to: {selection}[/green]")
     else:
         _console().print("Cancelled.")
 

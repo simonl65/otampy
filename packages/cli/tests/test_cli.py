@@ -37,14 +37,15 @@ def test_cli_log_level_for_current_command():
     previous_level = logging.getLogger().level
 
     try:
+        # --log-level now applies silently for the current command only,
+        # with no interactive save prompt.
         result = runner.invoke(
             cli,
             ["--log-level", "DEBUG", "ports", "--show"],
-            input="c\n",
         )
 
         assert result.exit_code == 0
-        assert "Keep DEBUG as the log level?" in result.output
+        assert "Keep DEBUG as the log level?" not in result.output
         assert logging.getLogger().level == logging.DEBUG
     finally:
         logging.getLogger().setLevel(previous_level)
@@ -66,11 +67,8 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
                 json.dumps({"default_port": "/dev/ttySaved"})
             )
 
-            result = runner.invoke(
-                cli,
-                ["--log-level", "debug", "ports", "--show"],
-                input="p\n",
-            )
+            # Use the log-level command to save permanently.
+            result = runner.invoke(cli, ["log-level", "--set", "DEBUG"])
 
             assert result.exit_code == 0
             assert "Permanent log level set to: DEBUG" in result.output
@@ -79,6 +77,7 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
                 "log_level": "DEBUG",
             }
 
+            # Next plain invocation uses the saved level with no prompt.
             result = runner.invoke(cli, ["ports", "--show"])
 
             assert result.exit_code == 0
@@ -98,10 +97,11 @@ def test_cli_log_level_can_be_saved_for_session(tmp_path):
         mock.patch("os.getppid", return_value=456),
     ):
         try:
+            # Use the log-level command in interactive mode, choose session.
             result = runner.invoke(
                 cli,
-                ["--log-level", "INFO", "ports", "--show"],
-                input="s\n",
+                ["log-level"],
+                input="INFO\ns\n",
             )
 
             assert result.exit_code == 0
@@ -109,6 +109,7 @@ def test_cli_log_level_can_be_saved_for_session(tmp_path):
             session_file = tmp_path / "otampy_session_456.json"
             assert json.loads(session_file.read_text())["log_level"] == "INFO"
 
+            # Next plain invocation uses the saved level with no prompt.
             result = runner.invoke(cli, ["ports", "--show"])
 
             assert result.exit_code == 0
@@ -125,6 +126,160 @@ def test_cli_rejects_invalid_log_level():
 
     assert result.exit_code == 2
     assert "Invalid value for '--log-level'" in result.output
+
+
+# =============================================================================
+# log-level command tests
+# =============================================================================
+
+
+def test_log_level_cmd_show(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level", "--show"])
+        assert result.exit_code == 0
+        assert "ERROR" in result.output  # default when nothing saved
+
+
+def test_log_level_cmd_show_reflects_saved_level(tmp_path):
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({"log_level": "WARNING"}))
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level", "--show"])
+        assert result.exit_code == 0
+        assert "WARNING" in result.output
+
+
+def test_log_level_cmd_set_saves_permanently(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level", "--set", "INFO"])
+        assert result.exit_code == 0
+        assert "Permanent log level set to: INFO" in result.output
+
+        config_file = tmp_path / ".config" / "otampy" / "config.json"
+        assert json.loads(config_file.read_text())["log_level"] == "INFO"
+
+
+def test_log_level_cmd_set_clears_session_shadow(tmp_path):
+    """--set must clear any session file so it no longer shadows the permanent config."""
+    fake_ppid = 77777
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+    ):
+        # Plant a session log level.
+        session_file.write_text(json.dumps({"log_level": "DEBUG"}))
+
+        result = CliRunner().invoke(cli, ["log-level", "--set", "WARNING"])
+        assert result.exit_code == 0
+        assert "Permanent log level set to: WARNING" in result.output
+
+        # Session file must have had the log_level key removed (or file gone).
+        if session_file.exists():
+            assert "log_level" not in json.loads(session_file.read_text())
+
+
+def test_log_level_cmd_clear(tmp_path):
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({"log_level": "DEBUG"}))
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level", "--clear"])
+        assert result.exit_code == 0
+        assert "cleared" in result.output.lower()
+
+        # File gone (no remaining keys) or log_level key removed.
+        if config_file.exists():
+            assert "log_level" not in json.loads(config_file.read_text())
+
+
+def test_log_level_cmd_interactive_permanent(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level"], input="DEBUG\np\n")
+        assert result.exit_code == 0
+        assert "Permanent log level set to: DEBUG" in result.output
+
+        config_file = tmp_path / ".config" / "otampy" / "config.json"
+        assert json.loads(config_file.read_text())["log_level"] == "DEBUG"
+
+
+def test_log_level_cmd_interactive_session(tmp_path):
+    fake_ppid = 88888
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+    ):
+        result = CliRunner().invoke(cli, ["log-level"], input="INFO\ns\n")
+        assert result.exit_code == 0
+        assert "Session log level set to: INFO" in result.output
+
+        session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
+        assert json.loads(session_file.read_text())["log_level"] == "INFO"
+
+
+def test_log_level_cmd_interactive_cancel(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        # Cancel at level prompt.
+        result = CliRunner().invoke(cli, ["log-level"], input="\n")
+        assert result.exit_code == 0
+        assert "Cancelled" in result.output
+
+        # Cancel at save prompt.
+        result = CliRunner().invoke(cli, ["log-level"], input="DEBUG\nc\n")
+        assert result.exit_code == 0
+        assert "Cancelled" in result.output
+
+
+def test_log_level_cmd_interactive_rejects_invalid_level(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["log-level"], input="VERBOSE\n")
+        assert result.exit_code != 0
+        assert "Invalid" in result.output or "invalid" in result.output
+
+
+def test_log_level_cmd_loglevel_alias(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["loglevel", "--show"])
+        assert result.exit_code == 0
+        assert "ERROR" in result.output
 
 
 def test_log_level_precedence_is_environment_session_permanent(tmp_path):

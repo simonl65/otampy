@@ -23,13 +23,29 @@ its scope:
 otampy --log-level DEBUG --port /dev/ttyUSB0 ping
 ```
 
-- `p` stores it permanently in `~/.config/otampy/config.json`;
+- `p` stores it permanently;
 - `s` keeps it for commands launched from the current shell session;
 - `c` applies it only to the current command.
 
 The `OTAMPY_LOG_LEVEL` environment variable overrides saved settings.
 Host CLI logging is independent of the optional device file logger installed
 by `otampy deploy --with-logger`.
+
+### Saved settings
+
+Permanent port and log-level settings are stored together in
+`~/.config/otampy/config.json`:
+
+```json
+{
+  "default_port": "/dev/ttyUSB0",
+  "log_level": "DEBUG"
+}
+```
+
+Session-only selections use shell-specific files in the operating system's
+temporary directory (normally `/tmp` on Linux) and do not alter the permanent
+configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 
 ### Commands
 

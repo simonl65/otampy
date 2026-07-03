@@ -123,7 +123,9 @@ without URST. `--no-mip` has no additional effect on the bytecode profile.
 
 The global `otampy --log-level LEVEL` option controls host CLI diagnostics; it
 does not enable device logging. When supplied explicitly, the CLI offers to
-retain that level for the shell session or permanently.
+retain that level for the shell session or permanently. Permanent host CLI
+settings are stored in `~/.config/otampy/config.json`; session-only settings
+use the operating system's temporary directory.
 
 ## Verification
 

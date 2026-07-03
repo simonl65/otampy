@@ -93,7 +93,9 @@ otampy --log-level DEBUG --port /dev/ttyUSB0 ping
 
 When `--log-level` is supplied, OTAmpy offers to retain it for the current
 shell session or permanently. This host option is separate from device file
-logging enabled by `otampy deploy --with-logger`.
+logging enabled by `otampy deploy --with-logger`. Permanent CLI port and
+log-level settings are stored in `~/.config/otampy/config.json`; session-only
+settings use the operating system's temporary directory.
 
 Trigger an OTA firmware update:
 

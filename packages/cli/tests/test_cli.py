@@ -720,6 +720,143 @@ def test_get_files_to_send_rejects_missing_explicit_sources(
         )
 
 
+def test_get_files_to_send_copies_all_folder_files(tmp_path, monkeypatch):
+    from otampy.cli import _get_files_to_send
+
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "source"
+    (source / "nested").mkdir(parents=True)
+    (source / "module.py").write_text("# module\n")
+    (source / "data.json").write_text("{}\n")
+    (source / "nested" / "payload.bin").write_bytes(b"payload")
+
+    files = _get_files_to_send(
+        ("source:assets/",),
+        python_only=False,
+    )
+
+    assert [target for target, _source in files] == [
+        "assets/data.json",
+        "assets/module.py",
+        "assets/nested/payload.bin",
+    ]
+
+
+def test_cli_cp_streams_multiple_files_without_reboot(tmp_path):
+    runner = CliRunner()
+    main = tmp_path / "main.py"
+    data = tmp_path / "data.bin"
+    main.write_bytes(b"print('replacement')\n")
+    data.write_bytes(b"\x00\x01\x02")
+
+    with (
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[
+                ("main.py", main),
+                ("lib/data.bin", data),
+            ],
+        ),
+        mock.patch("serial.Serial") as serial,
+        mock.patch("urst.Urst") as urst,
+    ):
+        transport = urst.return_value
+        transport.read.side_effect = [
+            b"CP_READY",
+            b"CP_ACK:0",
+            b"CP_OK",
+            b"CP_READY",
+            b"CP_ACK:0",
+            b"CP_OK",
+        ]
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "cp", "ignored"],
+        )
+
+    assert result.exit_code == 0
+    assert "Copied main.py successfully." in result.output
+    assert "Copied lib/data.bin successfully." in result.output
+    assert "Reboot required: /main.py" in result.output
+    serial.assert_called_once_with(
+        "/dev/ttyFake", baudrate=57600, timeout=2.0
+    )
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    assert sum(command.startswith(b"CP_START:") for command in sent) == 2
+    assert sent.count(b"CP_END") == 2
+    assert b"RB" not in sent
+    assert b"SR" not in sent
+
+
+def test_cli_cp_omits_reboot_notice_for_non_boot_files(tmp_path):
+    runner = CliRunner()
+    source = tmp_path / "main.py"
+    source.write_bytes(b"library main")
+
+    with (
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("lib/main.py", source)],
+        ),
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+    ):
+        urst.return_value.read.side_effect = [
+            b"CP_READY",
+            b"CP_ACK:0",
+            b"CP_OK",
+        ]
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "copy", "ignored"],
+        )
+
+    assert result.exit_code == 0
+    assert "Reboot required" not in result.output
+
+
+def test_cli_cp_aborts_active_transfer_on_device_error(tmp_path):
+    runner = CliRunner()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"replacement")
+    source = tmp_path / "file.bin"
+    source.write_bytes(b"content")
+
+    with (
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[
+                ("main.py", main),
+                ("file.bin", source),
+            ],
+        ),
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+    ):
+        transport = urst.return_value
+        transport.read.side_effect = [
+            b"CP_READY",
+            b"CP_ACK:0",
+            b"CP_OK",
+            b"CP_READY",
+            b"ERROR:write failed",
+            b"CP_ABORTED",
+        ]
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "cp", "ignored"],
+        )
+
+    assert result.exit_code != 0
+    assert "write failed" in result.output
+    assert "Reboot required: /main.py" in result.output
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    assert sent[-1] == b"CP_ABORT"
+
+
 def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
     runner = CliRunner(env={"NO_COLOR": "1"})

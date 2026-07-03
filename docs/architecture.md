@@ -81,12 +81,16 @@ classDiagram
 | `ota.py`     | `OTA`                  | The public **Facade** class. Exposes a simple interface to developers.                                       |
 | `core.py`    | `OTACore`              | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
 | `boot.py`    | `run(core, callback)`  | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag.       |
-| `manager.py` | `poll(core, callback)` | Run-time polling function. Periodically inspects serial transport for command payloads and dispatches them.  |
+| `manager.py` | `poll(core, callback)` | Run-time polling function. Dispatches commands and lazily delegates copy transfers.                           |
+| `filecopy.py` | `handle(core, command)` | Lazily loaded staged, checksum-verified runtime copy state machine.                                           |
 
 Applications may inject any logger with the methods shown above. If they do
 not, `OTACore` uses the allocation-light `NullLogger`. The example application
 selects the optional `log-to-file` logger when installed and otherwise remains
 silent. OTAmpy does not import a file-logging module in the production profile.
+Runtime copies retain a flat transfer state on `OTACore` only while a copy is
+active; file content is written and hashed in bounded chunks rather than held
+in RAM.
 
 ---
 

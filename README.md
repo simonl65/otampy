@@ -85,6 +85,16 @@ Query device memory and storage space:
 otampy --port /dev/ttyUSB0 mem
 ```
 
+Copy files or folders without rebooting:
+
+```bash
+otampy --port /dev/ttyUSB0 cp settings.json:config/settings.json
+otampy --port /dev/ttyUSB0 cp assets:assets/
+```
+
+Copies targeting root `/boot.py` or `/main.py` produce a reminder that the
+replacement will not take effect until the device restarts.
+
 Enable host CLI diagnostics for the current command:
 
 ```bash

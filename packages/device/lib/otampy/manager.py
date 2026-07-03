@@ -251,6 +251,10 @@ def poll(core, callback=None):
                 core.transport.send(b"RM_OK")
             except OSError as e:
                 core.transport.send(f"ERROR:{e}".encode())
+    elif cmd.startswith("CP_"):
+        from .filecopy import handle
+
+        handle(core, cmd_str)
     elif cmd == "MEM":
         try:
             import gc

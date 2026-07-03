@@ -49,7 +49,21 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `CAT:path`  | `CAT_OK:content`         | Read a text file's contents from the device.                         |
 | `RM:path`   | `RM_OK`                  | Remove a file or directory from the device.                          |
 
-### 2.3 Update Sequence Commands
+### 2.3 Runtime Copy Commands
+
+These commands stream one file to a checksum-verified staging path while the
+application continues running. A successful `CP_END` commits the file without
+rebooting.
+
+| Request / Msg                   | Response       | Description                                      |
+| ------------------------------- | -------------- | ------------------------------------------------ |
+| `CP_START:path:size:sha256`      | `CP_READY`     | Start a staged file copy.                        |
+| `CP_CHUNK:seq:base64_data`       | `CP_ACK:seq`   | Append one ordered, base64-encoded chunk.        |
+| `CP_END`                        | `CP_OK`        | Verify size/checksum and commit the staged file. |
+| `CP_ABORT`                      | `CP_ABORTED`   | Close and remove the active staging file.        |
+| Any invalid copy request        | `ERROR:reason` | Abort and clean up the active copy where needed. |
+
+### 2.4 Update Sequence Commands
 
 These commands handle the transition from runtime (`main.py`) to bootloader (`boot.py`) and the subsequent file transfer.
 
@@ -87,7 +101,21 @@ Host CLI                    Device
    │                           │
 ```
 
-### 3.3 Over-The-Air Update Flow (Two-Phase)
+### 3.3 Runtime File Copy
+
+```
+Host CLI                         Device (main.py)
+   │                                    │
+   │ ── CP_START:path:size:sha256 ────> │ (opens path.cp)
+   │ <─ CP_READY ────────────────────── │
+   │ ── CP_CHUNK:0:base64_data ───────> │ (writes and hashes)
+   │ <─ CP_ACK:0 ────────────────────── │
+   │ ── CP_END ───────────────────────> │ (verifies and commits)
+   │ <─ CP_OK ───────────────────────── │
+   │                                    │ (continues running)
+```
+
+### 3.4 Over-The-Air Update Flow (Two-Phase)
 
 The update sequence transitions the device from the active application running in `main.py` to a dedicated update loader running in `boot.py`:
 

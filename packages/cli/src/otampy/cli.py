@@ -52,6 +52,7 @@ class AliasedGroup(click.Group):
             return rv
         # Map aliases to the target subcommand names
         aliases = {
+            "copy": "cp",
             "reboot": "rb",
             "reset": "sr",
             "softreset": "sr",
@@ -97,10 +98,7 @@ def _session_config_path() -> Path:
     import os
     import tempfile
 
-    return (
-        Path(tempfile.gettempdir())
-        / f"otampy_session_{os.getppid()}.json"
-    )
+    return Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -178,9 +176,7 @@ def get_default_log_level() -> str:
     return "ERROR"
 
 
-def set_default_log_level(
-    level: str | None, session: bool = False
-) -> None:
+def set_default_log_level(level: str | None, session: bool = False) -> None:
     path = _session_config_path() if session else _config_path()
     try:
         data = _read_json(path)
@@ -207,14 +203,10 @@ def _offer_to_save_log_level(level: str) -> None:
     if choice == "p":
         set_default_log_level(level)
         set_default_log_level(None, session=True)
-        _console().print(
-            f"[green]Permanent log level set to: {level}[/green]"
-        )
+        _console().print(f"[green]Permanent log level set to: {level}[/green]")
     elif choice == "s":
         set_default_log_level(level, session=True)
-        _console().print(
-            f"[green]Session log level set to: {level}[/green]"
-        )
+        _console().print(f"[green]Session log level set to: {level}[/green]")
 
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -251,10 +243,7 @@ def cli(
     log_level = log_level.upper()
     logging.getLogger().setLevel(getattr(logging, log_level))
 
-    if (
-        ctx.get_parameter_source("log_level")
-        == ParameterSource.COMMANDLINE
-    ):
+    if ctx.get_parameter_source("log_level") == ParameterSource.COMMANDLINE:
         _offer_to_save_log_level(log_level)
 
     ctx.ensure_object(dict)
@@ -894,7 +883,9 @@ def _update_target_path(
         return str(source)
 
 
-def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
+def _get_files_to_send(
+    args: tuple[str, ...], *, python_only: bool = True
+) -> list[tuple[str, Path]]:
     from glob import glob, has_magic
 
     res = []
@@ -917,9 +908,11 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
                 if source.is_file():
                     matched_files.append((source, None))
                 elif source.is_dir():
+                    pattern = "*.py" if python_only else "*"
                     matched_files.extend(
                         (file, file.relative_to(source))
-                        for file in sorted(source.rglob("*.py"))
+                        for file in sorted(source.rglob(pattern))
+                        if file.is_file()
                     )
 
             if not matched_files:
@@ -933,9 +926,7 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
                         source, target_str, multiple_matches
                     )
                 elif target_str is not None:
-                    target_path = (
-                        target_str.rstrip("/\\") + "/" + str(relative)
-                    )
+                    target_path = target_str.rstrip("/\\") + "/" + str(relative)
                 else:
                     try:
                         target_path = str(source.relative_to(Path.cwd()))
@@ -978,11 +969,150 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
     return res
 
 
+def _copy_requires_reboot(target: str) -> bool:
+    normalized = target.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.lstrip("/")
+    return normalized in ("boot.py", "main.py")
+
+
+@cli.command(name="cp")
+@click.argument("args", nargs=-1, required=True)
+@click.pass_context
+def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
+    """Copy files or directories without rebooting the device."""
+    files_to_send = _get_files_to_send(args, python_only=False)
+
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
+        )
+
+    import binascii
+    import hashlib
+
+    import serial
+    from urst import Urst
+
+    ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+    try:
+        try:
+            ser.dtr = False
+            ser.rts = False
+        except Exception:
+            pass
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+        transport = Urst(ser)
+
+        try:
+            transport.protocol._recv_queue.clear()
+        except Exception:
+            pass
+
+        reboot_targets = []
+        transfer_active = False
+        try:
+            for target_path, local_path in files_to_send:
+                hasher = hashlib.sha256()
+                size = 0
+                try:
+                    with open(local_path, "rb") as source:
+                        while True:
+                            block = source.read(4096)
+                            if not block:
+                                break
+                            hasher.update(block)
+                            size += len(block)
+                except OSError as e:
+                    raise click.ClickException(
+                        f"Failed to read local file {local_path}: {e}"
+                    ) from e
+
+                digest = hasher.hexdigest()
+                _console().print(
+                    f"Copying {local_path} to {target_path} ({size} bytes)..."
+                )
+                transfer_active = True
+                _query(
+                    ctx,
+                    f"CP_START:{target_path}:{size}:{digest}".encode(),
+                    b"CP_READY",
+                    transport=transport,
+                )
+
+                with open(local_path, "rb") as source:
+                    sequence = 0
+                    while True:
+                        chunk = source.read(256)
+                        if not chunk:
+                            break
+                        encoded = binascii.b2a_base64(chunk).strip()
+                        response, _ = _query(
+                            ctx,
+                            b"CP_CHUNK:"
+                            + str(sequence).encode()
+                            + b":"
+                            + encoded,
+                            b"CP_ACK",
+                            transport=transport,
+                        )
+                        if response != str(sequence).encode():
+                            raise click.ClickException(
+                                "Unexpected copy acknowledgement for "
+                                f"{target_path}: {response!r}"
+                            )
+                        sequence += 1
+
+                _query(
+                    ctx,
+                    b"CP_END",
+                    b"CP_OK",
+                    transport=transport,
+                )
+                transfer_active = False
+                if _copy_requires_reboot(target_path):
+                    reboot_targets.append(
+                        "/" + target_path.replace("\\", "/").lstrip("/")
+                    )
+                _console().print(
+                    f"[green]Copied {target_path} successfully.[/green]"
+                )
+        except DeviceError as e:
+            raise click.ClickException(
+                _friendly_error(e.error_msg, e.command)
+            ) from e
+        except OSError as e:
+            raise click.ClickException(f"Failed to read local file: {e}") from e
+        finally:
+            if transfer_active:
+                try:
+                    _query(
+                        ctx,
+                        b"CP_ABORT",
+                        b"CP_ABORTED",
+                        transport=transport,
+                    )
+                except Exception:
+                    pass
+            if reboot_targets:
+                targets = ", ".join(dict.fromkeys(reboot_targets))
+                _console().print(
+                    f"[yellow]Reboot required: {targets} will not take effect "
+                    "until the device restarts.[/yellow]"
+                )
+    finally:
+        ser.close()
+
+
 @cli.command(name="upd")
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Update one or more local files or directories on the device."""
+    """Update one or more local files or directories on the device. * Will reboot the device."""
     # 0. Scan and collect files to send locally before touching device
     files_to_send = _get_files_to_send(args)
     if not files_to_send:

@@ -376,6 +376,119 @@ def test_manager_handles_rm_error(monkeypatch):
     assert core.transport.sent_messages[0].startswith(b"ERROR:")
 
 
+def _poll_message(core, message):
+    core.transport.incoming_queue.append(message)
+    manager.poll(core)
+    return core.transport.sent_messages[-1]
+
+
+def test_manager_streams_and_commits_copy(tmp_path):
+    import binascii
+    import hashlib
+
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    target = tmp_path / "lib" / "copied.bin"
+    content = bytes(range(256)) + b"tail"
+    digest = hashlib.sha256(content).hexdigest()
+
+    response = _poll_message(
+        core,
+        f"CP_START:{target}:{len(content)}:{digest}".encode(),
+    )
+    assert response == b"CP_READY"
+
+    for sequence, offset in enumerate(range(0, len(content), 128)):
+        encoded = binascii.b2a_base64(
+            content[offset : offset + 128]
+        ).strip()
+        response = _poll_message(
+            core,
+            b"CP_CHUNK:"
+            + str(sequence).encode()
+            + b":"
+            + encoded,
+        )
+        assert response == f"CP_ACK:{sequence}".encode()
+
+    assert _poll_message(core, b"CP_END") == b"CP_OK"
+    assert target.read_bytes() == content
+    assert not target.with_name("copied.bin.cp").exists()
+    assert not hasattr(core, "_copy_state")
+
+
+def test_manager_copy_checksum_failure_preserves_target(tmp_path):
+    import binascii
+
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    target = tmp_path / "main.py"
+    target.write_bytes(b"original")
+    content = b"replacement"
+
+    assert (
+        _poll_message(
+            core,
+            f"CP_START:{target}:{len(content)}:{'0' * 64}".encode(),
+        )
+        == b"CP_READY"
+    )
+    encoded = binascii.b2a_base64(content).strip()
+    assert (
+        _poll_message(core, b"CP_CHUNK:0:" + encoded)
+        == b"CP_ACK:0"
+    )
+
+    assert _poll_message(core, b"CP_END").startswith(b"ERROR:")
+    assert target.read_bytes() == b"original"
+    assert not target.with_name("main.py.cp").exists()
+    assert not hasattr(core, "_copy_state")
+
+
+def test_manager_copy_rejects_out_of_sequence_chunk(tmp_path):
+    import binascii
+    import hashlib
+
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    target = tmp_path / "copy.py"
+    content = b"content"
+    digest = hashlib.sha256(content).hexdigest()
+
+    assert (
+        _poll_message(
+            core,
+            f"CP_START:{target}:{len(content)}:{digest}".encode(),
+        )
+        == b"CP_READY"
+    )
+    encoded = binascii.b2a_base64(content).strip()
+
+    assert _poll_message(core, b"CP_CHUNK:1:" + encoded).startswith(
+        b"ERROR:"
+    )
+    assert not target.exists()
+    assert not target.with_name("copy.py.cp").exists()
+    assert not hasattr(core, "_copy_state")
+
+
+def test_manager_aborts_active_copy(tmp_path):
+    import hashlib
+
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    target = tmp_path / "copy.py"
+    digest = hashlib.sha256(b"content").hexdigest()
+
+    assert (
+        _poll_message(
+            core,
+            f"CP_START:{target}:7:{digest}".encode(),
+        )
+        == b"CP_READY"
+    )
+
+    assert _poll_message(core, b"CP_ABORT") == b"CP_ABORTED"
+    assert not target.with_name("copy.py.cp").exists()
+    assert not hasattr(core, "_copy_state")
+
+
 # =============================================================================
 # PHASE 3: UPDATE REQUEST HANDSHAKE TESTS
 # =============================================================================

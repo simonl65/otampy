@@ -48,6 +48,22 @@ MicroPython code to be placed on the device to enable OTA functionality.
 See the repository [deployment guide](../../docs/deployment.md) for all deploy
 options.
 
+## Runtime file copies
+
+Once the application calls `ota.poll()`, the host can stream files and folders
+to it without entering update mode or rebooting:
+
+```bash
+otampy --port /dev/ttyUSB0 cp local.json:config/local.json
+otampy --port /dev/ttyUSB0 cp assets:assets/
+```
+
+Each file is written to a staging path, checked against its declared size and
+SHA-256 digest, and then committed. Copy state and hashing objects exist only
+for the active transfer. Replacing root `/boot.py` or `/main.py` succeeds
+without an automatic reboot; the CLI reminds the user that those files take
+effect on the next restart.
+
 ## Logging
 
 Logging is optional and is not required by the OTA protocol. With no logger

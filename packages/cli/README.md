@@ -56,6 +56,7 @@ configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 | **sr**     | None                                            | Soft resets the device (requires confirmation)                                                   |
 | **ls**     | [path]                                          | Lists content of current (or specified) folder on device (folder paths show with a trailing `/`) |
 | **cat**    | file                                            | Shows content of specified file on device                                                        |
+| **cp**     | source[:destination] [...]                      | Copies files or folders without rebooting the device                                             |
 | **rm**     | path [...]                                      | Remove files or directories from the device (requires confirmation)                              |
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
 | **upd**    | [source[:destination] ...]                       | Updates application firmware on device<sup>2</sup>                                               |
@@ -146,6 +147,24 @@ List content of `/lib`:
 ```bash
 otampy --port /dev/ttyUSB0 ls /lib
 ```
+
+Copy files without rebooting:
+
+```bash
+otampy --port /dev/ttyUSB0 cp settings.json:config/settings.json
+otampy --port /dev/ttyUSB0 cp assets:assets/
+otampy --port /dev/ttyUSB0 cp 'packages/device/lib/otampy/*:lib/otampy/'
+```
+
+`cp` accepts multiple sources, folders, and local `*`, `?`, `[]`, and `**`
+patterns using the same `source:destination` mapping syntax as `upd`. Folder
+contents include every file type recursively; empty folders are not created.
+Files are streamed to checksum-verified staging files and committed
+individually. The device keeps running throughout.
+
+A reboot reminder is shown only when a copy targets root `/boot.py` or
+`/main.py`, because the running interpreter will not use those replacements
+until its next restart. Ordinary copies do not display the reminder.
 
 Remove multiple files or directories:
 

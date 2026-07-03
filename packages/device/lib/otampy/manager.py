@@ -242,8 +242,15 @@ def poll(core, callback=None):
         try:
             _os.remove(filename)
             core.transport.send(b"RM_OK")
-        except OSError as e:
-            core.transport.send(f"ERROR:{e}".encode())
+        except OSError as remove_error:
+            try:
+                is_dir = _os.stat(filename)[0] & 0x4000
+                if not is_dir:
+                    raise remove_error
+                _os.rmdir(filename)
+                core.transport.send(b"RM_OK")
+            except OSError as e:
+                core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "MEM":
         try:
             import gc

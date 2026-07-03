@@ -103,6 +103,17 @@ Trigger an OTA firmware update:
 otampy --port /dev/ttyUSB0 upd
 ```
 
+Pass multiple files, directories, or quoted local wildcards to update a
+selection. Use `source:destination` to map paths on the device:
+
+```bash
+otampy --port /dev/ttyUSB0 upd main.py config.py
+otampy --port /dev/ttyUSB0 upd 'packages/device/lib/otampy/*.py:lib/otampy/'
+```
+
+`otampy rm` likewise accepts multiple device paths and quoted remote
+wildcards.
+
 For more options and examples, refer to the [CLI README](packages/cli/README.md).
 
 ---

@@ -332,6 +332,31 @@ def test_manager_handles_rm(monkeypatch):
     assert removed_files == ["temp.py"]
 
 
+def test_manager_handles_empty_directory_rm(monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+
+    core.transport.incoming_queue.append(b"RM:empty")
+    removed_directories = []
+
+    def mock_remove(_path):
+        raise OSError("Is a directory")
+
+    def mock_rmdir(path):
+        removed_directories.append(path)
+
+    import os
+
+    monkeypatch.setattr(os, "remove", mock_remove)
+    monkeypatch.setattr(os, "stat", lambda _path: (0x4000,))
+    monkeypatch.setattr(os, "rmdir", mock_rmdir)
+
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"RM_OK"]
+    assert removed_directories == ["empty"]
+
+
 def test_manager_handles_rm_error(monkeypatch):
     uart = shared.FakeUART()
     logger = shared.FakeLogger()

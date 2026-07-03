@@ -56,13 +56,14 @@ configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 | **sr**     | None                                            | Soft resets the device (requires confirmation)                                                   |
 | **ls**     | [path]                                          | Lists content of current (or specified) folder on device (folder paths show with a trailing `/`) |
 | **cat**    | file                                            | Shows content of specified file on device                                                        |
-| **rm**     | file                                            | Remove specified file from device (requires confirmation)                                        |
+| **rm**     | path [...]                                      | Remove files or directories from the device (requires confirmation)                              |
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
-| **upd**    | [src]<sup>1</sup> dest [,&nbsp;[src]&nbsp;dest] | Updates application firmware on device<sup>2</sup>                                               |
+| **upd**    | [source[:destination] ...]                       | Updates application firmware on device<sup>2</sup>                                               |
 | **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
 | **deploy** | See deployment options below                    | Erase and deploy OTAmpy, examples, and device dependencies                                        |
 
-**<sup>1</sup>** Update source is optional and will be the current folder if not supplied.
+With no sources, `upd` selects `main.py` and all Python files under `lib/` in
+the current directory.
 
 **<sup>2</sup>** Updates take place after the device has rebooted and the update process is handled by `boot.py`.
 
@@ -146,6 +147,23 @@ List content of `/lib`:
 otampy --port /dev/ttyUSB0 ls /lib
 ```
 
+Remove multiple files or directories:
+
+```bash
+otampy --port /dev/ttyUSB0 rm old.py config.old cache
+```
+
+Remote wildcards are expanded from device directory listings. Quote them to
+prevent the host shell from expanding them locally:
+
+```bash
+otampy --port /dev/ttyUSB0 rm 'lib/otampy/*.py'
+otampy --port /dev/ttyUSB0 rm 'logs/**'
+```
+
+Removing a non-empty directory requires an additional recursive-removal
+confirmation.
+
 Update all application firmware:
 
 ```bash
@@ -155,11 +173,17 @@ otampy --port /dev/ttyUSB0 upd
 Update specific application firmware files:
 
 ```bash
-otampy --port /dev/ttyUSB0 upd . main.py                  # Only main.py from current folder
-otampy --port /dev/ttyUSB0 upd . main.py lib/sensor.py    # Only main.py and lib/sensor.py
-otampy --port /dev/ttyUSB0 upd . /lib/myfolder            # Everything from /lib/myfolder
-otampy --port /dev/ttyUSB0 upd . *.py                     # All python files in the current folder
+otampy --port /dev/ttyUSB0 upd main.py config.py
+otampy --port /dev/ttyUSB0 upd app:/
+otampy --port /dev/ttyUSB0 upd packages/device/lib/otampy/boot.py:lib/otampy/boot.py packages/device/lib/otampy/core.py:lib/otampy/core.py
+otampy --port /dev/ttyUSB0 upd 'packages/device/lib/otampy/*.py:lib/otampy/'
 ```
+
+Directories include all Python files recursively. Local `*`, `?`, `[]`, and
+`**` patterns are supported. A pattern matching multiple files must map to a
+destination ending in `/`. If any explicit source or pattern has no matches,
+the update stops before contacting the device instead of applying a partial
+selection.
 
 ## License
 

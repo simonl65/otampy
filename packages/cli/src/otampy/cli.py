@@ -320,6 +320,7 @@ def _friendly_error(err_msg: str, command: bytes) -> str:
         return f"Not a directory{target}"
     if (
         "enotempty" in err_msg_lower
+        or "directory not empty" in err_msg_lower
         or "errno 39" in err_msg_lower
         or err_msg == "39"
     ):
@@ -576,6 +577,111 @@ def cat(ctx: click.Context, file: str) -> None:
     _console().print(content)
 
 
+def _join_remote_path(parent: str, name: str) -> str:
+    name = name.rstrip("/")
+    if parent == "/":
+        return f"/{name}"
+    if parent in ("", "."):
+        return name
+    return f"{parent.rstrip('/')}/{name}"
+
+
+def _remote_directory_entries(
+    ctx: click.Context, path: str
+) -> list[tuple[str, bool, str]]:
+    command = b"LS" if path in ("", ".") else f"LS:{path}".encode()
+    resp, _ = _query(ctx, command, b"LS_OK")
+    entries = []
+    for item in resp.decode("utf-8", errors="replace").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        is_dir = item.endswith("/")
+        name = item.rstrip("/")
+        entries.append((_join_remote_path(path, name), is_dir, name))
+    return entries
+
+
+def _expand_remote_pattern(ctx: click.Context, pattern: str) -> list[str]:
+    """Expand one remote glob using directory listings from the device."""
+    from fnmatch import fnmatchcase
+
+    segments = [
+        segment for segment in pattern.split("/") if segment not in ("", ".")
+    ]
+    if not segments:
+        return []
+
+    matches = []
+    start = "/" if pattern.startswith("/") else ""
+
+    def walk(parent: str, index: int) -> None:
+        segment = segments[index]
+        final_segment = index == len(segments) - 1
+
+        if segment == "**":
+            if final_segment:
+                for path, is_dir, _name in _remote_directory_entries(
+                    ctx, parent
+                ):
+                    if is_dir:
+                        walk(path, index)
+                    matches.append(path)
+                return
+
+            walk(parent, index + 1)
+            for path, is_dir, _name in _remote_directory_entries(ctx, parent):
+                if is_dir:
+                    walk(path, index)
+            return
+
+        has_magic = any(char in segment for char in "*?[")
+        if has_magic:
+            for path, is_dir, name in _remote_directory_entries(ctx, parent):
+                if not fnmatchcase(name, segment):
+                    continue
+                if final_segment:
+                    matches.append(path)
+                elif is_dir:
+                    walk(path, index + 1)
+            return
+
+        path = _join_remote_path(parent, segment)
+        if final_segment:
+            matches.append(path)
+        else:
+            walk(path, index + 1)
+
+    walk(start, 0)
+    return list(dict.fromkeys(matches))
+
+
+def _expand_remote_targets(
+    ctx: click.Context, patterns: tuple[str, ...]
+) -> list[str]:
+    targets = []
+    unmatched = []
+    for pattern in patterns:
+        if any(char in pattern for char in "*?["):
+            try:
+                matches = _expand_remote_pattern(ctx, pattern)
+            except DeviceError as e:
+                raise click.ClickException(
+                    _friendly_error(e.error_msg, e.command)
+                ) from e
+            if not matches:
+                unmatched.append(pattern)
+            targets.extend(matches)
+        else:
+            targets.append(pattern.rstrip("/") or "/")
+
+    if unmatched:
+        raise click.ClickException(
+            "No remote paths matched: " + ", ".join(unmatched)
+        )
+    return list(dict.fromkeys(targets))
+
+
 def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     """Recursively remove directory using a persistent connection."""
     import serial
@@ -606,46 +712,38 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
         except Exception:
             pass
 
-        # List directory contents
-        resp, _ = _query(
-            ctx, f"LS:{path}".encode(), b"LS_OK", transport=transport
-        )
-        items_str = resp.decode("utf-8", errors="replace")
-        if items_str:
-            items = items_str.split(",")
-            for item in items:
+        def remove_directory(directory: str) -> None:
+            resp, _ = _query(
+                ctx,
+                f"LS:{directory}".encode(),
+                b"LS_OK",
+                transport=transport,
+            )
+            for item in resp.decode("utf-8", errors="replace").split(","):
                 item = item.strip()
                 if not item:
                     continue
-                item_path = f"{path.rstrip('/')}/{item}"
-                _console().print(f"  Removing: {item_path}")
-                try:
+                is_dir = item.endswith("/")
+                item_path = _join_remote_path(directory, item)
+                if is_dir:
+                    remove_directory(item_path)
+                else:
+                    _console().print(f"  Removing: {item_path}")
                     _query(
                         ctx,
                         f"RM:{item_path}".encode(),
                         b"RM_OK",
                         transport=transport,
                     )
-                except DeviceError as e:
-                    # If it's a directory, recurse into it
-                    friendly = _friendly_error(e.error_msg, e.command)
-                    if "directory not empty" in friendly.lower():
-                        _recursive_rm_with_connection(ctx, item_path)
-                        # Try to remove the now-empty directory with same transport
-                        try:
-                            _query(
-                                ctx,
-                                f"RM:{item_path}".encode(),
-                                b"RM_OK",
-                                transport=transport,
-                            )
-                        except DeviceError:
-                            # If still fails, move on to next item
-                            pass
-                    else:
-                        raise
-        # Finally remove the now-empty directory
-        _query(ctx, f"RM:{path}".encode(), b"RM_OK", transport=transport)
+            _console().print(f"  Removing: {directory}")
+            _query(
+                ctx,
+                f"RM:{directory}".encode(),
+                b"RM_OK",
+                transport=transport,
+            )
+
+        remove_directory(path.rstrip("/"))
     except DeviceError as e:
         friendly = _friendly_error(e.error_msg, e.command)
         _console().print(f"[red]Error: {friendly}[/red]")
@@ -659,42 +757,52 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
 
 
 @cli.command(name="rm")
-@click.argument("file", required=True)
+@click.argument("files", nargs=-1, required=True)
 @click.pass_context
-def remove(ctx: click.Context, file: str) -> None:
-    """Remove specified file or directory from device."""
+def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
+    """Remove one or more files, directories, or remote glob matches."""
+    targets = _expand_remote_targets(ctx, files)
+    target_summary = (
+        f"'{targets[0]}'"
+        if len(targets) == 1
+        else f"these {len(targets)} paths: {', '.join(targets)}"
+    )
     if not click.confirm(
         click.style(
-            f"Are you sure you want to remove '{file}' from the device?",
+            f"Are you sure you want to remove {target_summary} "
+            "from the device?",
             fg="red",
         ),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
         return
-    _console().print(f"[red]Removing file: {file}[/red]")
-    try:
-        _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
-    except DeviceError as e:
-        friendly = _friendly_error(e.error_msg, e.command)
-        if "directory not empty" in friendly.lower():
-            _console().print(f"[yellow]{friendly}[/yellow]")
-            if click.confirm(
-                "Directory is not empty. Remove all contents recursively?",
-                default=False,
-            ):
-                _console().print(
-                    "[yellow]Recursively removing directory on device...[/yellow]"
-                )
-                _recursive_rm_with_connection(ctx, file)
-                _console().print(
-                    "[green]Directory removed successfully.[/green]"
-                )
+
+    for file in targets:
+        _console().print(f"[red]Removing: {file}[/red]")
+        try:
+            _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
+        except DeviceError as e:
+            friendly = _friendly_error(e.error_msg, e.command)
+            if "directory not empty" in friendly.lower():
+                _console().print(f"[yellow]{friendly}[/yellow]")
+                if click.confirm(
+                    "Directory is not empty. Remove all contents recursively?",
+                    default=False,
+                ):
+                    _console().print(
+                        "[yellow]Recursively removing directory on "
+                        "device...[/yellow]"
+                    )
+                    _recursive_rm_with_connection(ctx, file)
+                    _console().print(
+                        "[green]Directory removed successfully.[/green]"
+                    )
+                else:
+                    _console().print("[yellow]Skipped.[/yellow]")
             else:
-                _console().print("[yellow]Aborted.[/yellow]")
-        else:
-            _console().print(f"[red]Error: {friendly}[/red]")
-            raise SystemExit(1) from None
+                _console().print(f"[red]Error: {friendly}[/red]")
+                raise SystemExit(1) from None
 
 
 @cli.command(name="mem")
@@ -752,58 +860,93 @@ def memory_info(ctx: click.Context) -> None:
     )
 
 
+def _split_update_arg(arg: str) -> tuple[str, str | None]:
+    separator = arg.find(":")
+    if (
+        separator == 1
+        and arg[0].isalpha()
+        and len(arg) > 2
+        and arg[2] in ("\\", "/")
+    ):
+        separator = arg.find(":", 3)
+    if separator < 0:
+        return arg, None
+    return arg[:separator], arg[separator + 1 :]
+
+
+def _update_target_path(
+    source: Path, target: str | None, multiple_matches: bool
+) -> str:
+    if target is not None:
+        target_is_dir = target.endswith(("/", "\\"))
+        if multiple_matches and not target_is_dir:
+            raise click.ClickException(
+                "A wildcard matching multiple files requires a destination "
+                f"directory ending in '/': {target}"
+            )
+        if target_is_dir:
+            return target.rstrip("/\\") + "/" + source.name
+        return target
+
+    try:
+        return str(source.relative_to(Path.cwd()))
+    except ValueError:
+        return str(source)
+
+
 def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
-    from pathlib import Path
+    from glob import glob, has_magic
 
     res = []
+    unmatched = []
 
     if args:
         for arg in args:
-            if ":" in arg:
-                parts = arg.split(":")
-                if (
-                    len(parts[0]) == 1
-                    and parts[0].isalpha()
-                    and len(parts) > 1
-                    and parts[1].startswith(("\\", "/"))
-                ):
-                    if len(parts) > 2:
-                        src_str = parts[0] + ":" + parts[1]
-                        target_str = parts[2]
-                    else:
-                        src_str = arg
-                        target_str = None
-                else:
-                    src_str = parts[0]
-                    target_str = parts[1] if len(parts) > 1 else None
+            src_str, target_str = _split_update_arg(arg)
+            if has_magic(src_str):
+                sources = [
+                    Path(match)
+                    for match in sorted(glob(src_str, recursive=True))
+                ]
             else:
-                src_str = arg
-                target_str = None
+                source = Path(src_str)
+                sources = [source] if source.exists() else []
 
-            p = Path(src_str)
-            if p.is_file():
-                if target_str is not None:
-                    if target_str.endswith("/") or target_str.endswith("\\"):
-                        target_path = target_str.rstrip("/\\") + "/" + p.name
-                    else:
-                        target_path = target_str
+            matched_files = []
+            for source in sources:
+                if source.is_file():
+                    matched_files.append((source, None))
+                elif source.is_dir():
+                    matched_files.extend(
+                        (file, file.relative_to(source))
+                        for file in sorted(source.rglob("*.py"))
+                    )
+
+            if not matched_files:
+                unmatched.append(src_str)
+                continue
+
+            multiple_matches = len(matched_files) > 1
+            for source, relative in matched_files:
+                if relative is None:
+                    target_path = _update_target_path(
+                        source, target_str, multiple_matches
+                    )
+                elif target_str is not None:
+                    target_path = (
+                        target_str.rstrip("/\\") + "/" + str(relative)
+                    )
                 else:
                     try:
-                        target_path = str(p.relative_to(Path.cwd()))
+                        target_path = str(source.relative_to(Path.cwd()))
                     except ValueError:
-                        target_path = str(p)
-                res.append((target_path.replace("\\", "/"), p))
-            elif p.is_dir():
-                for f in p.rglob("*.py"):
-                    rel = f.relative_to(p)
-                    if target_str is not None:
-                        target_path = target_str.rstrip("/\\") + "/" + str(rel)
-                    else:
-                        try:
-                            target_path = str(f.relative_to(Path.cwd()))
-                        except ValueError:
-                            target_path = str(f)
-                    res.append((target_path.replace("\\", "/"), f))
+                        target_path = str(source)
+                res.append((target_path.replace("\\", "/"), source))
+
+        if unmatched:
+            raise click.ClickException(
+                "No local files matched: " + ", ".join(unmatched)
+            )
     else:
         p_main = Path("main.py")
         if p_main.is_file():
@@ -818,8 +961,6 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
                 res.append((rel_path.replace("\\", "/"), f))
 
     # Validate for conflicts
-    import click
-
     target_paths = [t for t, _ in res]
     for i, t1 in enumerate(target_paths):
         for j, t2 in enumerate(target_paths):
@@ -841,7 +982,7 @@ def _get_files_to_send(args: tuple[str, ...]) -> list[tuple[str, Path]]:
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Updates application firmware on device."""
+    """Update one or more local files or directories on the device."""
     # 0. Scan and collect files to send locally before touching device
     files_to_send = _get_files_to_send(args)
     if not files_to_send:

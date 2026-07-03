@@ -3,9 +3,11 @@ import logging
 import time
 import unittest.mock as mock
 
+import click
+import pytest
 from click.testing import CliRunner
 
-from otampy.cli import cli, get_default_log_level, set_default_port
+from otampy.cli import DeviceError, cli, get_default_log_level, set_default_port
 
 
 def test_cli_help():
@@ -392,11 +394,140 @@ def test_cli_rm_file():
             cli, ["-p", "/dev/ttyFake", "rm", "main.py"], input="y\n"
         )
         assert result.exit_code == 0
-        assert "Removing file: main.py" in result.output
+        assert "Removing: main.py" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
         mock_device_instance.send.assert_called_once_with(b"RM:main.py")
+
+
+def test_cli_rm_multiple_files():
+    runner = CliRunner()
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "main.py", "config.py"],
+            input="y\n",
+        )
+
+    assert result.exit_code == 0
+    assert "these 2 paths: main.py, config.py" in result.output
+    assert send_command.call_args_list == [
+        mock.call(mock.ANY, b"RM:main.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:config.py", b"RM_OK"),
+    ]
+
+
+def test_cli_rm_expands_remote_wildcards():
+    runner = CliRunner()
+    with (
+        mock.patch(
+            "otampy.cli._query",
+            return_value=(b"boot.py,core.py,README.txt,helpers/", None),
+        ) as query,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "lib/otampy/*.py"],
+            input="y\n",
+        )
+
+    assert result.exit_code == 0
+    query.assert_called_once_with(mock.ANY, b"LS:lib/otampy", b"LS_OK")
+    assert send_command.call_args_list == [
+        mock.call(mock.ANY, b"RM:lib/otampy/boot.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:lib/otampy/core.py", b"RM_OK"),
+    ]
+
+
+def test_cli_rm_rejects_unmatched_remote_wildcard():
+    runner = CliRunner()
+    with (
+        mock.patch("otampy.cli._query", return_value=(b"main.py", None)),
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "*.txt"],
+        )
+
+    assert result.exit_code != 0
+    assert "No remote paths matched: *.txt" in result.output
+    send_command.assert_not_called()
+
+
+def test_cli_rm_expands_recursive_wildcard_in_deletion_order():
+    runner = CliRunner()
+    listings = {
+        b"LS:logs": b"current.log,archive/",
+        b"LS:logs/archive": b"old.log",
+    }
+
+    def query(_ctx, command, _expected):
+        return listings[command], None
+
+    with (
+        mock.patch("otampy.cli._query", side_effect=query),
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "logs/**"],
+            input="y\n",
+        )
+
+    assert result.exit_code == 0
+    assert [call.args[1] for call in send_command.call_args_list] == [
+        b"RM:logs/current.log",
+        b"RM:logs/archive/old.log",
+        b"RM:logs/archive",
+    ]
+
+
+def test_cli_rm_recursively_removes_nested_directory_with_one_connection():
+    runner = CliRunner()
+    responses = {
+        b"LS:cache": b"file.txt,sub/",
+        b"RM:cache/file.txt": b"",
+        b"LS:cache/sub": b"nested.txt",
+        b"RM:cache/sub/nested.txt": b"",
+        b"RM:cache/sub": b"",
+        b"RM:cache": b"",
+    }
+
+    def query(_ctx, command, _expected, transport=None):
+        assert transport is not None
+        return responses[command], None
+
+    with (
+        mock.patch(
+            "otampy.cli._send_command",
+            side_effect=DeviceError("ENOTEMPTY", b"RM:cache"),
+        ),
+        mock.patch("otampy.cli._query", side_effect=query) as query_mock,
+        mock.patch("serial.Serial") as serial,
+        mock.patch("urst.Urst"),
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "cache"],
+            input="y\ny\n",
+        )
+
+    assert result.exit_code == 0
+    assert "Directory removed successfully." in result.output
+    serial.assert_called_once_with(
+        "/dev/ttyFake", baudrate=57600, timeout=2.0
+    )
+    assert [call.args[1] for call in query_mock.call_args_list] == [
+        b"LS:cache",
+        b"RM:cache/file.txt",
+        b"LS:cache/sub",
+        b"RM:cache/sub/nested.txt",
+        b"RM:cache/sub",
+        b"RM:cache",
+    ]
 
 
 def test_cli_rm_file_aborted():
@@ -527,6 +658,66 @@ def test_cli_update_with_files():
         )
         assert result.exit_code == 0
         assert "No files found to transfer" in result.output
+
+
+def test_get_files_to_send_keeps_multiple_mappings(tmp_path, monkeypatch):
+    from otampy.cli import _get_files_to_send
+
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in ("boot.py", "main.py", "config.py"):
+        (source / name).write_text(f"# {name}\n")
+
+    files = _get_files_to_send(
+        (
+            "source/boot.py:lib/otampy/boot.py",
+            "source/main.py:lib/otampy/main.py",
+            "source/config.py:lib/otampy/config.py",
+        )
+    )
+
+    assert [target for target, _source in files] == [
+        "lib/otampy/boot.py",
+        "lib/otampy/main.py",
+        "lib/otampy/config.py",
+    ]
+
+
+def test_get_files_to_send_expands_mapped_wildcard(tmp_path, monkeypatch):
+    from otampy.cli import _get_files_to_send
+
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "boot.py").write_text("# boot\n")
+    (source / "main.py").write_text("# main\n")
+    (source / "README.md").write_text("# docs\n")
+
+    files = _get_files_to_send(("source/*.py:lib/otampy/",))
+
+    assert [target for target, _source in files] == [
+        "lib/otampy/boot.py",
+        "lib/otampy/main.py",
+    ]
+
+
+def test_get_files_to_send_rejects_missing_explicit_sources(
+    tmp_path, monkeypatch
+):
+    from otampy.cli import _get_files_to_send
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "boot.py").write_text("# boot\n")
+
+    with pytest.raises(click.ClickException, match="main.py, config.py"):
+        _get_files_to_send(
+            (
+                "boot.py:lib/otampy/boot.py",
+                "main.py:lib/otampy/main.py",
+                "config.py:lib/otampy/config.py",
+            )
+        )
 
 
 def test_cli_aliases():

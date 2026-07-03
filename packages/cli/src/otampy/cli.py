@@ -708,6 +708,23 @@ def _validate_removal_targets(targets: list[str]) -> None:
         )
 
 
+def _validate_remote_only_arguments(
+    files: tuple[str, ...], literal_remote_paths: bool
+) -> None:
+    if literal_remote_paths:
+        return
+    local_matches = [file for file in files if Path(file).exists()]
+    if local_matches:
+        raise click.ClickException(
+            "RM only deletes paths on the remote device, but these arguments "
+            "also exist locally and may have been expanded by your shell: "
+            + ", ".join(local_matches)
+            + ". No local files were changed. Quote remote wildcards, for "
+            "example: otampy rm '*'. If the matching names are intentional "
+            "remote paths, add --literal-remote-paths."
+        )
+
+
 def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     """Recursively remove directory using a persistent connection."""
     import serial
@@ -754,14 +771,16 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
                 if is_dir:
                     remove_directory(item_path)
                 else:
-                    _console().print(f"  Removing: {item_path}")
+                    _console().print(
+                        f"  Removing remote path: {item_path}"
+                    )
                     _query(
                         ctx,
                         f"RM:{item_path}".encode(),
                         b"RM_OK",
                         transport=transport,
                     )
-            _console().print(f"  Removing: {directory}")
+            _console().print(f"  Removing remote path: {directory}")
             _query(
                 ctx,
                 f"RM:{directory}".encode(),
@@ -783,10 +802,21 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
 
 
 @cli.command(name="rm")
+@click.option(
+    "--literal-remote-paths",
+    is_flag=True,
+    help="Allow remote path names that also exist on the local filesystem.",
+)
 @click.argument("files", nargs=-1, required=True)
 @click.pass_context
-def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
-    """Remove one or more files, directories, or remote glob matches."""
+def remove(
+    ctx: click.Context,
+    literal_remote_paths: bool,
+    files: tuple[str, ...],
+) -> None:
+    """Remove files, directories, or glob matches from the remote device."""
+    _validate_removal_targets(list(files))
+    _validate_remote_only_arguments(files, literal_remote_paths)
     targets = _expand_remote_targets(ctx, files)
     _validate_removal_targets(targets)
     target_summary = (
@@ -797,7 +827,7 @@ def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
     if not click.confirm(
         click.style(
             f"Are you sure you want to remove {target_summary} "
-            "from the device?",
+            "from the remote device?",
             fg="red",
         ),
         default=False,
@@ -806,7 +836,7 @@ def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
         return
 
     for file in targets:
-        _console().print(f"[red]Removing: {file}[/red]")
+        _console().print(f"[red]Removing remote path: {file}[/red]")
         try:
             _send_command(ctx, f"RM:{file}".encode(), b"RM_OK")
         except DeviceError as e:
@@ -814,7 +844,8 @@ def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
             if "directory not empty" in friendly.lower():
                 _console().print(f"[yellow]{friendly}[/yellow]")
                 if click.confirm(
-                    "Directory is not empty. Remove all contents recursively?",
+                    "Remote directory is not empty. "
+                    "Remove all contents recursively?",
                     default=False,
                 ):
                     _console().print(

@@ -93,6 +93,9 @@ active; file content is written and hashed in bounded chunks rather than held
 in RAM.
 The host CLI preserves the remote recovery control plane by rejecting a
 complete removal selection before sending its first `RM`.
+It also rejects arguments matching host filesystem entries unless explicitly
+marked as intentional remote path names; no RM path invokes a host deletion
+operation.
 
 ---
 

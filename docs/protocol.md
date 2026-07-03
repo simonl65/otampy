@@ -54,6 +54,8 @@ The official CLI refuses to send `RM` for `/boot.py`, `/main.py`,
 needed to contain them. Use the staged copy or update sequence to replace
 those paths. This is a host CLI safety policy; custom clients that issue raw
 protocol commands are responsible for applying an equivalent guard.
+The CLI's `rm` command maps every accepted argument to this remote `RM`
+request and never deletes a host filesystem path.
 
 ### 2.3 Runtime Copy Commands
 

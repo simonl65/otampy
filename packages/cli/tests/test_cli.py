@@ -535,6 +535,71 @@ def test_cli_rm_missing_arg():
     assert "Error: Missing argument" in result.output
 
 
+def test_cli_rm_rejects_arguments_matching_local_paths(
+    tmp_path, monkeypatch
+):
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    first = tmp_path / "alpha.txt"
+    second = tmp_path / "folder"
+    first.write_text("keep me")
+    second.mkdir()
+
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            [
+                "-p",
+                "/dev/ttyFake",
+                "rm",
+                first.name,
+                second.name,
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "RM only deletes paths on the remote device" in result.output
+    assert "No local files were changed" in result.output
+    assert "otampy rm '*'" in result.output
+    assert first.read_text() == "keep me"
+    assert second.is_dir()
+    send_command.assert_not_called()
+
+
+def test_cli_rm_literal_remote_paths_never_delete_local_matches(
+    tmp_path, monkeypatch
+):
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    first = tmp_path / "alpha.txt"
+    second = tmp_path / "beta.txt"
+    first.write_text("local alpha")
+    second.write_text("local beta")
+
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            [
+                "-p",
+                "/dev/ttyFake",
+                "rm",
+                "--literal-remote-paths",
+                first.name,
+                second.name,
+            ],
+            input="y\n",
+        )
+
+    assert result.exit_code == 0
+    assert "from the remote device?" in result.output
+    assert first.read_text() == "local alpha"
+    assert second.read_text() == "local beta"
+    assert send_command.call_args_list == [
+        mock.call(mock.ANY, b"RM:alpha.txt", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:beta.txt", b"RM_OK"),
+    ]
+
+
 @pytest.mark.parametrize(
     "path",
     (
@@ -609,7 +674,7 @@ def test_cli_rm_file():
             cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="y\n"
         )
         assert result.exit_code == 0
-        assert "Removing: temp.py" in result.output
+        assert "Removing remote path: temp.py" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )

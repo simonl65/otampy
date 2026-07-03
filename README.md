@@ -126,7 +126,8 @@ otampy --port /dev/ttyUSB0 upd 'packages/device/lib/otampy/*.py:lib/otampy/'
 
 `otampy rm` likewise accepts multiple device paths and quoted remote
 wildcards. Recovery-critical paths cannot be removed; replace them through
-staged `cp` or transactional `upd`.
+staged `cp` or transactional `upd`. `rm` operates only on the remote device;
+quote wildcards so the host shell does not expand them locally.
 
 For more options and examples, refer to the [CLI README](packages/cli/README.md).
 

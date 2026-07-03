@@ -786,6 +786,16 @@ def test_cli_port_interactive(tmp_path):
         with open(config_file) as f:
             assert json.load(f)["default_port"] == "/dev/ttyFake1"
 
+        # The effective selected port is marked, including a --port override.
+        result = runner.invoke(
+            cli,
+            ["--port", "/dev/ttyFake2", "ports"],
+            input="\n",
+        )
+        assert result.exit_code == 0
+        assert "    1: /dev/ttyFake1 (Fake Port 1)" in result.output
+        assert "  * 2: /dev/ttyFake2 (Fake Port 2)" in result.output
+
         # 2. Interactive choice: select 2, select session 's'
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0

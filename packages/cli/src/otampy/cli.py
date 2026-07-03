@@ -996,7 +996,10 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 @click.option("--set", "set_port", help="Set the default port permanently.")
 @click.option("--clear", is_flag=True, help="Clear the default port settings.")
 @click.option("--show", is_flag=True, help="Show the current default port.")
-def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
+@click.pass_context
+def ports_cmd(
+    ctx: click.Context, set_port: str | None, clear: bool, show: bool
+) -> None:
     """List available serial ports and manage the default port."""
     import serial.tools.list_ports
 
@@ -1028,22 +1031,22 @@ def ports_cmd(set_port: str | None, clear: bool, show: bool) -> None:
         return
 
     _console().print("[bold]Available serial ports:[/bold]")
-    current_default = get_default_port()
+    selected_port = ctx.obj.get("port")
 
     for idx, port_info in enumerate(ports, 1):
-        is_default = (
-            " [green][default][/green]"
-            if port_info.device == current_default
-            else ""
-        )
         desc = (
             f" ({port_info.description})"
             if port_info.description and port_info.description != "n/a"
             else ""
         )
-        _console().print(
-            f"  [bold]{idx}[/bold]: [cyan]{port_info.device}[/cyan]{desc}{is_default}"
-        )
+        if port_info.device == selected_port:
+            _console().print(
+                f"  [bold green]* {idx}: {port_info.device}{desc}[/bold green]"
+            )
+        else:
+            _console().print(
+                f"    [bold]{idx}[/bold]: [cyan]{port_info.device}[/cyan]{desc}"
+            )
 
     # Ask the user to select a port
     selection = click.prompt(

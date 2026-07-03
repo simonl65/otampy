@@ -600,6 +600,30 @@ def test_cli_rm_literal_remote_paths_never_delete_local_matches(
     ]
 
 
+def test_cli_rm_colon_prefix_marks_matching_local_name_as_remote(
+    tmp_path, monkeypatch
+):
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    local_file = tmp_path / "notes.txt"
+    local_file.write_text("keep local")
+
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", ":notes.txt"],
+            input="y\n",
+        )
+
+    assert result.exit_code == 0
+    assert local_file.read_text() == "keep local"
+    send_command.assert_called_once_with(
+        mock.ANY,
+        b"RM:notes.txt",
+        b"RM_OK",
+    )
+
+
 @pytest.mark.parametrize(
     "path",
     (
@@ -610,6 +634,7 @@ def test_cli_rm_literal_remote_paths_never_delete_local_matches(
         "/lib/urst/core.py",
         "lib",
         "/",
+        ":/main.py",
         "lib/plugins/../../main.py",
     ),
 )
@@ -657,6 +682,30 @@ def test_cli_rm_preflights_expanded_wildcard_before_deleting_any():
 
     assert result.exit_code != 0
     assert "main.py" in result.output
+    send_command.assert_not_called()
+
+
+def test_cli_rm_colon_root_glob_reports_protected_paths_before_prompt():
+    runner = CliRunner()
+    with (
+        mock.patch(
+            "otampy.cli._query",
+            return_value=(b"boot.py,config.py,lib/,logs/,main.py", None),
+        ) as query,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", ":/*"],
+        )
+
+    assert result.exit_code != 0
+    assert "Refusing to remove protected recovery path" in result.output
+    assert "/boot.py" in result.output
+    assert "/main.py" in result.output
+    assert "Missing filename" not in result.output
+    assert "Are you sure" not in result.output
+    query.assert_called_once_with(mock.ANY, b"LS:/", b"LS_OK")
     send_command.assert_not_called()
 
 

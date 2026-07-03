@@ -588,10 +588,15 @@ def _remote_directory_entries(
     return entries
 
 
+def _canonical_remote_argument(path: str) -> str:
+    return path[1:] if path.startswith(":") else path
+
+
 def _expand_remote_pattern(ctx: click.Context, pattern: str) -> list[str]:
     """Expand one remote glob using directory listings from the device."""
     from fnmatch import fnmatchcase
 
+    pattern = _canonical_remote_argument(pattern)
     segments = [
         segment for segment in pattern.split("/") if segment not in ("", ".")
     ]
@@ -648,6 +653,7 @@ def _expand_remote_targets(
     targets = []
     unmatched = []
     for pattern in patterns:
+        pattern = _canonical_remote_argument(pattern)
         if any(char in pattern for char in "*?["):
             try:
                 matches = _expand_remote_pattern(ctx, pattern)
@@ -680,6 +686,7 @@ _PROTECTED_RECOVERY_PATHS = (
 def _normalize_remote_path(path: str) -> str:
     from posixpath import normpath
 
+    path = _canonical_remote_argument(path)
     normalized = normpath("/" + path.replace("\\", "/").lstrip("/"))
     return normalized.lstrip("/")
 
@@ -713,7 +720,11 @@ def _validate_remote_only_arguments(
 ) -> None:
     if literal_remote_paths:
         return
-    local_matches = [file for file in files if Path(file).exists()]
+    local_matches = [
+        file
+        for file in files
+        if not file.startswith(":") and Path(file).exists()
+    ]
     if local_matches:
         raise click.ClickException(
             "RM only deletes paths on the remote device, but these arguments "

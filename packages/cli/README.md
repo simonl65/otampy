@@ -177,15 +177,17 @@ prevent the host shell from expanding them locally:
 
 ```bash
 otampy --port /dev/ttyUSB0 rm 'lib/plugins/*.py'
-otampy --port /dev/ttyUSB0 rm 'logs/**'
+otampy --port /dev/ttyUSB0 rm ':/logs/**'
 ```
 
 `rm` never deletes from the host filesystem. If an argument also names an
 existing local path, OTAmpy fails before contacting the device because this
 usually means the shell expanded an unquoted wildcard. For example, use
 `otampy rm '*'`, not `otampy rm *`. When an intentional remote filename also
-exists locally, `--literal-remote-paths` confirms that the arguments are still
-remote targets; it does not enable local deletion.
+exists locally, prefix it with `:` (for example, `:notes.txt`) or use
+`--literal-remote-paths`. Both forms only mark the arguments as intentional
+remote targets; neither enables local deletion. The optional `:` is removed
+before glob expansion, protection checks, prompts, and protocol transmission.
 
 Removing a non-empty directory requires an additional recursive-removal
 confirmation.

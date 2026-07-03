@@ -56,6 +56,9 @@ those paths. This is a host CLI safety policy; custom clients that issue raw
 protocol commands are responsible for applying an equivalent guard.
 The CLI's `rm` command maps every accepted argument to this remote `RM`
 request and never deletes a host filesystem path.
+An optional host-side `:` prefix explicitly marks a remote path and is removed
+before the request is sent; for example, `:/logs/old.txt` becomes
+`RM:/logs/old.txt`.
 
 ### 2.3 Runtime Copy Commands
 

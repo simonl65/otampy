@@ -64,6 +64,7 @@ def main():
     sleep_func = time.sleep
 
     logger.debug("Application main loop started")
+    shutdown_reason = "Unknown reason"
     try:
         while True:
             """Main application loop"""
@@ -77,6 +78,7 @@ def main():
             sleep_func(0.1)
 
     except KeyboardInterrupt:
+        shutdown_reason = "KeyboardInterrupt"
         logger.info("KeyboardInterrupt: Shutting down application")
 
     except Exception as ex:
@@ -88,10 +90,11 @@ def main():
             ex,
             s,  # type: ignore
         )
+        shutdown_reason = type(ex).__name__
         logger.error("Application exception:\n%s", s.getvalue())  # type: ignore
 
     finally:
-        logger.info("Shutdown started")
+        logger.info("Shutdown started: %s", shutdown_reason)
         for _ in range(10):
             blink.blink(2)
             time.sleep(0.5)

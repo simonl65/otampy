@@ -41,6 +41,10 @@ def test_manager_handles_reboot():
     manager.poll(core)
     assert core.transport.sent_messages == [b"RB_OK"]
     machine.reset.assert_called_once()
+    assert any(
+        level == "info" and "RB" in msg
+        for level, msg in logger.messages
+    ), "Expected a shutdown reason log message before RB reset"
 
 
 def test_manager_handles_soft_reset():
@@ -55,6 +59,10 @@ def test_manager_handles_soft_reset():
     manager.poll(core)
     assert core.transport.sent_messages == [b"SR_OK"]
     machine.soft_reset.assert_called_once()
+    assert any(
+        level == "info" and "SR" in msg
+        for level, msg in logger.messages
+    ), "Expected a shutdown reason log message before SR reset"
 
 
 def test_manager_ignores_unknown_commands():
@@ -511,6 +519,10 @@ def test_manager_handles_update_request_without_callback(tmp_path):
     assert core.transport.sent_messages == [b"REBOOTING"]
     assert flag_file.exists()
     machine.reset.assert_called_once()
+    assert any(
+        level == "info" and "update" in msg.lower()
+        for level, msg in logger.messages
+    ), "Expected a shutdown reason log message before UPDATE_REQUEST reset"
 
 
 def test_manager_handles_update_request_with_callback(tmp_path):
@@ -537,6 +549,10 @@ def test_manager_handles_update_request_with_callback(tmp_path):
     assert core.transport.sent_messages == [b"REBOOTING"]
     assert flag_file.exists()
     machine.reset.assert_called_once()
+    assert any(
+        level == "info" and "update" in msg.lower()
+        for level, msg in logger.messages
+    ), "Expected a shutdown reason log message before UPDATE_REQUEST reset"
 
 
 def test_manager_handles_mem(monkeypatch):

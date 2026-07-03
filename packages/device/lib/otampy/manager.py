@@ -172,13 +172,16 @@ def poll(core, callback=None):
         core.transport.send(b"PONG")
     elif cmd == "RB":
         core.transport.send(b"RB_OK")
+        core.logger.info("Shutdown started: remote reboot command (RB)")
         machine.reset()
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
+        core.logger.info("Shutdown started: remote soft-reset command (SR)")
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
         core.logger.debug("UPDATE REQUESTED")
         if callback is not None:
+            core.logger.debug("Calling application callback.")
             callback()
         flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
         if flag:
@@ -188,6 +191,9 @@ def poll(core, callback=None):
             except OSError as e:
                 core.logger.error(f"Failed to write flag file: {e}")
         core.transport.send(b"REBOOTING")
+        core.logger.info(
+            "Shutdown started: OTA update requested (rebooting into boot.py)"
+        )
         machine.reset()
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."

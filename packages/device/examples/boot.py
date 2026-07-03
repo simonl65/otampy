@@ -25,7 +25,6 @@ uart = UART(
 )
 print(uart)
 
-ota = OTA(uart, config=config, logger=logger)
 
 led = Pin("LED", Pin.OUT)
 
@@ -35,7 +34,7 @@ logger.debug("BOOTING...")
 
 
 # Check for an update request flag before continuing to the main application.
-ota.boot()
+OTA(uart, config=config, logger=logger).boot()
 
 
 led.off()

@@ -50,7 +50,7 @@ def _make_dirs(path):
 
 
 def _run_default_update_loop(core):
-    core.logger.debug("Running default OTA update loop")
+    core.logger.debug("Running OTA update loop")
     import binascii
     import gc
     import hashlib
@@ -102,6 +102,7 @@ def _run_default_update_loop(core):
         cmd = packet if separator < 0 else packet[:separator]
 
         if cmd == b"UPDATE_START":
+            core.logger.debug("UPDATE START")
             parts = packet.split(b":", 2)
             if len(parts) < 3:
                 send(b"ERROR:Invalid manifest")
@@ -122,9 +123,11 @@ def _run_default_update_loop(core):
             packet = None
             parts = None
             collect()
+            core.logger.debug(response.decode())
             send(response)
 
         elif cmd == b"FILE_START":
+            core.logger.debug("FILE START")
             parts = packet.split(b":", 3)
             if len(parts) < 4:
                 send(b"ERROR:Invalid file start")
@@ -139,6 +142,7 @@ def _run_default_update_loop(core):
 
             target_path = _resolve_path(path)
             staging_path = target_path + ".ota"
+            core.logger.debug(staging_path)
             try:
                 _make_dirs(staging_path)
                 """ SIM115:
@@ -193,6 +197,7 @@ def _run_default_update_loop(core):
                 send(f"CHUNK_ERR:{e}".encode())
 
         elif cmd == b"FILE_END":
+            core.logger.debug("FILE END")
             if current_file is None:
                 send(b"ERROR:No active file session")
                 continue
@@ -223,6 +228,7 @@ def _run_default_update_loop(core):
             send(response)
 
         elif cmd == b"UPDATE_COMMIT":
+            core.logger.debug("UPDATE COMMIT")
             success = True
             for index in range(0, len(files), 2):
                 target = files[index]
@@ -260,7 +266,6 @@ def _run_default_update_loop(core):
 
 
 def _cleanup_orphaned_ota(core, path="."):
-    core.logger.debug(f"Cleaning up orphaned OTA files in: {path}")
     resolved_path = _resolve_path(path)
     try:
         # Cache standard methods & check logger levels
@@ -338,4 +343,6 @@ def run(core, callback=None):
                 core.logger.debug(f"Could not remove update flag: {flag}")
     else:
         core.logger.debug(f"{flag} not found")
+        core.logger.debug("Cleanup started...")
         _cleanup_orphaned_ota(core)
+        core.logger.debug("Cleanup complete")

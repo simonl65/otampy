@@ -1,5 +1,7 @@
 from .core import OTACore
 
+__version__ = "1.0.0"
+
 
 class OTA:
     """

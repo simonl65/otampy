@@ -14,8 +14,9 @@ MicroPython code to be placed on the device to enable OTA functionality.
 ## Installation
 
 1. Ensure the device has MicroPython installed and running correctly.
-2. Copy `examples/config.example.py` to `examples/config.py` and edit its UART
-   settings.
+2. For an installed OTAmpy package, run `otampy init` in the application
+   project and edit `device/config.py`. In this repository, copy
+   `examples/config.example.py` to `examples/config.py` instead.
 3. Install OTAmpy and `urst-mpy` along with the example `boot.py` and `main.py`:
 
    ```bash
@@ -23,7 +24,10 @@ MicroPython code to be placed on the device to enable OTA functionality.
    ```
 
    This command erases the device filesystem before copying the new
-   deployment. Use `--dry-run` to inspect the command first.
+   deployment. It uses the installed device-library bundle plus the current
+   project's files, or the canonical `packages/device` tree when run from
+   this repository. Use `--project` to select another project and `--dry-run`
+   to inspect the command first.
 
 4. To include file logging during development, add `--with-logger`:
 

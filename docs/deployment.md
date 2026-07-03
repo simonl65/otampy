@@ -11,9 +11,23 @@ and MicroPython dependencies over a direct USB/serial connection.
 
 - A connected MicroPython device accessible to `mpremote`.
 - The OTAmpy CLI and `mpremote` installed on the host.
-- A configured `packages/device/examples/config.py`. Copy
-  `config.example.py` if it does not exist, then set the UART port, pins, baud
-  rate, and timeout for the board.
+- A configured OTAmpy project.
+
+For a project using an installed OTAmpy package, create the project-owned
+device files and edit the generated configuration:
+
+```bash
+otampy init
+```
+
+This creates `device/boot.py`, `device/main.py`, and `device/config.py`.
+Set the UART port, pins, baud rate, and timeout in `device/config.py`.
+`otampy init` refuses to overwrite any of these files unless `--force` is
+given.
+
+In an OTAmpy source checkout, deployment remains compatible with
+`packages/device`: create `packages/device/examples/config.py` from
+`config.example.py`.
 
 Use a dry run to inspect the operation without changing the device:
 
@@ -21,14 +35,20 @@ Use a dry run to inspect the operation without changing the device:
 otampy deploy --port /dev/ttyACM0 --dry-run
 ```
 
+Run the command from the project root or pass `--project /path/to/project`.
+
 ## Source profile
 
-The default profile installs:
+For an installed package, the default profile installs:
 
-- `packages/device/lib/` as `/lib`;
-- the configured `config.py`, plus example `boot.py` and `main.py`, at the
-  device root;
+- the versioned device library bundled with the installed OTAmpy package as
+  `/lib`;
+- the project's `device/config.py`, `device/boot.py`, and `device/main.py` at
+  the device root;
 - URST using MicroPython's `mip`.
+
+When run from this repository, it instead uses the canonical
+`packages/device/lib/` and `packages/device/examples/` files directly.
 
 ```bash
 otampy deploy --port /dev/ttyACM0
@@ -108,6 +128,7 @@ profile for development file logging.
 | Option                | Description                                                        |
 | --------------------- | ------------------------------------------------------------------ |
 | `-p`, `--port PORT`   | Select the device port, such as `/dev/ttyACM0` or `COM3`.          |
+| `--project DIRECTORY` | Select the project containing `device/` (default: current directory). |
 | `--with-logger`       | Install `log-to-file` for development logging.                     |
 | `--bytecode`, `--mpy` | Compile and deploy target-matched `.mpy` libraries.                |
 | `--mpy-cross COMMAND` | Select the compiler executable or command.                         |

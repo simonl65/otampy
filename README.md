@@ -32,7 +32,32 @@ The codebase is split into two packages:
 
 ## Installation
 
-### 1. Developer CLI Installation
+### Install into a project
+
+Once OTAmpy is published to your configured package registry:
+
+```bash
+uv add otampy
+uv run otampy init
+```
+
+Edit `device/config.py`, then inspect and perform the initial USB deployment:
+
+```bash
+uv run otampy deploy --port /dev/ttyACM0 --dry-run
+uv run otampy deploy --port /dev/ttyACM0
+```
+
+The installed package contains the versioned OTAmpy device library and the
+templates used by `init`. Your project owns `device/boot.py`,
+`device/main.py`, and `device/config.py`; package upgrades do not overwrite
+them.
+
+`uv pip install otampy` is also supported when installing into an explicitly
+selected environment. For a globally isolated command, use
+`uv tool install otampy`.
+
+### Developer installation from this repository
 
 First, ensure you have [UV](https://github.com/astral-sh/uv) installed. Then install the `otampy` command-line utility:
 
@@ -40,7 +65,7 @@ First, ensure you have [UV](https://github.com/astral-sh/uv) installed. Then ins
 uv tool install -e packages/cli
 ```
 
-### 2. Device Firmware Installation
+### Device firmware installation
 
 1. Create `packages/device/examples/config.py` from
    `packages/device/examples/config.example.py` and set the UART pins and
@@ -65,6 +90,10 @@ uv tool install -e packages/cli
 See the [deployment guide](docs/deployment.md) and
 [device integration guide](packages/device/README.md) for logger injection,
 deployment options, and complete examples.
+
+Maintainers should use the automated build and verification process in the
+[release guide](docs/releasing.md). A bare workspace build does not create the
+publishable device-resource bundle.
 
 ---
 

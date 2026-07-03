@@ -61,6 +61,7 @@ configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
 | **upd**    | [source[:destination] ...]                       | Updates application firmware on device<sup>2</sup>                                               |
 | **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
+| **init**   | `[directory]`                                   | Creates project-owned `device/boot.py`, `main.py`, and `config.py`                               |
 | **deploy** | See deployment options below                    | Erase and deploy OTAmpy, examples, and device dependencies                                        |
 
 With no sources, `upd` selects `main.py` and all Python files under `lib/` in
@@ -104,8 +105,17 @@ otampy --port /dev/ttyUSB0 ping
 Deploy the default silent source profile over the board's USB serial port:
 
 ```bash
+otampy init
+# Edit device/config.py.
 otampy deploy --port /dev/ttyACM0
 ```
+
+`init` copies versioned templates from the installed package and refuses to
+overwrite existing project files. Use `--force` only when intentionally
+replacing all three files. `deploy` reads `device/` in the current project and
+uses the installed OTAmpy device-library bundle. From this repository it uses
+the canonical `packages/device` tree instead. Select another project with
+`--project /path/to/project`.
 
 Deploy with development file logging:
 
@@ -128,6 +138,7 @@ Deployment options:
 | Option | Effect |
 | --- | --- |
 | `-p`, `--port` | Select the USB/serial device used by `mpremote`. |
+| `--project` | Select the project containing `device/`. |
 | `--with-logger` | Install the optional `log-to-file` package. |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
 | `--mpy-cross` | Select the `mpy-cross` executable or command. |

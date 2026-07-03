@@ -671,6 +671,46 @@ def _expand_remote_targets(
     return list(dict.fromkeys(targets))
 
 
+_PROTECTED_RECOVERY_PATHS = (
+    "boot.py",
+    "main.py",
+    "config.py",
+    "lib/otampy",
+    "lib/urst",
+)
+
+
+def _normalize_remote_path(path: str) -> str:
+    from posixpath import normpath
+
+    normalized = normpath("/" + path.replace("\\", "/").lstrip("/"))
+    return normalized.lstrip("/")
+
+
+def _is_protected_recovery_path(path: str) -> bool:
+    normalized = _normalize_remote_path(path)
+    if not normalized:
+        return True
+    return any(
+        normalized == protected
+        or normalized.startswith(protected + "/")
+        or protected.startswith(normalized + "/")
+        for protected in _PROTECTED_RECOVERY_PATHS
+    )
+
+
+def _validate_removal_targets(targets: list[str]) -> None:
+    protected = [
+        target for target in targets if _is_protected_recovery_path(target)
+    ]
+    if protected:
+        raise click.ClickException(
+            "Refusing to remove protected recovery path(s): "
+            + ", ".join(protected)
+            + ". Replace them with 'otampy cp' or 'otampy upd'."
+        )
+
+
 def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     """Recursively remove directory using a persistent connection."""
     import serial
@@ -751,6 +791,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
 def remove(ctx: click.Context, files: tuple[str, ...]) -> None:
     """Remove one or more files, directories, or remote glob matches."""
     targets = _expand_remote_targets(ctx, files)
+    _validate_removal_targets(targets)
     target_summary = (
         f"'{targets[0]}'"
         if len(targets) == 1

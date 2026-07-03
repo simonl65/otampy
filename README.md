@@ -10,6 +10,9 @@ OTAmpy operates on top of the **Universal Reliable Serial Transport (URST)** pro
 
 - **Robust OTA Firmware Updates**: Stages incoming `.ota` files on the device filesystem and atomically swaps them upon a successful checksum validation.
 - **Interactive File Management**: Upload, download, view (`cat`), or remove (`rm`) files on-device remotely.
+- **Remote Recovery Protection**: Prevents `rm` from deleting the boot,
+  application, configuration, OTAmpy, or URST control plane needed for future
+  wireless maintenance.
 - **Hardware Remote Controls**: Remotely trigger hardware reboots (`rb`) or soft resets (`sr`).
 - **Telemetry Compatibility**: Safe coexistence of background raw telemetry output streams (ASCII) with on-demand OTAmpy command frames on a single shared UART connection.
 - **Fail-Safe Warnings**: Red-colored validation prompts in the CLI before running invasive or destructive commands.
@@ -122,7 +125,8 @@ otampy --port /dev/ttyUSB0 upd 'packages/device/lib/otampy/*.py:lib/otampy/'
 ```
 
 `otampy rm` likewise accepts multiple device paths and quoted remote
-wildcards.
+wildcards. Recovery-critical paths cannot be removed; replace them through
+staged `cp` or transactional `upd`.
 
 For more options and examples, refer to the [CLI README](packages/cli/README.md).
 

@@ -57,7 +57,7 @@ configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 | **ls**     | [path]                                          | Lists content of current (or specified) folder on device (folder paths show with a trailing `/`) |
 | **cat**    | file                                            | Shows content of specified file on device                                                        |
 | **cp**     | source[:destination] [...]                      | Copies files or folders without rebooting the device                                             |
-| **rm**     | path [...]                                      | Remove files or directories from the device (requires confirmation)                              |
+| **rm**     | path [...]                                      | Remove non-recovery files or directories (requires confirmation)                                 |
 | **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
 | **upd**    | [source[:destination] ...]                       | Updates application firmware on device<sup>2</sup>                                               |
 | **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
@@ -182,6 +182,13 @@ otampy --port /dev/ttyUSB0 rm 'logs/**'
 
 Removing a non-empty directory requires an additional recursive-removal
 confirmation.
+
+To preserve remote recovery, `rm` cannot remove root `/boot.py`, `/main.py`,
+`/config.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such
+as `/lib` or `/`. This also applies to wildcard and recursive selections. The
+CLI expands and validates the complete selection before deleting anything,
+then sends no `RM` if any protected path is present. There is no force option;
+replace protected files using staged `cp` or transactional `upd`.
 
 Update all application firmware:
 

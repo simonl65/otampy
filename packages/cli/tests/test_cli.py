@@ -380,6 +380,66 @@ def test_cli_rm_missing_arg():
     assert "Error: Missing argument" in result.output
 
 
+@pytest.mark.parametrize(
+    "path",
+    (
+        "boot.py",
+        "/main.py",
+        "./config.py",
+        "lib/otampy/manager.py",
+        "/lib/urst/core.py",
+        "lib",
+        "/",
+        "lib/plugins/../../main.py",
+    ),
+)
+def test_cli_rm_rejects_protected_recovery_paths(path):
+    runner = CliRunner()
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", path],
+        )
+
+    assert result.exit_code != 0
+    assert "Refusing to remove protected recovery path" in result.output
+    assert "otampy cp" in result.output
+    assert "Are you sure" not in result.output
+    send_command.assert_not_called()
+
+
+def test_cli_rm_preflights_all_targets_before_deleting_any():
+    runner = CliRunner()
+    with mock.patch("otampy.cli._send_command") as send_command:
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "scratch.txt", "main.py"],
+        )
+
+    assert result.exit_code != 0
+    assert "main.py" in result.output
+    send_command.assert_not_called()
+
+
+def test_cli_rm_preflights_expanded_wildcard_before_deleting_any():
+    runner = CliRunner()
+    with (
+        mock.patch(
+            "otampy.cli._query",
+            return_value=(b"notes.py,main.py", None),
+        ),
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "rm", "*.py"],
+        )
+
+    assert result.exit_code != 0
+    assert "main.py" in result.output
+    send_command.assert_not_called()
+
+
 def test_cli_rm_file():
     """Test the 'rm' command with a file with confirmation."""
     runner = CliRunner()
@@ -391,14 +451,14 @@ def test_cli_rm_file():
         mock_device_instance.read.return_value = b"RM_OK"
 
         result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "rm", "main.py"], input="y\n"
+            cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="y\n"
         )
         assert result.exit_code == 0
-        assert "Removing: main.py" in result.output
+        assert "Removing: temp.py" in result.output
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
-        mock_device_instance.send.assert_called_once_with(b"RM:main.py")
+        mock_device_instance.send.assert_called_once_with(b"RM:temp.py")
 
 
 def test_cli_rm_multiple_files():
@@ -406,15 +466,15 @@ def test_cli_rm_multiple_files():
     with mock.patch("otampy.cli._send_command") as send_command:
         result = runner.invoke(
             cli,
-            ["-p", "/dev/ttyFake", "rm", "main.py", "config.py"],
+            ["-p", "/dev/ttyFake", "rm", "temp.py", "data.json"],
             input="y\n",
         )
 
     assert result.exit_code == 0
-    assert "these 2 paths: main.py, config.py" in result.output
+    assert "these 2 paths: temp.py, data.json" in result.output
     assert send_command.call_args_list == [
-        mock.call(mock.ANY, b"RM:main.py", b"RM_OK"),
-        mock.call(mock.ANY, b"RM:config.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:temp.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:data.json", b"RM_OK"),
     ]
 
 
@@ -429,15 +489,15 @@ def test_cli_rm_expands_remote_wildcards():
     ):
         result = runner.invoke(
             cli,
-            ["-p", "/dev/ttyFake", "rm", "lib/otampy/*.py"],
+            ["-p", "/dev/ttyFake", "rm", "lib/plugins/*.py"],
             input="y\n",
         )
 
     assert result.exit_code == 0
-    query.assert_called_once_with(mock.ANY, b"LS:lib/otampy", b"LS_OK")
+    query.assert_called_once_with(mock.ANY, b"LS:lib/plugins", b"LS_OK")
     assert send_command.call_args_list == [
-        mock.call(mock.ANY, b"RM:lib/otampy/boot.py", b"RM_OK"),
-        mock.call(mock.ANY, b"RM:lib/otampy/core.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:lib/plugins/boot.py", b"RM_OK"),
+        mock.call(mock.ANY, b"RM:lib/plugins/core.py", b"RM_OK"),
     ]
 
 
@@ -538,7 +598,7 @@ def test_cli_rm_file_aborted():
         mock.patch("urst.Urst") as mock_device,
     ):
         result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "rm", "main.py"], input="\n"
+            cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="\n"
         )
         assert result.exit_code == 0
         assert "Aborted." in result.output

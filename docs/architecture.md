@@ -91,6 +91,8 @@ silent. OTAmpy does not import a file-logging module in the production profile.
 Runtime copies retain a flat transfer state on `OTACore` only while a copy is
 active; file content is written and hashed in bounded chunks rather than held
 in RAM.
+The host CLI preserves the remote recovery control plane by rejecting a
+complete removal selection before sending its first `RM`.
 
 ---
 

@@ -81,6 +81,13 @@ def main():
         shutdown_reason = "KeyboardInterrupt"
         logger.info("KeyboardInterrupt: Shutting down application")
 
+    except SystemExit:
+        # machine.soft_reset() raises SystemExit. Capture the reason so the
+        # finally block can log it, then re-raise so MicroPython performs the
+        # actual soft reset after finally completes.
+        shutdown_reason = "remote soft-reset command (SR)"
+        raise
+
     except Exception as ex:
         import io
         import sys

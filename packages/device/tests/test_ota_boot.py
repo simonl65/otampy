@@ -55,7 +55,7 @@ def test_boot_with_flag_file_runs_callback_and_removes_flag(tmp_path):
     ) in logger.messages
     assert (
         "debug",
-        f"Update request flag found: {flag_file}",
+        "Update request flag FOUND",
     ) in logger.messages
 
 

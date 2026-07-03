@@ -172,11 +172,11 @@ def poll(core, callback=None):
         core.transport.send(b"PONG")
     elif cmd == "RB":
         core.transport.send(b"RB_OK")
-        core.logger.info("Shutdown started: remote reboot command (RB)")
+        core.logger.info("Reboot commanded (RB)")
         machine.reset()
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
-        core.logger.info("Shutdown started: remote soft-reset command (SR)")
+        core.logger.info("Soft-reset commanded (SR)")
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
         core.logger.debug("UPDATE REQUESTED")

@@ -1165,3 +1165,112 @@ def test_cli_port_interactive(tmp_path):
         )
         with open(config_file) as f:
             assert json.load(f)["default_port"] == "/dev/ttyFakeX"
+
+
+def test_permanent_port_clears_session_shadow(tmp_path):
+    """Saving a port permanently must clear any session port so it no longer
+    shadows the permanent config on the next invocation."""
+    import json
+
+    runner = CliRunner()
+
+    mock_port1 = mock.MagicMock()
+    mock_port1.device = "/dev/ttyFake1"
+    mock_port1.description = "Fake Port 1"
+    mock_port1.serial_number = "SERIAL1"
+    mock_port1.vid = 0x2E8A
+    mock_port1.pid = 0x0005
+    mock_port1.manufacturer = "MicroPython"
+    mock_port1.product = "Board in FS mode"
+    mock_port1.hwid = "USB"
+
+    mock_port2 = mock.MagicMock()
+    mock_port2.device = "/dev/ttyFake2"
+    mock_port2.description = "Fake Port 2"
+    mock_port2.serial_number = "SERIAL2"
+    mock_port2.vid = 0x0403
+    mock_port2.pid = 0x6001
+    mock_port2.manufacturer = "FTDI"
+    mock_port2.product = "FT232R USB UART"
+    mock_port2.hwid = "USB"
+
+    fake_ppid = 99999
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.txt"
+
+    with (
+        mock.patch(
+            "serial.tools.list_ports.comports",
+            return_value=[mock_port1, mock_port2],
+        ),
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+    ):
+        # Step 1: Save ttyFake2 as the session port (simulates a prior session
+        # save that would shadow the permanent config).
+        result = runner.invoke(cli, ["ports"], input="2\ns\n")
+        assert result.exit_code == 0
+        assert "Session default port set to: /dev/ttyFake2" in result.output
+        assert session_file.is_file()
+        assert session_file.read_text().strip() == "/dev/ttyFake2"
+
+        # Step 2: Save ttyFake1 permanently. This must also clear the session
+        # file so it no longer shadows the permanent config.
+        result = runner.invoke(cli, ["ports"], input="1\np\n")
+        assert result.exit_code == 0
+        assert "Permanent default port set to: /dev/ttyFake1" in result.output
+
+        # Session file must be gone.
+        assert not session_file.is_file(), (
+            "Session file was not cleared when saving permanent port. "
+            "It would shadow the permanent config on the next invocation."
+        )
+
+        # Permanent config must have ttyFake1.
+        config_file = tmp_path / ".config" / "otampy" / "config.json"
+        assert config_file.is_file()
+        with open(config_file) as f:
+            assert json.load(f)["default_port"] == "/dev/ttyFake1"
+
+        # Step 3: On the next invocation (no --port flag), get_default_port()
+        # must return ttyFake1 (permanent), not ttyFake2 (cleared session).
+        # The * marker must appear next to ttyFake1.
+        result = runner.invoke(cli, ["ports"], input="\n")
+        assert result.exit_code == 0
+        assert "* 1: /dev/ttyFake1" in result.output
+        assert "* 2: /dev/ttyFake2" not in result.output
+
+
+def test_ports_set_flag_clears_session_shadow(tmp_path):
+    """--set flag saving a permanent port must also clear the session shadow."""
+    import json
+
+    runner = CliRunner()
+
+    fake_ppid = 99998
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.txt"
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+    ):
+        # Plant a session file for ttyFake2.
+        session_file.write_text("/dev/ttyFake2")
+        assert session_file.is_file()
+
+        # Use --set to permanently set ttyFake1.
+        result = runner.invoke(cli, ["ports", "--set", "/dev/ttyFake1"])
+        assert result.exit_code == 0
+        assert "Permanent default port set to: /dev/ttyFake1" in result.output
+
+        # Session file must be gone.
+        assert not session_file.is_file(), (
+            "--set did not clear the session file; it would shadow the "
+            "permanent config on the next invocation."
+        )
+
+        # Permanent config must have ttyFake1.
+        config_file = tmp_path / ".config" / "otampy" / "config.json"
+        with open(config_file) as f:
+            assert json.load(f)["default_port"] == "/dev/ttyFake1"

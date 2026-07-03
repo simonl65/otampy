@@ -1112,7 +1112,7 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Update one or more local files or directories on the device. * Will reboot the device."""
+    """Reboot & update files or directories on the device."""
     # 0. Scan and collect files to send locally before touching device
     files_to_send = _get_files_to_send(args)
     if not files_to_send:
@@ -1290,6 +1290,7 @@ def ports_cmd(
 
     if set_port:
         set_default_port(set_port)
+        set_default_port(None, session=True)
         _console().print(
             f"[green]Permanent default port set to: {set_port}[/green]"
         )
@@ -1354,6 +1355,7 @@ def ports_cmd(
 
     if choice == "p":
         set_default_port(selected_port)
+        set_default_port(None, session=True)
         _console().print(
             f"[green]Permanent default port set to: {selected_port}[/green]"
         )

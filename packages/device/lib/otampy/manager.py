@@ -114,8 +114,8 @@ def _directory_entries(path):
             except OSError:
                 item_is_dir = False
         if item_is_dir:
-            item += "/"
-        yield item.encode()
+            item += "/"  # type: ignore
+        yield item.encode()  # type: ignore
 
 
 def _directory_size(path):

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import os
 import shlex
 import shutil
 import subprocess
@@ -14,89 +13,16 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
 
+from otampy.project import DeviceSources, resolve_device_sources
 
-def _find_repo_root() -> Path:
-    """Find the repository root by scanning parents for project files.
-
-    Falls back to the installed package location when no repo markers are found.
-    """
-    here = Path(__file__).resolve()
-    for p in (here, *here.parents):
-        if (p / ".git").exists() or (p / "LICENSE.md").exists():
-            return p
-
-    # Fallback: use package resources for installed packages
-    try:
-        import importlib.resources as resources
-
-        files_fn = getattr(resources, "files", None)
-        if files_fn is None or not callable(files_fn):
-            raise RuntimeError("importlib.resources.files not available")
-
-        pkg = files_fn("otampy")
-        pkg_any = cast(Any, pkg)
-        # Traversable may not be directly path-like for Path(); use os.fspath or str()
-        if hasattr(pkg_any, "__fspath__"):
-            return Path(os.fspath(pkg_any))
-        return Path(str(pkg_any))
-    except Exception:
-        return here.parent
-
-
-def _find_device_root(root: Path) -> Path:
-    """Locate the `device` package directory from a repo root or installed package.
-
-    Search common candidate locations and fall back to the prior relative path.
-    """
-    # Look for `packages/device` or top-level `device` under the repo or its parents
-    for p in (root, *root.parents):
-        candidates = (p / "packages" / "device", p / "device")
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-    # Try to find a `device` resource in the installed package
-    try:
-        import importlib.resources as resources
-
-        files_fn = getattr(resources, "files", None)
-        if files_fn is not None and callable(files_fn):
-            base = files_fn("otampy")
-            base_any = cast(Any, base)
-            join = getattr(base_any, "joinpath", None)
-            dev = None
-            if callable(join):
-                dev = base_any.joinpath("device")
-            else:
-                # Fallback: try building a path from the base's fs path
-                try:
-                    base_path = Path(os.fspath(base_any))
-                    candidate = base_path / "device"
-                    if candidate.is_dir():
-                        return candidate
-                except Exception:
-                    pass
-
-            if dev is not None:
-                dev_any = cast(Any, dev)
-                if hasattr(dev_any, "__fspath__"):
-                    return Path(os.fspath(dev_any))
-                return Path(str(dev_any))
-    except Exception:
-        pass
-
-    # Last resort: preserve previous heuristic
-    return Path(__file__).resolve().parent / "packages" / "device"
-
-
-ROOT = _find_repo_root()
-DEVICE_ROOT = _find_device_root(ROOT)
-LIB_DIR = DEVICE_ROOT / "lib"
-CONFIG_FILE = DEVICE_ROOT / "examples" / "config.py"
-BOOT_FILE = DEVICE_ROOT / "examples" / "boot.py"
-MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
+_DEFAULT_SOURCES = resolve_device_sources(Path.cwd())
+ROOT = _DEFAULT_SOURCES.project_root
+DEVICE_ROOT = _DEFAULT_SOURCES.device_root
+LIB_DIR = _DEFAULT_SOURCES.lib_dir
+CONFIG_FILE = _DEFAULT_SOURCES.config_file
+BOOT_FILE = _DEFAULT_SOURCES.boot_file
+MAIN_FILE = _DEFAULT_SOURCES.main_file
 
 MIP_PACKAGES = ("github:simonl65/URST-mpy",)
 LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
@@ -122,6 +48,7 @@ class DeployArgs:
     dry_run: bool
     bytecode: bool = False
     mpy_cross: str = "mpy-cross"
+    project: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -373,7 +300,9 @@ def build_bytecode_lib(
     args: DeployArgs,
     destination: Path,
     target: TargetMpy,
+    source_lib: Path | None = None,
 ) -> int:
+    source_lib = LIB_DIR if source_lib is None else source_lib
     result = _run_mpy_cross(args, ["--version"])
     if result.returncode:
         output = (result.stdout or "") + (result.stderr or "")
@@ -383,7 +312,7 @@ def build_bytecode_lib(
 
     count = _copy_compiled_tree(
         args,
-        LIB_DIR,
+        source_lib,
         destination,
         "/lib",
         target,
@@ -403,34 +332,72 @@ def build_bytecode_lib(
     return count
 
 
-def validate_deploy_sources() -> None:
+def _legacy_sources() -> DeviceSources:
+    """Return module-level paths retained for direct API compatibility."""
+    return DeviceSources(
+        project_root=ROOT,
+        device_root=DEVICE_ROOT,
+        lib_dir=LIB_DIR,
+        config_file=CONFIG_FILE,
+        boot_file=BOOT_FILE,
+        main_file=MAIN_FILE,
+        config_example_file=CONFIG_FILE.parent / "config.example.py",
+    )
+
+
+def _sources_for_args(args: DeployArgs) -> DeviceSources:
+    project = getattr(args, "project", None)
+    if project is None:
+        return _legacy_sources()
+    return resolve_device_sources(project)
+
+
+def validate_deploy_sources(sources: DeviceSources | None = None) -> None:
     """Ensure local deploy sources exist before any destructive device operation."""
+    sources = _legacy_sources() if sources is None else sources
     missing = [
         path
-        for path in (LIB_DIR, CONFIG_FILE, BOOT_FILE, MAIN_FILE)
+        for path in (
+            sources.lib_dir,
+            sources.config_file,
+            sources.boot_file,
+            sources.main_file,
+        )
         if not path.exists()
     ]
     if not missing:
         return
 
     rel_paths = ", ".join(
-        str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+        str(path.relative_to(sources.project_root))
+        if path.is_relative_to(sources.project_root)
+        else str(path)
         for path in missing
     )
     print(f"Error: missing deploy source(s): {rel_paths}", file=sys.stderr)
-    if CONFIG_FILE in missing:
-        example = CONFIG_FILE.parent / "config.example.py"
-        print(
-            f"Create config.py from {example.relative_to(ROOT)} before deploying.",
-            file=sys.stderr,
-        )
+    if sources.config_file in missing:
+        if sources.config_example_file.is_file():
+            print(
+                f"Create config.py from {sources.config_example_file} "
+                "before deploying.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Run `otampy init` in the project directory, then edit "
+                f"{sources.config_file} before deploying.",
+                file=sys.stderr,
+            )
     raise SystemExit(1)
 
 
 def deploy_command(
     args: DeployArgs,
-    lib_dir: Path = LIB_DIR,
+    lib_dir: Path | None = None,
+    sources: DeviceSources | None = None,
 ) -> list[str]:
+    sources = _sources_for_args(args) if sources is None else sources
+    lib_dir = sources.lib_dir if lib_dir is None else lib_dir
     command = [
         "resume",
         "rm",
@@ -440,9 +407,9 @@ def deploy_command(
         "cp",
         "-r",
         str(lib_dir),
-        str(CONFIG_FILE),
-        str(MAIN_FILE),
-        str(BOOT_FILE),
+        str(sources.config_file),
+        str(sources.main_file),
+        str(sources.boot_file),
         ":",
     ]
 
@@ -457,21 +424,22 @@ def deploy_command(
     return command
 
 
-def _remove_pycache_dirs() -> None:
-    """Remove local __pycache__ directories from the workspace before copying files."""
-    if not ROOT.is_dir():
+def _remove_pycache_dirs(lib_dir: Path) -> None:
+    """Remove local __pycache__ directories from the copied library tree."""
+    if not lib_dir.is_dir():
         return
 
-    for pycache_dir in ROOT.rglob("__pycache__"):
+    for pycache_dir in lib_dir.rglob("__pycache__"):
         if pycache_dir.is_dir():
             shutil.rmtree(pycache_dir)
 
 
 def deploy(args: DeployArgs) -> None:
-    validate_deploy_sources()
-    _remove_pycache_dirs()
+    sources = _sources_for_args(args)
+    validate_deploy_sources(sources)
+    _remove_pycache_dirs(sources.lib_dir)
     if not args.bytecode:
-        run_mpremote(args, deploy_command(args))
+        run_mpremote(args, deploy_command(args, sources=sources))
         return
 
     if args.with_logger:
@@ -518,6 +486,7 @@ def deploy(args: DeployArgs) -> None:
             deploy_command(
                 args,
                 Path("<target-matched-mpy-lib>"),
+                sources,
             ),
         )
         return
@@ -529,9 +498,9 @@ def deploy(args: DeployArgs) -> None:
     )
     with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
         lib_dir = Path(temp_dir) / "lib"
-        build_bytecode_lib(args, lib_dir, target)
+        build_bytecode_lib(args, lib_dir, target, sources.lib_dir)
         wait_for_target(args)
-        run_mpremote(args, deploy_command(args, lib_dir))
+        run_mpremote(args, deploy_command(args, lib_dir, sources))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -545,6 +514,12 @@ def build_parser() -> argparse.ArgumentParser:
         "-p",
         "--port",
         help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
+    )
+    parser.add_argument(
+        "--project",
+        type=Path,
+        default=Path.cwd(),
+        help="Project directory containing device/ (default: current directory).",
     )
     parser.add_argument(
         "--mpremote",

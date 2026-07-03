@@ -252,8 +252,10 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.bytecode = False
     mock_args.no_reset = True
     mock_args.dry_run = True
+    mock_args.project = None
 
     monkeypatch.setattr(deploy, "ROOT", root)
+    monkeypatch.setattr(deploy, "LIB_DIR", lib_dir)
     called = []
 
     def fake_run_mpremote(args, command):
@@ -513,9 +515,10 @@ def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
         calls.append("query")
         return target
 
-    def fake_build(_args, lib_dir, received_target):
+    def fake_build(_args, lib_dir, received_target, source_lib):
         assert lib_dir.name == "lib"
         assert received_target is target
+        assert source_lib == deploy.LIB_DIR
         calls.append("build")
         return 12
 

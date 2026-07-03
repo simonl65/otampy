@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 
 import otampy.deploy as deploy
+import otampy.project as project
 
 if TYPE_CHECKING:
     from urst import Urst
@@ -1522,12 +1523,44 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
         _console().print("Cancelled.")
 
 
+@cli.command(name="init")
+@click.argument(
+    "directory",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=".",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace existing project-owned device files.",
+)
+def init_cmd(directory: Path, force: bool) -> None:
+    """Create boot.py, main.py, and config.py for an OTAmpy project."""
+    try:
+        created = project.initialise_project(directory, force=force)
+    except project.ProjectError as error:
+        raise click.ClickException(str(error)) from error
+
+    root = directory.expanduser().resolve()
+    _console().print(f"[green]Initialised OTAmpy project in {root}[/green]")
+    for path in created:
+        _console().print(f"  {path.relative_to(root)}")
+    _console().print("Edit device/config.py before deploying.")
+
+
 @cli.command(name="deploy")
 @click.option(
     "-p",
     "--port",
     help="Serial port to connect to, for example /dev/ttyACM0 or COM3.",
     default=get_default_port,
+)
+@click.option(
+    "--project",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=".",
+    show_default=True,
+    help="Project directory containing device/.",
 )
 @click.option(
     "--mpremote",
@@ -1567,6 +1600,7 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
 )
 def deploy_cmd(
     port: str | None,
+    project: Path,
     mpremote: str,
     no_mip: bool,
     with_logger: bool,
@@ -1585,6 +1619,7 @@ def deploy_cmd(
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
+        project=project,
     )
     try:
         deploy.deploy(args)

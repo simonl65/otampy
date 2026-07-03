@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import unittest.mock as mock
+from pathlib import Path
 
 import click
 import pytest
@@ -1208,6 +1209,8 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "deploy",
                 "--port",
                 "/dev/ttyACM0",
+                "--project",
+                "application",
                 "--bytecode",
                 "--mpy-cross",
                 "uvx custom-cross",
@@ -1219,12 +1222,33 @@ def test_cli_deploy_forwards_to_deploy_module():
     mock_deploy.assert_called_once()  # type: ignore
     called_args = mock_deploy.call_args.args[0]  # type: ignore
     assert called_args.port == "/dev/ttyACM0"
+    assert called_args.project == Path("application")
     assert called_args.no_mip is False
     assert called_args.with_logger is False
     assert called_args.bytecode is True
     assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.no_reset is False
     assert called_args.dry_run is True
+
+
+def test_cli_init_creates_project_files(tmp_path):
+    runner = CliRunner()
+    created = [
+        tmp_path / "device" / "boot.py",
+        tmp_path / "device" / "main.py",
+        tmp_path / "device" / "config.py",
+    ]
+
+    with mock.patch(
+        "otampy.cli.project.initialise_project",
+        return_value=created,
+    ) as initialise:
+        result = runner.invoke(cli, ["init", str(tmp_path)])
+
+    assert result.exit_code == 0
+    initialise.assert_called_once_with(tmp_path, force=False)
+    assert "Initialised OTAmpy project" in result.output
+    assert "Edit device/config.py" in result.output
 
 
 def test_cli_deploy_reports_missing_mpremote_as_click_exception():

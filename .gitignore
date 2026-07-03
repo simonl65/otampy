@@ -18,3 +18,4 @@ TODO.md
 *.log
 typings*
 .codex
+/device

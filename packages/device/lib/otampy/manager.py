@@ -13,6 +13,15 @@ _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
 
 
+def _do_callback(core, callback=None):
+    if callback is not None:
+        try:
+            core.logger.debug("Calling application callback.")
+            callback()
+        except Exception as e:
+            core.logger.error(f"Error in application callback: {e}")
+
+
 def _send_response(transport, total_size, parts):
     if total_size > _MAX_RESPONSE_SIZE:
         transport.send(b"ERROR:Response too large")
@@ -173,16 +182,16 @@ def poll(core, callback=None):
     elif cmd == "RB":
         core.transport.send(b"RB_OK")
         core.logger.info("Reboot commanded (RB)")
+        _do_callback(core, callback)
         machine.reset()
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
         core.logger.info("Soft-reset commanded (SR)")
+        _do_callback(core, callback)
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
         core.logger.debug("UPDATE REQUESTED")
-        if callback is not None:
-            core.logger.debug("Calling application callback.")
-            callback()
+        _do_callback(core, callback)
         flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
         if flag:
             try:

@@ -102,9 +102,9 @@ def main():
 
     finally:
         logger.info("Shutdown started: %s", shutdown_reason)
-        for _ in range(10):
+        for _ in range(5):
             blink.blink(2)
-            time.sleep(0.5)
+            time.sleep(0.25)
         # Make application safe
         prepare_for_shutdown()
         logger.info("Shutdown complete")

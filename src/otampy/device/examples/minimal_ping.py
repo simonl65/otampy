@@ -2,7 +2,7 @@
 # Run using: mpremote run packages/device/examples/minimal_ping.py
 import machine
 
-from otampy import OTA  # pyright: ignore[reportAttributeAccessIssue]
+from src.otampy import OTA  # pyright: ignore[reportAttributeAccessIssue]
 
 # Initialize UART (GP4 is TX, GP5 is RX on standard Raspberry Pi Pico)
 uart = machine.UART(1, baudrate=57600, tx=machine.Pin(4), rx=machine.Pin(5))

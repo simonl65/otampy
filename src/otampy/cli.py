@@ -782,9 +782,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
                 if is_dir:
                     remove_directory(item_path)
                 else:
-                    _console().print(
-                        f"  Removing remote path: {item_path}"
-                    )
+                    _console().print(f"  Removing remote path: {item_path}")
                     _query(
                         ctx,
                         f"RM:{item_path}".encode(),
@@ -1449,14 +1447,18 @@ def ports_cmd(
 
 
 @cli.command(name="log-level")
-@click.option("--show", is_flag=True, help="Show the current default log level.")
+@click.option(
+    "--show", is_flag=True, help="Show the current default log level."
+)
 @click.option(
     "--set",
     "set_level",
     type=click.Choice(LOG_LEVELS, case_sensitive=False),
     help="Set the default log level permanently.",
 )
-@click.option("--clear", is_flag=True, help="Clear the saved log level (resets to ERROR).")
+@click.option(
+    "--clear", is_flag=True, help="Clear the saved log level (resets to ERROR)."
+)
 def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     """Show or manage the saved CLI log level.
 
@@ -1472,7 +1474,9 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     if clear:
         set_default_log_level(None)
         set_default_log_level(None, session=True)
-        _console().print("[green]Saved log level cleared (will default to ERROR).[/green]")
+        _console().print(
+            "[green]Saved log level cleared (will default to ERROR).[/green]"
+        )
         return
 
     if set_level:
@@ -1486,15 +1490,17 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     # Interactive mode — show current and prompt to change
     current = get_default_log_level()
     _console().print(f"Current log level: [bold]{current}[/bold]")
-    _console().print(
-        f"Available levels: {', '.join(LOG_LEVELS)}"
-    )
+    _console().print(f"Available levels: {', '.join(LOG_LEVELS)}")
 
-    selection = click.prompt(
-        "\nEnter a log level to set as default (or press Enter to cancel)",
-        default="",
-        show_default=False,
-    ).strip().upper()
+    selection = (
+        click.prompt(
+            "\nEnter a log level to set as default (or press Enter to cancel)",
+            default="",
+            show_default=False,
+        )
+        .strip()
+        .upper()
+    )
 
     if not selection:
         _console().print("Cancelled.")
@@ -1506,18 +1512,26 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
             f"Choose from: {', '.join(LOG_LEVELS)}"
         )
 
-    choice = click.prompt(
-        f"Set {selection} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
-        default="p",
-    ).strip().lower()
+    choice = (
+        click.prompt(
+            f"Set {selection} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
+            default="p",
+        )
+        .strip()
+        .lower()
+    )
 
     if choice == "p":
         set_default_log_level(selection)
         set_default_log_level(None, session=True)
-        _console().print(f"[green]Permanent log level set to: {selection}[/green]")
+        _console().print(
+            f"[green]Permanent log level set to: {selection}[/green]"
+        )
     elif choice == "s":
         set_default_log_level(selection, session=True)
-        _console().print(f"[green]Session log level set to: {selection}[/green]")
+        _console().print(
+            f"[green]Session log level set to: {selection}[/green]"
+        )
     else:
         _console().print("Cancelled.")
 

@@ -1,9 +1,11 @@
 [project]
 name = "otampy"
+version = "1.0.0"
 description = "OTA application firmware update solution for MicroPython"
 readme = "README.md"
+license = "SUL-1.0"
+authors = [{ name = "Simon R. Lincoln", email = "oss@codeability.co.uk" }]
 requires-python = ">=3.12"
-dynamic = ["version"]
 dependencies = [
     "pyserial>=3.5",
     "click>=8.0.0",
@@ -15,16 +17,20 @@ dependencies = [
 otampy = "otampy.cli:main"
 
 
+# [build-system]
+# requires = ["setuptools>=61.0"]
+# build-backend = "setuptools.build_meta"
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
 
 # This tells pip/setuptools to ignore the 'hardware' and 'packages' 
 # folders and look specifically in the src folder for the code, allowing 
 # installation with:
 # pipx install git+https://github.com/simonl65/otampy.git@develop
 [tool.setuptools.packages.find]
-where = ["packages/cli/src"]
+where = ["src"]
 
 
 [dependency-groups]
@@ -40,7 +46,7 @@ dev = [
 
 # --- Ruff ---
 [tool.ruff]
-src = ["packages/cli/src", "packages/device/lib"]
+src = ["src"]
 line-length = 80
 target-version = "py310"
 
@@ -65,9 +71,9 @@ indent-style = "space"
 
 # --- Pytest ---
 [tool.pytest.ini_options]
-testpaths = ["packages/cli/tests", "packages/device/tests", "tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
-addopts = "--cov=packages/cli/src/otampy --cov-report=term-missing"
+addopts = "--cov=otampy --cov-report=term-missing"
 
 [tool.uv.sources]
 urst = { git = "https://github.com/simonl65/urst-mpy.git" }
@@ -77,11 +83,7 @@ members = ["packages/cli"]
 
 [tool.pyright]
 include = ["."]
-extraPaths = [
-    "./lib",
-    "./packages/cli/src/otampy/deploy.py",
-    "./packages/cli/src/otampy/device/examples",
-]
+extraPaths = ["./lib", "./src/otampy/deploy.py", "./src/otampy/device/examples"]
 ignore = ["**/typings", "**/test/**", "**/tests/**"]
 exclude = [
     ".*",

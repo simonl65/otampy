@@ -207,7 +207,9 @@ class _ManifestTransport(_Transport):
         index = self._packet_index
         self._packet_index += 1
         if index == 0:
-            return f"UPDATE_START:{self._file_count}:{self._file_count}".encode()
+            return (
+                f"UPDATE_START:{self._file_count}:{self._file_count}".encode()
+            )
         if index == 1 + self._file_count * 3:
             return b"UPDATE_COMMIT"
 
@@ -331,7 +333,7 @@ def main():
     import os
     import sys
 
-    from otampy import boot, manager
+    from src.otampy import boot, manager
 
     for path in (_CAT_PATH, _LS_PATH, _UPDATE_PATH):
         _assert_absent(os, path)
@@ -399,7 +401,9 @@ def main():
             ):
                 raise RuntimeError("many-file update assertion failed")
             for index in range(32):
-                with open(f"{_UPDATE_PATH}/m{index:02d}", "rb") as manifest_file:
+                with open(
+                    f"{_UPDATE_PATH}/m{index:02d}", "rb"
+                ) as manifest_file:
                     if manifest_file.read() != one_byte:
                         raise RuntimeError("many-file content assertion failed")
             return transport

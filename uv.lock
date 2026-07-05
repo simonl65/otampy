@@ -2,21 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
-[manifest]
-members = [
-    "otampy",
-]
-
-[manifest.dependency-groups]
-dev = [
-    { name = "micropython-rp2-rpi-pico-w-stubs", specifier = "==1.28.0.*" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "pytest-watcher", specifier = ">=0.6.3" },
-    { name = "python-semantic-release", specifier = ">=10.6.0" },
-    { name = "ruff", specifier = ">=0.4" },
-]
-
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -416,12 +401,22 @@ wheels = [
 [[package]]
 name = "otampy"
 version = "1.0.0"
-source = { editable = "packages/cli" }
+source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "pyserial" },
     { name = "rich" },
     { name = "urst" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "micropython-rp2-rpi-pico-w-stubs" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-watcher" },
+    { name = "python-semantic-release" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -430,6 +425,16 @@ requires-dist = [
     { name = "pyserial", specifier = ">=3.5" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "urst", git = "https://github.com/simonl65/urst-mpy.git" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "micropython-rp2-rpi-pico-w-stubs", specifier = "==1.28.0.*" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "pytest-watcher", specifier = ">=0.6.3" },
+    { name = "python-semantic-release", specifier = ">=10.6.0" },
+    { name = "ruff", specifier = ">=0.4" },
 ]
 
 [[package]]

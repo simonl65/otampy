@@ -67,7 +67,11 @@ class _Transport:
         return packet
 
     def send(self, response):
-        if response == b"READY" or response.startswith(b"CHUNK_ACK:") or response == b"COMMIT_OK":
+        if (
+            response == b"READY"
+            or response.startswith(b"CHUNK_ACK:")
+            or response == b"COMMIT_OK"
+        ):
             _checkpoint(self._gc)
 
 
@@ -106,7 +110,7 @@ def main():
     import os
     import sys
 
-    from otampy import boot
+    from src.otampy import boot
 
     payload = b"probe"
     digest = binascii.hexlify(hashlib.sha256(payload).digest()).decode()

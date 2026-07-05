@@ -2,10 +2,10 @@
 Example boot.py
 """
 
-import config
+import src.otampy.device.examples.config as config
 from machine import UART, Pin  # type: ignore
 
-from otampy import OTA, NullLogger  # type: ignore
+from src.otampy import OTA, NullLogger  # type: ignore
 
 try:
     from log_to_file import Logger  # type: ignore

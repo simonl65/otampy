@@ -2001,14 +2001,14 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
 
     if path is None:
         saved = get_default_device_dir()
-        default_display = saved if saved else str(Path.cwd())
+        default_display = _to_display_path(saved) if saved else str(Path.cwd())
         raw = click.prompt(
             "Project directory",
             default=default_display,
         ).strip()
-        path = Path(raw)
-
-    path = path.resolve()
+        path = _resolve_device_dir_input(raw)
+    else:
+        path = path.resolve()
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy
@@ -2050,7 +2050,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
         # Not saved permanently — use 'otampy device-dir --set .' for that.
         set_default_device_dir(str(path), session=True)
         console.print(
-            f"[dim]Device directory set to {path} for this session. "
+            f"[dim]Device directory set to {_to_display_path(str(path))} for this session. "
             "Run 'otampy device-dir --set .' to make it permanent.[/dim]"
         )
 

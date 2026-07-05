@@ -1823,11 +1823,13 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
 
         console.print(f"\n[green]✓[/green] Project initialized at {path}")
 
-        # Remember this directory as the default for deploy
-        set_default_device_dir(str(path))
-        set_default_device_dir(None, session=True)
+        # Remember this directory for the current shell session so
+        # 'otampy deploy' works immediately without --device-dir.
+        # Not saved permanently — use 'otampy device-dir --set .' for that.
+        set_default_device_dir(str(path), session=True)
         console.print(
-            f"[dim]Saved {path} as the default device directory for deploy.[/dim]"
+            f"[dim]Device directory set to {path} for this session. "
+            "Run 'otampy device-dir --set .' to make it permanent.[/dim]"
         )
 
     except Exception as e:

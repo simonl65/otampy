@@ -2,11 +2,12 @@
 Example main.py
 """
 
+import config  # type: ignore
 import machine  # type: ignore
-import src.otampy.device.examples.config as config  # type: ignore
 import utime as time  # type: ignore
 from Blink import Blink  # type: ignore
-from src.otampy import OTA, NullLogger  # type: ignore
+
+from otampy import OTA, NullLogger  # type: ignore
 
 blink = Blink(pin="LED")
 

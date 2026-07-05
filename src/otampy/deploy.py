@@ -205,7 +205,15 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
         "print('OTAMPY_MPY|%s|%s|%s' % "
         "(value,bits,sys.version.replace('|','/')))"
     )
-    command = [*mpremote_prefix(args), "resume", "+", "exec", code, "+", "reset"]
+    command = [
+        *mpremote_prefix(args),
+        "resume",
+        "+",
+        "exec",
+        code,
+        "+",
+        "reset",
+    ]
     print("$ " + shlex.join(command), flush=True)
 
     result = subprocess.run(
@@ -218,7 +226,7 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
         output = (result.stdout or "") + (result.stderr or "")
         raise DeployError(result.returncode, output)
 
-    for line in result.stdout.splitlines():
+    for line in result.stdout.splitlines():  # type: ignore
         if not line.startswith("OTAMPY_MPY|"):
             continue
         _, value, small_int_bits, runtime = line.split("|", 3)
@@ -226,9 +234,9 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
             break
         try:
             return TargetMpy(
-                value=int(value),
-                small_int_bits=int(small_int_bits),
-                runtime=runtime,
+                value=int(value),  # type: ignore
+                small_int_bits=int(small_int_bits),  # type: ignore
+                runtime=runtime,  # type: ignore
             )
         except ValueError:
             break
@@ -258,10 +266,12 @@ def wait_for_target(args: DeployArgs) -> None:
             capture_output=True,
             text=True,
         )
-        if last_result.returncode == 0 and "OTAMPY_READY" in last_result.stdout:
+        if last_result.returncode == 0 and "OTAMPY_READY" in last_result.stdout:  # type: ignore
             return
 
-        output = ((last_result.stdout or "") + (last_result.stderr or "")).lower()
+        output = (
+            (last_result.stdout or "") + (last_result.stderr or "")
+        ).lower()
         retryable = (
             "busy" in output
             or "could not open" in output
@@ -280,12 +290,12 @@ def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
     prefix = shlex.split(args.mpy_cross)
     if not prefix:
         raise BytecodeDeployError("The mpy-cross command cannot be empty.")
-    return prefix
+    return prefix  # type: ignore
 
 
 def _run_mpy_cross(
     args: DeployArgs, arguments: list[str]
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[str]:  # type: ignore
     command = [*_mpy_cross_prefix(args), *arguments]
     try:
         return subprocess.run(
@@ -304,9 +314,7 @@ def _run_mpy_cross(
 def _validate_mpy_header(path: Path, target: TargetMpy) -> None:
     header = path.read_bytes()[:4]
     if len(header) != 4 or header[0] != ord("M"):
-        raise BytecodeDeployError(
-            f"{path.name} is not a valid .mpy file."
-        )
+        raise BytecodeDeployError(f"{path.name} is not a valid .mpy file.")
     if header[1] != target.version:
         raise BytecodeDeployError(
             f"{path.name} uses .mpy version {header[1]}, but the target "
@@ -366,9 +374,7 @@ def _copy_compiled_tree(
             continue
         if source.suffix == ".py":
             destination = (destination_root / relative).with_suffix(".mpy")
-            device_source = (
-                device_root.rstrip("/") + "/" + relative.as_posix()
-            )
+            device_source = device_root.rstrip("/") + "/" + relative.as_posix()
             _compile_module(
                 args,
                 source,
@@ -407,9 +413,7 @@ def build_bytecode_lib(
     result = _run_mpy_cross(args, ["--version"])
     if result.returncode:
         output = (result.stdout or "") + (result.stderr or "")
-        raise BytecodeDeployError(
-            f"Could not run mpy-cross: {output.strip()}"
-        )
+        raise BytecodeDeployError(f"Could not run mpy-cross: {output.strip()}")
 
     paths = _resolve_deploy_paths(args)
     count = _copy_compiled_tree(
@@ -426,11 +430,8 @@ def build_bytecode_lib(
         "/lib/urst",
         target,
     )
-    compiler_version = (result.stdout or result.stderr).strip()
-    print(
-        f"Built {count} target-matched .mpy modules "
-        f"with {compiler_version}."
-    )
+    compiler_version = (result.stdout or result.stderr).strip()  # type: ignore
+    print(f"Built {count} target-matched .mpy modules with {compiler_version}.")
     return count
 
 
@@ -483,10 +484,10 @@ def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
         main_file = DEVICE_ROOT / "examples" / "main.py"
 
     return DeployPaths(
-        lib_dir=lib_dir,
-        config_file=config_file,
-        boot_file=boot_file,
-        main_file=main_file,
+        lib_dir=lib_dir,  # type: ignore
+        config_file=config_file,  # type: ignore
+        boot_file=boot_file,  # type: ignore
+        main_file=main_file,  # type: ignore
     )
 
 
@@ -495,10 +496,10 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
     if args is None:
         # Backwards-compatible call with no args — use module-level constants
         paths = DeployPaths(
-            lib_dir=LIB_DIR,
-            config_file=CONFIG_FILE,
-            boot_file=BOOT_FILE,
-            main_file=MAIN_FILE,
+            lib_dir=LIB_DIR,  # type: ignore
+            config_file=CONFIG_FILE,  # type: ignore
+            boot_file=BOOT_FILE,  # type: ignore
+            main_file=MAIN_FILE,  # type: ignore
         )
     else:
         paths = _resolve_deploy_paths(args)

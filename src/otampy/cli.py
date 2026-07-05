@@ -208,7 +208,9 @@ def get_default_device_dir() -> str | None:
     return None
 
 
-def set_default_device_dir(device_dir: str | None, session: bool = False) -> None:
+def set_default_device_dir(
+    device_dir: str | None, session: bool = False
+) -> None:
     path = _session_config_path() if session else _config_path()
     try:
         data = _read_json(path)
@@ -1569,7 +1571,9 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
 
 
 @cli.command(name="device-dir")
-@click.option("--show", is_flag=True, help="Show the current default device directory.")
+@click.option(
+    "--show", is_flag=True, help="Show the current default device directory."
+)
 @click.option(
     "--set",
     "set_dir",
@@ -1592,7 +1596,9 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         if d:
             _console().print(f"Current device directory: [green]{d}[/green]")
         else:
-            _console().print("No default device directory set (using auto-detected path).")
+            _console().print(
+                "No default device directory set (using auto-detected path)."
+            )
         return
 
     if clear:
@@ -1614,7 +1620,9 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     if current:
         _console().print(f"Current device directory: [bold]{current}[/bold]")
     else:
-        _console().print("No default device directory set (using auto-detected path).")
+        _console().print(
+            "No default device directory set (using auto-detected path)."
+        )
 
     new_dir = click.prompt(
         "\nEnter path to device directory (or press Enter to cancel)",
@@ -1629,9 +1637,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     from pathlib import Path
 
     if not Path(new_dir).is_dir():
-        raise click.ClickException(
-            f"Directory does not exist: {new_dir}"
-        )
+        raise click.ClickException(f"Directory does not exist: {new_dir}")
 
     choice = (
         click.prompt(
@@ -1645,10 +1651,14 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     if choice == "p":
         set_default_device_dir(new_dir)
         set_default_device_dir(None, session=True)
-        _console().print(f"[green]Permanent device directory set to: {new_dir}[/green]")
+        _console().print(
+            f"[green]Permanent device directory set to: {new_dir}[/green]"
+        )
     elif choice == "s":
         set_default_device_dir(new_dir, session=True)
-        _console().print(f"[green]Session device directory set to: {new_dir}[/green]")
+        _console().print(
+            f"[green]Session device directory set to: {new_dir}[/green]"
+        )
     else:
         _console().print("Cancelled.")
 
@@ -1729,7 +1739,7 @@ def deploy_cmd(
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
-        device_dir=Path(device_dir) if device_dir else None,
+        device_dir=Path(device_dir) if device_dir else None,  # type: ignore
     )
     try:
         deploy.deploy(args)
@@ -1773,7 +1783,7 @@ def init(ctx: click.Context, path: Path, force: bool) -> None:
 
     try:
         # Get the examples package resource
-        pkg_files = importlib.resources.files("otampy").joinpath(
+        pkg_files = importlib.resources.files("otampy").joinpath(  # type: ignore
             "device", "examples"
         )
 

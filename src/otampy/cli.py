@@ -1760,7 +1760,7 @@ def deploy_cmd(
     "path",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     required=False,
-    default=".",
+    default=None,
 )
 @click.option(
     "--force",
@@ -1769,12 +1769,23 @@ def deploy_cmd(
     help="Overwrite existing files without prompting.",
 )
 @click.pass_context
-def init(ctx: click.Context, path: Path, force: bool) -> None:
+def init(ctx: click.Context, path: Path | None, force: bool) -> None:
     """Initialize a new project with example configuration files.
 
-    Creates boot.py, main.py, and config.example.py in the specified directory.
+    Creates boot.py, main.py, and config.py in the specified directory.
+    If no directory is given, prompts for one (remembering the last used path).
     """
     console = _console()
+
+    if path is None:
+        saved = get_default_device_dir()
+        default_display = saved if saved else str(Path.cwd())
+        raw = click.prompt(
+            "Project directory",
+            default=default_display,
+        ).strip()
+        path = Path(raw)
+
     path = path.resolve()
     path.mkdir(parents=True, exist_ok=True)
 
@@ -1811,6 +1822,13 @@ def init(ctx: click.Context, path: Path, force: bool) -> None:
             console.print(f"[green]✓[/green] Created {dst.name}")
 
         console.print(f"\n[green]✓[/green] Project initialized at {path}")
+
+        # Remember this directory as the default for deploy
+        set_default_device_dir(str(path))
+        set_default_device_dir(None, session=True)
+        console.print(
+            f"[dim]Saved {path} as the default device directory for deploy.[/dim]"
+        )
 
     except Exception as e:
         console.print(f"[red]✗ Error:[/red] {e}", style="red")

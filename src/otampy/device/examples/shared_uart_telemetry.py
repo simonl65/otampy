@@ -3,7 +3,6 @@
 # Run with: mpremote run packages/device/examples/shared_uart_telemetry.py
 import machine
 import utime
-
 from src.otampy import OTA  # pyright: ignore[reportAttributeAccessIssue]
 
 # Initialize UART (GP4 = TX, GP5 = RX on standard Pico)

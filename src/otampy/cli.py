@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.resources
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1612,6 +1613,65 @@ def deploy_cmd(
         ctx.exit(error.returncode or 1)
     except deploy.BytecodeDeployError as error:
         raise click.ClickException(str(error)) from error
+
+
+@cli.command(name="init")
+@click.argument(
+    "path",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    required=False,
+    default=".",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Overwrite existing files without prompting.",
+)
+@click.pass_context
+def init(ctx: click.Context, path: Path, force: bool) -> None:
+    """Initialize a new project with example configuration files.
+
+    Creates boot.py, main.py, and config.example.py in the specified directory.
+    """
+    console = _console()
+    path = path.resolve()
+    path.mkdir(parents=True, exist_ok=True)
+
+    # Example files to copy
+    examples = ["boot.py", "main.py", "config.example.py"]
+
+    try:
+        # Get the examples package resource
+        pkg_files = importlib.resources.files("otampy").joinpath(
+            "device", "examples"
+        )
+
+        for example_file in examples:
+            src = pkg_files.joinpath(example_file)
+            dst = path / example_file
+
+            # Check if file exists
+            if (
+                dst.exists()
+                and not force
+                and not click.confirm(
+                    f"{dst.name} already exists. Overwrite?", default=False
+                )
+            ):
+                console.print(f"[yellow]Skipped[/yellow] {dst.name}")
+                continue
+
+            # Read and write the file (cross-OS compatible)
+            content = src.read_text()
+            dst.write_text(content)
+            console.print(f"[green]✓[/green] Created {dst.name}")
+
+        console.print(f"\n[green]✓[/green] Project initialized at {path}")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error:[/red] {e}", style="red")
+        raise click.ClickException(f"Failed to initialize project: {e}") from e
 
 
 def main() -> None:

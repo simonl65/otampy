@@ -1,10 +1,9 @@
 import binascii
 import hashlib
 
+import shared
 from device_otampy import boot
 from device_otampy.core import OTACore
-
-import shared
 
 
 def test_boot_no_flag_file(tmp_path):

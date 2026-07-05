@@ -1,10 +1,9 @@
 import builtins
 
 import machine
+import shared
 from device_otampy import manager  # type: ignore
 from device_otampy.core import OTACore  # type: ignore
-
-import shared
 
 
 def test_manager_poll_idle():

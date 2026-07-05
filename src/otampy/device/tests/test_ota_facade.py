@@ -3,9 +3,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from device_otampy.ota import OTA
-
 import shared
+from device_otampy.ota import OTA
 
 
 def test_package_import_does_not_eagerly_load_operating_modes():

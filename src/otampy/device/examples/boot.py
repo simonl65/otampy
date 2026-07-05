@@ -4,7 +4,6 @@ Example boot.py
 
 import src.otampy.device.examples.config as config
 from machine import UART, Pin  # type: ignore
-
 from src.otampy import OTA, NullLogger  # type: ignore
 
 try:

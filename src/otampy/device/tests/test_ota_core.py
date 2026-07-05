@@ -1,14 +1,13 @@
 from unittest.mock import patch
 
 import pytest
+import shared
 from device_otampy.core import (
     NullLogger,
     OTACore,
     UartRequiredError,
     _get_config,
 )
-
-import shared
 
 
 def test_core_init_uses_provided_uart():

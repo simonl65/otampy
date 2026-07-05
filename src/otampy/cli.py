@@ -2051,7 +2051,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
         set_default_device_dir(str(path), session=True)
         console.print(
             f"[dim]Device directory set to {_to_display_path(str(path))} for this session. "
-            "Run 'otampy device-dir --set .' to make it permanent.[/dim]"
+            f"Run 'otampy device-dir --set {_to_display_path(str(path))}' to make it permanent.[/dim]"
         )
 
     except Exception as e:

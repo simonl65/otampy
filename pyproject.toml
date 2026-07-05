@@ -10,7 +10,7 @@ dependencies = [
     "pyserial>=3.5",
     "click>=8.0.0",
     "rich>=13.0.0",
-    "urst>=1.0.0,<2.0.0",
+    "urst @ git+https://github.com/simonl65/URST-mpy.git@main", # TODO: Change to PyPI when available "urst>=1.0.0,<2.0.0",
 ]
 
 [project.scripts]

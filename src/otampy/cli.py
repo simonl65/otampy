@@ -124,7 +124,7 @@ def _write_json(path: Path, data: dict) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(data, f, indent=4)  # type: ignore
 
 
 def set_default_port(port: str | None, session: bool = False) -> None:
@@ -165,8 +165,8 @@ def set_default_port(port: str | None, session: bool = False) -> None:
 def get_default_log_level() -> str:
     import os
 
-    if "OTAMPY_LOG_LEVEL" in os.environ:
-        return os.environ["OTAMPY_LOG_LEVEL"].upper()
+    if "OTAMPY_LOG_LEVEL" in os.environ:  # type: ignore
+        return os.environ["OTAMPY_LOG_LEVEL"].upper()  # type: ignore
 
     for path in (_session_config_path(), _config_path()):
         value = _read_json(path).get("log_level")
@@ -684,7 +684,7 @@ _PROTECTED_RECOVERY_PATHS = (
 
 
 def _normalize_remote_path(path: str) -> str:
-    from posixpath import normpath
+    from posixpath import normpath  # type: ignore
 
     path = _canonical_remote_argument(path)
     normalized = normpath("/" + path.replace("\\", "/").lstrip("/"))

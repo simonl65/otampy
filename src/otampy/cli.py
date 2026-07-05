@@ -135,17 +135,16 @@ def _migrate_flat_keys(data: dict) -> dict:
     flat_project_keys = ("default_port", "device_dir")
     flat_global_keys = ("log_level",)
 
-    migrated = False
     for key in flat_project_keys:
         if key in data and "projects" not in data:
             # Migrate under current project root
             project_root = str(_detect_project_root())
-            data.setdefault("projects", {}).setdefault(project_root, {})[key] = data.pop(key)
-            migrated = True
+            data.setdefault("projects", {}).setdefault(project_root, {})[
+                key
+            ] = data.pop(key)
     for key in flat_global_keys:
         if key in data and "global" not in data:
             data.setdefault("global", {})[key] = data.pop(key)
-            migrated = True
 
     return data
 
@@ -165,7 +164,9 @@ def _read_project_config(project_root: Path | None = None) -> dict:
     return data.get("projects", {}).get(root, {})
 
 
-def _write_project_config(updates: dict, project_root: Path | None = None) -> None:
+def _write_project_config(
+    updates: dict, project_root: Path | None = None
+) -> None:
     """Merge *updates* into the project-scoped section of the permanent config.
 
     Keys with a value of ``None`` are removed.
@@ -218,6 +219,7 @@ def _write_global_config(updates: dict) -> None:
 # Port
 # ---------------------------------------------------------------------------
 
+
 def get_default_port() -> str | None:
     import os
 
@@ -266,6 +268,7 @@ def set_default_port(port: str | None, session: bool = False) -> None:
 # Log level (global only — not project-specific)
 # ---------------------------------------------------------------------------
 
+
 def get_default_log_level() -> str:
     import os
 
@@ -304,12 +307,67 @@ def set_default_log_level(level: str | None, session: bool = False) -> None:
     try:
         _write_global_config({"log_level": level.upper() if level else None})
     except Exception as e:
-        raise click.ClickException(f"Failed to save permanent log level: {e}") from e
+        raise click.ClickException(
+            f"Failed to save permanent log level: {e}"
+        ) from e
 
 
 # ---------------------------------------------------------------------------
 # Device directory (project-scoped; stored relative to project root)
+#
+# The device directory MUST always reside inside the project root.  Paths
+# are displayed and accepted using a project-root-relative notation where
+# "/" means the project root (e.g. "/device" means <project-root>/device).
 # ---------------------------------------------------------------------------
+
+
+def _to_display_path(abs_path: str) -> str:
+    """Convert an absolute path to a project-root-relative display string.
+
+    Returns "/<relative>" if the path is inside the project root, or the
+    original absolute path as a fallback (e.g. for env-var overrides that
+    predate this constraint).
+    """
+    try:
+        project_root = _detect_project_root()
+        relative = Path(abs_path).relative_to(project_root)
+        return "/" + str(relative)
+    except ValueError:
+        return abs_path
+
+
+def _resolve_device_dir_input(raw: str) -> Path:
+    """Resolve a user-supplied device-dir input to an absolute Path.
+
+    Resolution rules:
+      - Starts with "./" or "../"  → relative to CWD, then validated.
+      - Starts with "/"            → project-root-relative.
+      - Bare name / bare path      → project-root-relative.
+
+    Raises click.ClickException if the resolved path escapes the project root.
+    """
+    import os
+
+    project_root = _detect_project_root()
+
+    if raw.startswith("./") or raw.startswith("../"):
+        resolved = Path(os.getcwd()) / raw
+    else:
+        # Strip any leading "/" so Path doesn't treat it as filesystem root
+        resolved = project_root / raw.lstrip("/")
+
+    resolved = resolved.resolve()
+
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as ex:
+        raise click.ClickException(
+            f"Device directory must be inside the project root "
+            f"({project_root}): {resolved}"
+        ) from ex
+
+    return resolved
+
 
 def get_default_device_dir() -> str | None:
     import os
@@ -332,7 +390,9 @@ def get_default_device_dir() -> str | None:
     return None
 
 
-def set_default_device_dir(device_dir: str | None, session: bool = False) -> None:
+def set_default_device_dir(
+    device_dir: str | None, session: bool = False
+) -> None:
     if session:
         path = _session_config_path()
         try:
@@ -352,14 +412,17 @@ def set_default_device_dir(device_dir: str | None, session: bool = False) -> Non
         if device_dir is None:
             _write_project_config({"device_dir": None})
         else:
-            # Store relative to project root for portability
+            # Store relative to project root for portability.
+            # The device directory must always reside inside the project root.
             project_root = _detect_project_root()
             abs_dir = Path(device_dir).resolve()
             try:
                 relative = str(abs_dir.relative_to(project_root))
-            except ValueError:
-                # Falls outside the project — store absolute
-                relative = str(abs_dir)
+            except ValueError as ex:
+                raise click.ClickException(
+                    f"Device directory must be inside the project root "
+                    f"({project_root}): {abs_dir}"
+                ) from ex
             _write_project_config({"device_dir": relative})
     except click.ClickException:
         raise
@@ -1731,13 +1794,22 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     created by 'otampy init'. The OTAmpy library (lib/) is always sourced
     from the installed package — you do not need lib/ in your project.
 
+    The device directory must always reside inside the project root.  Paths
+    are displayed and accepted in project-root-relative notation, where "/"
+    means the project root (e.g. "/device" → <project-root>/device).  Bare
+    paths without a leading slash are also treated as project-root-relative.
+    Use "./" or "../" to anchor a path to the current working directory
+    instead (it is still validated against the project root).
+
     With no options, shows the current value and prompts to change it.
     Override for a single deploy with 'otampy deploy --device-dir PATH'.
     """
     if show:
         d = get_default_device_dir()
         if d:
-            _console().print(f"Current device directory: [green]{d}[/green]")
+            _console().print(
+                f"Current device directory: [green]{_to_display_path(d)}[/green]"
+            )
         else:
             _console().print(
                 "No default device directory set (using auto-detected path)."
@@ -1751,17 +1823,24 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         return
 
     if set_dir:
-        set_default_device_dir(set_dir)
+        resolved = _resolve_device_dir_input(set_dir)
+        if not resolved.is_dir():
+            raise click.ClickException(f"Directory does not exist: {resolved}")
+        abs_str = str(resolved)
+        set_default_device_dir(abs_str)
         set_default_device_dir(None, session=True)
         _console().print(
-            f"[green]Permanent device directory set to: {set_dir}[/green]"
+            f"[green]Permanent device directory set to: "
+            f"{_to_display_path(abs_str)}[/green]"
         )
         return
 
     # Interactive mode
     current = get_default_device_dir()
     if current:
-        _console().print(f"Current device directory: [bold]{current}[/bold]")
+        _console().print(
+            f"Current device directory: [bold]{_to_display_path(current)}[/bold]"
+        )
     else:
         _console().print(
             "No default device directory set (using auto-detected path)."
@@ -1777,14 +1856,14 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         _console().print("Cancelled.")
         return
 
-    from pathlib import Path
+    resolved = _resolve_device_dir_input(new_dir)
+    if not resolved.is_dir():
+        raise click.ClickException(f"Directory does not exist: {resolved}")
 
-    if not Path(new_dir).is_dir():
-        raise click.ClickException(f"Directory does not exist: {new_dir}")
-
+    display = _to_display_path(str(resolved))
     choice = (
         click.prompt(
-            f"Set {new_dir} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
+            f"Set {display} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
             default="p",
         )
         .strip()
@@ -1792,15 +1871,15 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     )
 
     if choice == "p":
-        set_default_device_dir(new_dir)
+        set_default_device_dir(str(resolved))
         set_default_device_dir(None, session=True)
         _console().print(
-            f"[green]Permanent device directory set to: {new_dir}[/green]"
+            f"[green]Permanent device directory set to: {display}[/green]"
         )
     elif choice == "s":
-        set_default_device_dir(new_dir, session=True)
+        set_default_device_dir(str(resolved), session=True)
         _console().print(
-            f"[green]Session device directory set to: {new_dir}[/green]"
+            f"[green]Session device directory set to: {display}[/green]"
         )
     else:
         _console().print("Cancelled.")

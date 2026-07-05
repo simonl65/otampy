@@ -1789,7 +1789,10 @@ def init(ctx: click.Context, path: Path, force: bool) -> None:
 
         for example_file in examples:
             src = pkg_files.joinpath(example_file)
-            dst = path / example_file
+            if example_file == "config.example.py":
+                dst = path / "config.py"
+            else:
+                dst = path / example_file
 
             # Check if file exists
             if (

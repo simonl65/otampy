@@ -187,7 +187,6 @@ def poll(core, callback=None):
     elif cmd == "SR":
         core.transport.send(b"SR_OK")
         core.logger.info("Soft-reset commanded (SR)")
-        _do_callback(core, callback)
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
         core.logger.debug("UPDATE REQUESTED")

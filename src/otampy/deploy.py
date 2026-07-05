@@ -122,6 +122,7 @@ class DeployArgs:
     dry_run: bool
     bytecode: bool = False
     mpy_cross: str = "mpy-cross"
+    device_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -381,9 +382,10 @@ def build_bytecode_lib(
             f"Could not run mpy-cross: {output.strip()}"
         )
 
+    paths = _resolve_deploy_paths(args)
     count = _copy_compiled_tree(
         args,
-        LIB_DIR,
+        paths.lib_dir,
         destination,
         "/lib",
         target,
@@ -403,11 +405,55 @@ def build_bytecode_lib(
     return count
 
 
-def validate_deploy_sources() -> None:
+@dataclass(frozen=True)
+class DeployPaths:
+    """Resolved source paths for a deploy operation."""
+
+    device_root: Path
+    lib_dir: Path
+    config_file: Path
+    boot_file: Path
+    main_file: Path
+
+
+def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
+    """Return the effective source paths for *args*, honouring any override."""
+    if args.device_dir is not None:
+        device_root = args.device_dir.resolve()
+    else:
+        device_root = DEVICE_ROOT
+
+    return DeployPaths(
+        device_root=device_root,
+        lib_dir=device_root / "lib",
+        config_file=device_root / "examples" / "config.py",
+        boot_file=device_root / "examples" / "boot.py",
+        main_file=device_root / "examples" / "main.py",
+    )
+
+
+def validate_deploy_sources(args: DeployArgs | None = None) -> None:
     """Ensure local deploy sources exist before any destructive device operation."""
+    if args is None:
+        # Backwards-compatible call with no args — use module-level constants
+        paths = DeployPaths(
+            device_root=DEVICE_ROOT,
+            lib_dir=LIB_DIR,
+            config_file=CONFIG_FILE,
+            boot_file=BOOT_FILE,
+            main_file=MAIN_FILE,
+        )
+    else:
+        paths = _resolve_deploy_paths(args)
+
     missing = [
         path
-        for path in (LIB_DIR, CONFIG_FILE, BOOT_FILE, MAIN_FILE)
+        for path in (
+            paths.lib_dir,
+            paths.config_file,
+            paths.boot_file,
+            paths.main_file,
+        )
         if not path.exists()
     ]
     if not missing:
@@ -418,10 +464,15 @@ def validate_deploy_sources() -> None:
         for path in missing
     )
     print(f"Error: missing deploy source(s): {rel_paths}", file=sys.stderr)
-    if CONFIG_FILE in missing:
-        example = CONFIG_FILE.parent / "config.example.py"
+    if paths.config_file in missing:
+        example = paths.config_file.parent / "config.example.py"
+        example_str = (
+            str(example.relative_to(ROOT))
+            if example.is_relative_to(ROOT)
+            else str(example)
+        )
         print(
-            f"Create config.py from {example.relative_to(ROOT)} before deploying.",
+            f"Create config.py from {example_str} before deploying.",
             file=sys.stderr,
         )
     raise SystemExit(1)
@@ -429,8 +480,11 @@ def validate_deploy_sources() -> None:
 
 def deploy_command(
     args: DeployArgs,
-    lib_dir: Path = LIB_DIR,
+    lib_dir: Path | None = None,
 ) -> list[str]:
+    paths = _resolve_deploy_paths(args)
+    effective_lib_dir = lib_dir if lib_dir is not None else paths.lib_dir
+
     command = [
         "resume",
         "rm",
@@ -439,10 +493,10 @@ def deploy_command(
         "+",
         "cp",
         "-r",
-        str(lib_dir),
-        str(CONFIG_FILE),
-        str(MAIN_FILE),
-        str(BOOT_FILE),
+        str(effective_lib_dir),
+        str(paths.config_file),
+        str(paths.main_file),
+        str(paths.boot_file),
         ":",
     ]
 
@@ -468,7 +522,7 @@ def _remove_pycache_dirs() -> None:
 
 
 def deploy(args: DeployArgs) -> None:
-    validate_deploy_sources()
+    validate_deploy_sources(args)
     _remove_pycache_dirs()
     if not args.bytecode:
         run_mpremote(args, deploy_command(args))

@@ -60,6 +60,7 @@ class AliasedGroup(click.Group):
             "update": "upd",
             "memory": "mem",
             "loglevel": "log-level",
+            "devicedir": "device-dir",
         }
         if normalized_name in aliases:
             return click.Group.get_command(self, ctx, aliases[normalized_name])
@@ -190,6 +191,36 @@ def set_default_log_level(level: str | None, session: bool = False) -> None:
         scope = "session" if session else "permanent"
         raise click.ClickException(
             f"Failed to save {scope} log level: {e}"
+        ) from e
+
+
+def get_default_device_dir() -> str | None:
+    import os
+
+    if "OTAMPY_DEVICE_DIR" in os.environ:  # type: ignore
+        return os.environ["OTAMPY_DEVICE_DIR"]  # type: ignore
+
+    for path in (_session_config_path(), _config_path()):
+        value = _read_json(path).get("device_dir")
+        if isinstance(value, str):
+            return value
+
+    return None
+
+
+def set_default_device_dir(device_dir: str | None, session: bool = False) -> None:
+    path = _session_config_path() if session else _config_path()
+    try:
+        data = _read_json(path)
+        if device_dir is None:
+            data.pop("device_dir", None)
+        else:
+            data["device_dir"] = device_dir
+        _write_json(path, data)
+    except Exception as e:
+        scope = "session" if session else "permanent"
+        raise click.ClickException(
+            f"Failed to save {scope} device dir: {e}"
         ) from e
 
 
@@ -1537,6 +1568,91 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
         _console().print("Cancelled.")
 
 
+@cli.command(name="device-dir")
+@click.option("--show", is_flag=True, help="Show the current default device directory.")
+@click.option(
+    "--set",
+    "set_dir",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Set the default device directory permanently.",
+)
+@click.option("--clear", is_flag=True, help="Clear the saved device directory.")
+def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
+    """Show or manage the saved device source directory for deploy.
+
+    The device directory must contain lib/ and examples/ (boot.py, main.py,
+    config.py). Use this when your project keeps device files outside the
+    default location detected from the repository root.
+
+    With no options, shows the current value and prompts to change it.
+    Override for a single deploy with 'otampy deploy --device-dir PATH'.
+    """
+    if show:
+        d = get_default_device_dir()
+        if d:
+            _console().print(f"Current device directory: [green]{d}[/green]")
+        else:
+            _console().print("No default device directory set (using auto-detected path).")
+        return
+
+    if clear:
+        set_default_device_dir(None)
+        set_default_device_dir(None, session=True)
+        _console().print("[green]Saved device directory cleared.[/green]")
+        return
+
+    if set_dir:
+        set_default_device_dir(set_dir)
+        set_default_device_dir(None, session=True)
+        _console().print(
+            f"[green]Permanent device directory set to: {set_dir}[/green]"
+        )
+        return
+
+    # Interactive mode
+    current = get_default_device_dir()
+    if current:
+        _console().print(f"Current device directory: [bold]{current}[/bold]")
+    else:
+        _console().print("No default device directory set (using auto-detected path).")
+
+    new_dir = click.prompt(
+        "\nEnter path to device directory (or press Enter to cancel)",
+        default="",
+        show_default=False,
+    ).strip()
+
+    if not new_dir:
+        _console().print("Cancelled.")
+        return
+
+    from pathlib import Path
+
+    if not Path(new_dir).is_dir():
+        raise click.ClickException(
+            f"Directory does not exist: {new_dir}"
+        )
+
+    choice = (
+        click.prompt(
+            f"Set {new_dir} as default? (p=permanent, s=session, c=cancel) [p/s/c]",
+            default="p",
+        )
+        .strip()
+        .lower()
+    )
+
+    if choice == "p":
+        set_default_device_dir(new_dir)
+        set_default_device_dir(None, session=True)
+        _console().print(f"[green]Permanent device directory set to: {new_dir}[/green]")
+    elif choice == "s":
+        set_default_device_dir(new_dir, session=True)
+        _console().print(f"[green]Session device directory set to: {new_dir}[/green]")
+    else:
+        _console().print("Cancelled.")
+
+
 @cli.command(name="deploy")
 @click.option(
     "-p",
@@ -1580,6 +1696,14 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     is_flag=True,
     help="Print mpremote commands without running them.",
 )
+@click.option(
+    "--device-dir",
+    default=get_default_device_dir,
+    help=(
+        "Path to the device source directory (must contain lib/ and examples/). "
+        "Overrides the saved default. Use 'otampy device-dir' to manage the saved default."
+    ),
+)
 def deploy_cmd(
     port: str | None,
     mpremote: str,
@@ -1589,8 +1713,11 @@ def deploy_cmd(
     mpy_cross: str,
     no_reset: bool,
     dry_run: bool,
+    device_dir: str | None,
 ) -> None:
     """Erase and deploy OTAmpy, examples, and device dependencies."""
+    from pathlib import Path
+
     args = deploy.DeployArgs(
         port=port,  # type: ignore
         mpremote=mpremote,  # type: ignore
@@ -1600,6 +1727,7 @@ def deploy_cmd(
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
+        device_dir=Path(device_dir) if device_dir else None,
     )
     try:
         deploy.deploy(args)

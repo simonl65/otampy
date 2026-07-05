@@ -252,6 +252,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.bytecode = False
     mock_args.no_reset = True
     mock_args.dry_run = True
+    mock_args.device_dir = None
 
     monkeypatch.setattr(deploy, "ROOT", root)
     called = []
@@ -418,7 +419,8 @@ def test_validate_mpy_header_rejects_excess_small_int_bits(tmp_path):
 
 
 def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
-    source_lib = tmp_path / "source-lib"
+    device_dir = tmp_path / "device"
+    source_lib = device_dir / "lib"
     (source_lib / "otampy").mkdir(parents=True)
     (source_lib / "Blink.py").write_text("class Blink: pass\n")
     (source_lib / "otampy" / "__init__.py").write_text("VALUE = 1\n")
@@ -443,6 +445,7 @@ def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
         dry_run=False,
         bytecode=True,
         mpy_cross="custom-cross --flag",
+        device_dir=device_dir,
     )
     calls = []
 
@@ -458,7 +461,6 @@ def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
         output.write_bytes(bytes((ord("M"), 6, 0, 32)) + b"payload")
         return mock.Mock(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(deploy, "LIB_DIR", source_lib)
     monkeypatch.setattr(deploy, "_urst_source_dir", lambda: urst_source)
     monkeypatch.setattr(deploy, "_run_mpy_cross", fake_cross)
 

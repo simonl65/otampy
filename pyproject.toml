@@ -1,3 +1,32 @@
+[project]
+name = "otampy"
+description = "OTA application firmware update solution for MicroPython"
+readme = "README.md"
+requires-python = ">=3.12"
+dynamic = ["version"]
+dependencies = [
+    "pyserial>=3.5",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "urst>=1.0.0,<2.0.0",
+]
+
+[project.scripts]
+otampy = "otampy.cli:main"
+
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+# This tells pip/setuptools to ignore the 'hardware' and 'packages' 
+# folders and look specifically in the src folder for the code, allowing 
+# installation with:
+# pipx install git+https://github.com/simonl65/otampy.git@develop
+[tool.setuptools.packages.find]
+where = ["packages/cli/src"]
+
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

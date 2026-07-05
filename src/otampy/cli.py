@@ -70,26 +70,20 @@ class AliasedGroup(click.Group):
         return sorted(click.Group.list_commands(self, ctx))
 
 
-def get_default_port() -> str | None:
-    import os
+def _detect_project_root() -> Path:
+    """Walk up from cwd to find the project root.
 
-    if "OTAMPY_PORT" in os.environ:  # type: ignore
-        return os.environ["OTAMPY_PORT"]  # type: ignore
-    # Check session config (by parent shell PID)
-    import tempfile
-
-    session_file = (
-        Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
-    )
-    if session_file.is_file():
-        try:
-            return session_file.read_text().strip()
-        except Exception:
-            pass
-
-    # Check permanent config
-    port = _read_json(_config_path()).get("default_port")
-    return port if isinstance(port, str) else None
+    Recognises .git, pyproject.toml, uv.lock, or setup.py as root markers.
+    Falls back to cwd when none are found (e.g. running outside any project).
+    """
+    here = Path.cwd().resolve()
+    for p in (here, *here.parents):
+        if any(
+            (p / marker).exists()
+            for marker in (".git", "pyproject.toml", "uv.lock", "setup.py")
+        ):
+            return p
+    return here
 
 
 def _config_path() -> Path:
@@ -129,40 +123,148 @@ def _write_json(path: Path, data: dict) -> None:
         json.dump(data, f, indent=4)  # type: ignore
 
 
+def _migrate_flat_keys(data: dict) -> dict:
+    """Migrate old flat-key config files to the new project/global structure.
+
+    Old format: {"default_port": "...", "log_level": "...", "device_dir": "..."}
+    New format: {"projects": {...}, "global": {"log_level": "..."}}
+
+    Runs in-place and returns the (possibly modified) dict.  Does not write
+    to disk — callers decide whether to persist the result.
+    """
+    flat_project_keys = ("default_port", "device_dir")
+    flat_global_keys = ("log_level",)
+
+    migrated = False
+    for key in flat_project_keys:
+        if key in data and "projects" not in data:
+            # Migrate under current project root
+            project_root = str(_detect_project_root())
+            data.setdefault("projects", {}).setdefault(project_root, {})[key] = data.pop(key)
+            migrated = True
+    for key in flat_global_keys:
+        if key in data and "global" not in data:
+            data.setdefault("global", {})[key] = data.pop(key)
+            migrated = True
+
+    return data
+
+
+def _read_global_config() -> dict:
+    """Return the 'global' sub-dict from the permanent config file."""
+    data = _read_json(_config_path())
+    _migrate_flat_keys(data)
+    return data.get("global", {})
+
+
+def _read_project_config(project_root: Path | None = None) -> dict:
+    """Return the project-scoped sub-dict from the permanent config file."""
+    root = str(project_root or _detect_project_root())
+    data = _read_json(_config_path())
+    _migrate_flat_keys(data)
+    return data.get("projects", {}).get(root, {})
+
+
+def _write_project_config(updates: dict, project_root: Path | None = None) -> None:
+    """Merge *updates* into the project-scoped section of the permanent config.
+
+    Keys with a value of ``None`` are removed.
+    """
+    config_path = _config_path()
+    root = str(project_root or _detect_project_root())
+    data = _read_json(config_path)
+    _migrate_flat_keys(data)
+    projects = data.setdefault("projects", {})
+    project = projects.setdefault(root, {})
+
+    for key, value in updates.items():
+        if value is None:
+            project.pop(key, None)
+        else:
+            project[key] = value
+
+    # Drop empty project entry
+    if not project:
+        projects.pop(root, None)
+    if not projects:
+        data.pop("projects", None)
+
+    _write_json(config_path, data)
+
+
+def _write_global_config(updates: dict) -> None:
+    """Merge *updates* into the 'global' section of the permanent config.
+
+    Keys with a value of ``None`` are removed.
+    """
+    config_path = _config_path()
+    data = _read_json(config_path)
+    _migrate_flat_keys(data)
+    glbl = data.setdefault("global", {})
+
+    for key, value in updates.items():
+        if value is None:
+            glbl.pop(key, None)
+        else:
+            glbl[key] = value
+
+    if not glbl:
+        data.pop("global", None)
+
+    _write_json(config_path, data)
+
+
+# ---------------------------------------------------------------------------
+# Port
+# ---------------------------------------------------------------------------
+
+def get_default_port() -> str | None:
+    import os
+
+    if "OTAMPY_PORT" in os.environ:  # type: ignore
+        return os.environ["OTAMPY_PORT"]  # type: ignore
+
+    # Session config
+    session = _read_json(_session_config_path())
+    value = session.get("default_port")
+    if isinstance(value, str):
+        return value
+
+    # Project-scoped permanent config
+    value = _read_project_config().get("default_port")
+    if isinstance(value, str):
+        return value
+
+    # Global permanent fallback
+    value = _read_global_config().get("default_port")
+    return value if isinstance(value, str) else None
+
+
 def set_default_port(port: str | None, session: bool = False) -> None:
     if session:
-        import os
-        import tempfile
-
-        session_file = (
-            Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.txt"
-        )
-        if port is None:
-            if session_file.is_file():
-                try:
-                    session_file.unlink()
-                except Exception:
-                    pass
-        else:
-            try:
-                session_file.write_text(port)
-            except Exception as e:
-                raise click.ClickException(
-                    f"Failed to save session port: {e}"
-                ) from e
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if port is None:
+                data.pop("default_port", None)
+            else:
+                data["default_port"] = port
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session port: {e}"
+            ) from e
         return
 
     try:
-        config_path = _config_path()
-        data = _read_json(config_path)
-        if port is None:
-            data.pop("default_port", None)
-        else:
-            data["default_port"] = port
-        _write_json(config_path, data)
+        _write_project_config({"default_port": port})
     except Exception as e:
         raise click.ClickException(f"Failed to save default port: {e}") from e
 
+
+# ---------------------------------------------------------------------------
+# Log level (global only — not project-specific)
+# ---------------------------------------------------------------------------
 
 def get_default_log_level() -> str:
     import os
@@ -170,29 +272,44 @@ def get_default_log_level() -> str:
     if "OTAMPY_LOG_LEVEL" in os.environ:  # type: ignore
         return os.environ["OTAMPY_LOG_LEVEL"].upper()  # type: ignore
 
-    for path in (_session_config_path(), _config_path()):
-        value = _read_json(path).get("log_level")
-        if isinstance(value, str) and value.upper() in LOG_LEVELS:
-            return value.upper()
+    # Session config
+    value = _read_json(_session_config_path()).get("log_level")
+    if isinstance(value, str) and value.upper() in LOG_LEVELS:
+        return value.upper()
+
+    # Global permanent config
+    value = _read_global_config().get("log_level")
+    if isinstance(value, str) and value.upper() in LOG_LEVELS:
+        return value.upper()
 
     return "ERROR"
 
 
 def set_default_log_level(level: str | None, session: bool = False) -> None:
-    path = _session_config_path() if session else _config_path()
-    try:
-        data = _read_json(path)
-        if level is None:
-            data.pop("log_level", None)
-        else:
-            data["log_level"] = level.upper()
-        _write_json(path, data)
-    except Exception as e:
-        scope = "session" if session else "permanent"
-        raise click.ClickException(
-            f"Failed to save {scope} log level: {e}"
-        ) from e
+    if session:
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if level is None:
+                data.pop("log_level", None)
+            else:
+                data["log_level"] = level.upper()
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session log level: {e}"
+            ) from e
+        return
 
+    try:
+        _write_global_config({"log_level": level.upper() if level else None})
+    except Exception as e:
+        raise click.ClickException(f"Failed to save permanent log level: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Device directory (project-scoped; stored relative to project root)
+# ---------------------------------------------------------------------------
 
 def get_default_device_dir() -> str | None:
     import os
@@ -200,29 +317,55 @@ def get_default_device_dir() -> str | None:
     if "OTAMPY_DEVICE_DIR" in os.environ:  # type: ignore
         return os.environ["OTAMPY_DEVICE_DIR"]  # type: ignore
 
-    for path in (_session_config_path(), _config_path()):
-        value = _read_json(path).get("device_dir")
-        if isinstance(value, str):
-            return value
+    # Session config (stored as absolute)
+    value = _read_json(_session_config_path()).get("device_dir")
+    if isinstance(value, str):
+        return value
+
+    # Project-scoped permanent config (stored relative to project root)
+    relative = _read_project_config().get("device_dir")
+    if isinstance(relative, str):
+        project_root = _detect_project_root()
+        resolved = (project_root / relative).resolve()
+        return str(resolved)
 
     return None
 
 
-def set_default_device_dir(
-    device_dir: str | None, session: bool = False
-) -> None:
-    path = _session_config_path() if session else _config_path()
+def set_default_device_dir(device_dir: str | None, session: bool = False) -> None:
+    if session:
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if device_dir is None:
+                data.pop("device_dir", None)
+            else:
+                data["device_dir"] = device_dir
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session device dir: {e}"
+            ) from e
+        return
+
     try:
-        data = _read_json(path)
         if device_dir is None:
-            data.pop("device_dir", None)
+            _write_project_config({"device_dir": None})
         else:
-            data["device_dir"] = device_dir
-        _write_json(path, data)
+            # Store relative to project root for portability
+            project_root = _detect_project_root()
+            abs_dir = Path(device_dir).resolve()
+            try:
+                relative = str(abs_dir.relative_to(project_root))
+            except ValueError:
+                # Falls outside the project — store absolute
+                relative = str(abs_dir)
+            _write_project_config({"device_dir": relative})
+    except click.ClickException:
+        raise
     except Exception as e:
-        scope = "session" if session else "permanent"
         raise click.ClickException(
-            f"Failed to save {scope} device dir: {e}"
+            f"Failed to save permanent device dir: {e}"
         ) from e
 
 

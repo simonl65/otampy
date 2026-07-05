@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import unittest.mock as mock
+from pathlib import Path
 
 import click
 import pytest
@@ -63,8 +64,10 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
         try:
             config_file = tmp_path / ".config" / "otampy" / "config.json"
             config_file.parent.mkdir(parents=True)
+            # Write pre-existing port in new project-scoped format
+            fake_root = "/fake/project"
             config_file.write_text(
-                json.dumps({"default_port": "/dev/ttySaved"})
+                json.dumps({"projects": {fake_root: {"default_port": "/dev/ttySaved"}}})
             )
 
             # Use the log-level command to save permanently.
@@ -72,10 +75,10 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
 
             assert result.exit_code == 0
             assert "Permanent log level set to: DEBUG" in result.output
-            assert json.loads(config_file.read_text()) == {
-                "default_port": "/dev/ttySaved",
-                "log_level": "DEBUG",
-            }
+            saved = json.loads(config_file.read_text())
+            assert saved.get("global", {}).get("log_level") == "DEBUG"
+            # Pre-existing project port must be preserved
+            assert saved["projects"][fake_root]["default_port"] == "/dev/ttySaved"
 
             # Next plain invocation uses the saved level with no prompt.
             result = runner.invoke(cli, ["ports", "--show"])
@@ -147,7 +150,7 @@ def test_log_level_cmd_show(tmp_path):
 def test_log_level_cmd_show_reflects_saved_level(tmp_path):
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
-    config_file.write_text(json.dumps({"log_level": "WARNING"}))
+    config_file.write_text(json.dumps({"global": {"log_level": "WARNING"}}))
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
@@ -170,7 +173,7 @@ def test_log_level_cmd_set_saves_permanently(tmp_path):
         assert "Permanent log level set to: INFO" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert json.loads(config_file.read_text())["log_level"] == "INFO"
+        assert json.loads(config_file.read_text())["global"]["log_level"] == "INFO"
 
 
 def test_log_level_cmd_set_clears_session_shadow(tmp_path):
@@ -198,7 +201,7 @@ def test_log_level_cmd_set_clears_session_shadow(tmp_path):
 def test_log_level_cmd_clear(tmp_path):
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
-    config_file.write_text(json.dumps({"log_level": "DEBUG"}))
+    config_file.write_text(json.dumps({"global": {"log_level": "DEBUG"}}))
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
@@ -211,7 +214,8 @@ def test_log_level_cmd_clear(tmp_path):
 
         # File gone (no remaining keys) or log_level key removed.
         if config_file.exists():
-            assert "log_level" not in json.loads(config_file.read_text())
+            data = json.loads(config_file.read_text())
+            assert "log_level" not in data.get("global", {})
 
 
 def test_log_level_cmd_interactive_permanent(tmp_path):
@@ -225,7 +229,7 @@ def test_log_level_cmd_interactive_permanent(tmp_path):
         assert "Permanent log level set to: DEBUG" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert json.loads(config_file.read_text())["log_level"] == "DEBUG"
+        assert json.loads(config_file.read_text())["global"]["log_level"] == "DEBUG"
 
 
 def test_log_level_cmd_interactive_session(tmp_path):
@@ -285,7 +289,7 @@ def test_log_level_cmd_loglevel_alias(tmp_path):
 def test_log_level_precedence_is_environment_session_permanent(tmp_path):
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
-    config_file.write_text(json.dumps({"log_level": "DEBUG"}))
+    config_file.write_text(json.dumps({"global": {"log_level": "DEBUG"}}))
     (tmp_path / "otampy_session_789.json").write_text(
         json.dumps({"log_level": "INFO"})
     )
@@ -303,16 +307,25 @@ def test_log_level_precedence_is_environment_session_permanent(tmp_path):
 
 
 def test_clearing_port_preserves_permanent_log_level(tmp_path):
+    fake_root = "/fake/project"
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text(
-        json.dumps({"default_port": "/dev/ttyFake", "log_level": "DEBUG"})
+        json.dumps({
+            "projects": {fake_root: {"default_port": "/dev/ttyFake"}},
+            "global": {"log_level": "DEBUG"},
+        })
     )
 
-    with mock.patch("pathlib.Path.home", return_value=tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
+    ):
         set_default_port(None)
 
-    assert json.loads(config_file.read_text()) == {"log_level": "DEBUG"}
+    saved = json.loads(config_file.read_text())
+    assert saved.get("global", {}).get("log_level") == "DEBUG"
+    assert "default_port" not in saved.get("projects", {}).get(fake_root, {})
 
 
 def test_cli_ping():
@@ -1437,7 +1450,10 @@ def test_cli_port_interactive(tmp_path):
             return_value=[mock_port1, mock_port2],
         ),
         mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path("/fake/project")),
     ):
+        fake_root = "/fake/project"
+
         # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'p'
         result = runner.invoke(cli, ["ports"], input="1\np\n")
         assert result.exit_code == 0
@@ -1451,10 +1467,9 @@ def test_cli_port_interactive(tmp_path):
         # Verify file config.json exists and has correct default_port value
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         assert config_file.is_file()
-        import json
 
         with open(config_file) as f:
-            assert json.load(f)["default_port"] == "/dev/ttyFake1"
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
 
         # The effective selected port is marked, including a --port override.
         result = runner.invoke(
@@ -1493,14 +1508,12 @@ def test_cli_port_interactive(tmp_path):
             "Permanent default port set to: /dev/ttyFakeX" in result_set.output
         )
         with open(config_file) as f:
-            assert json.load(f)["default_port"] == "/dev/ttyFakeX"
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFakeX"
 
 
 def test_permanent_port_clears_session_shadow(tmp_path):
     """Saving a port permanently must clear any session port so it no longer
     shadows the permanent config on the next invocation."""
-    import json
-
     runner = CliRunner()
 
     mock_port1 = mock.MagicMock()
@@ -1524,7 +1537,8 @@ def test_permanent_port_clears_session_shadow(tmp_path):
     mock_port2.hwid = "USB"
 
     fake_ppid = 99999
-    session_file = tmp_path / f"otampy_session_{fake_ppid}.txt"
+    fake_root = "/fake/project"
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
 
     with (
         mock.patch(
@@ -1534,32 +1548,37 @@ def test_permanent_port_clears_session_shadow(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
     ):
-        # Step 1: Save ttyFake2 as the session port (simulates a prior session
-        # save that would shadow the permanent config).
+        # Step 1: Save ttyFake2 as the session port.
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0
         assert "Session default port set to: /dev/ttyFake2" in result.output
         assert session_file.is_file()
-        assert session_file.read_text().strip() == "/dev/ttyFake2"
+        assert json.loads(session_file.read_text()).get("default_port") == "/dev/ttyFake2"
 
-        # Step 2: Save ttyFake1 permanently. This must also clear the session
-        # file so it no longer shadows the permanent config.
+        # Step 2: Save ttyFake1 permanently — must also clear the session shadow.
         result = runner.invoke(cli, ["ports"], input="1\np\n")
         assert result.exit_code == 0
         assert "Permanent default port set to: /dev/ttyFake1" in result.output
 
-        # Session file must be gone.
-        assert not session_file.is_file(), (
-            "Session file was not cleared when saving permanent port. "
-            "It would shadow the permanent config on the next invocation."
-        )
+        # Session file must no longer carry default_port.
+        if session_file.exists():
+            assert "default_port" not in json.loads(session_file.read_text()), (
+                "Session file was not cleared when saving permanent port."
+            )
 
-        # Permanent config must have ttyFake1.
+        # Permanent config must have ttyFake1 under the project key.
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         assert config_file.is_file()
         with open(config_file) as f:
-            assert json.load(f)["default_port"] == "/dev/ttyFake1"
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
+
+        # Step 3: get_default_port() must return ttyFake1, not ttyFake2.
+        result = runner.invoke(cli, ["ports"], input="\n")
+        assert result.exit_code == 0
+        assert "* 1: /dev/ttyFake1" in result.output
+        assert "* 2: /dev/ttyFake2" not in result.output
 
         # Step 3: On the next invocation (no --port flag), get_default_port()
         # must return ttyFake1 (permanent), not ttyFake2 (cleared session).
@@ -1572,20 +1591,20 @@ def test_permanent_port_clears_session_shadow(tmp_path):
 
 def test_ports_set_flag_clears_session_shadow(tmp_path):
     """--set flag saving a permanent port must also clear the session shadow."""
-    import json
-
     runner = CliRunner()
 
     fake_ppid = 99998
-    session_file = tmp_path / f"otampy_session_{fake_ppid}.txt"
+    fake_root = "/fake/project"
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
     ):
-        # Plant a session file for ttyFake2.
-        session_file.write_text("/dev/ttyFake2")
+        # Plant a session JSON file with ttyFake2 as the port.
+        session_file.write_text(json.dumps({"default_port": "/dev/ttyFake2"}))
         assert session_file.is_file()
 
         # Use --set to permanently set ttyFake1.
@@ -1593,13 +1612,13 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         assert result.exit_code == 0
         assert "Permanent default port set to: /dev/ttyFake1" in result.output
 
-        # Session file must be gone.
-        assert not session_file.is_file(), (
-            "--set did not clear the session file; it would shadow the "
-            "permanent config on the next invocation."
-        )
+        # Session file must no longer carry default_port.
+        if session_file.exists():
+            assert "default_port" not in json.loads(session_file.read_text()), (
+                "--set did not clear the session port shadow."
+            )
 
-        # Permanent config must have ttyFake1.
+        # Permanent config must have ttyFake1 under the project key.
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         with open(config_file) as f:
-            assert json.load(f)["default_port"] == "/dev/ttyFake1"
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"

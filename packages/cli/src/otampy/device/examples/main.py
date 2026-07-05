@@ -2,9 +2,9 @@
 Example main.py
 """
 
-import config
-import machine  # pyright: ignore[reportMissingImports]
-import utime as time  # pyright: ignore[reportMissingImports]
+import config  # type: ignore
+import machine  # type: ignore
+import utime as time  # type: ignore
 from Blink import Blink  # type: ignore
 
 from otampy import OTA, NullLogger  # type: ignore

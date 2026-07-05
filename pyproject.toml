@@ -5,6 +5,7 @@ dev = [
     "ruff>=0.4",
     "micropython-rp2-rpi_pico_w-stubs==1.28.0.*",
     "pytest-watcher>=0.6.3",
+    "python-semantic-release>=10.6.0",
 ]
 
 
@@ -47,7 +48,11 @@ members = ["packages/cli"]
 
 [tool.pyright]
 include = ["."]
-extraPaths = ["./lib", "./packages/cli/src/otampy/deploy.py"]
+extraPaths = [
+    "./lib",
+    "./packages/cli/src/otampy/deploy.py",
+    "./packages/cli/src/otampy/device/examples",
+]
 ignore = ["**/typings", "**/test/**", "**/tests/**"]
 exclude = [
     ".*",
@@ -68,3 +73,8 @@ pythonPlatform = "Linux"
 reportMissingModuleSource = "none"
 
 stubs = ["micropython-rp2-rpi_pico_w-stubs==1.28.0.*"]
+
+[tool.semantic_release]
+version_variable = "pyproject.toml:version"
+branch = "main"
+upload_to_pypi = false                      # Set this to true when releases also go to PyPI

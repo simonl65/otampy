@@ -2008,7 +2008,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
         ).strip()
         path = _resolve_device_dir_input(raw)
     else:
-        path = path.resolve()
+        path = _resolve_device_dir_input(str(path))
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy

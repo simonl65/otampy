@@ -461,6 +461,7 @@ def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
         output.write_bytes(bytes((ord("M"), 6, 0, 32)) + b"payload")
         return mock.Mock(returncode=0, stdout="", stderr="")
 
+    monkeypatch.setattr(deploy, "_find_package_lib_dir", lambda: source_lib)
     monkeypatch.setattr(deploy, "_urst_source_dir", lambda: urst_source)
     monkeypatch.setattr(deploy, "_run_mpy_cross", fake_cross)
 

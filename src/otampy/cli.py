@@ -1578,11 +1578,11 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
 )
 @click.option("--clear", is_flag=True, help="Clear the saved device directory.")
 def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
-    """Show or manage the saved device source directory for deploy.
+    """Show or manage the saved project directory for deploy.
 
-    The device directory must contain lib/ and examples/ (boot.py, main.py,
-    config.py). Use this when your project keeps device files outside the
-    default location detected from the repository root.
+    The project directory should contain boot.py, main.py, and config.py as
+    created by 'otampy init'. The OTAmpy library (lib/) is always sourced
+    from the installed package — you do not need lib/ in your project.
 
     With no options, shows the current value and prompts to change it.
     Override for a single deploy with 'otampy deploy --device-dir PATH'.
@@ -1700,8 +1700,10 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     "--device-dir",
     default=get_default_device_dir,
     help=(
-        "Path to the device source directory (must contain lib/ and examples/). "
-        "Overrides the saved default. Use 'otampy device-dir' to manage the saved default."
+        "Path to the project directory containing boot.py, main.py, and config.py "
+        "(created by 'otampy init'). "
+        "The OTAmpy library (lib/) is always sourced from the installed package. "
+        "Use 'otampy device-dir' to save this as the default."
     ),
 )
 def deploy_cmd(

@@ -91,6 +91,35 @@ def _find_device_root(root: Path) -> Path:
     return Path(__file__).resolve().parent / "packages" / "device"
 
 
+def _find_package_lib_dir() -> Path:
+    """Locate the versioned lib/ directory from the installed package.
+
+    Always returns the lib/ bundled with this version of OTAmpy, regardless
+    of the user's project directory.  Falls back to DEVICE_ROOT / 'lib' when
+    running directly from the repository.
+    """
+    try:
+        import importlib.resources as resources
+
+        files_fn = getattr(resources, "files", None)
+        if files_fn is not None and callable(files_fn):
+            base = cast(Any, files_fn("otampy"))
+            candidate = base.joinpath("device").joinpath("lib")
+            candidate_any = cast(Any, candidate)
+            # Materialise to a real Path so callers can use / and rglob
+            if hasattr(candidate_any, "__fspath__"):
+                p = Path(os.fspath(candidate_any))
+            else:
+                p = Path(str(candidate_any))
+            if p.is_dir():
+                return p
+    except Exception:
+        pass
+
+    # Fallback when running from the development repository
+    return DEVICE_ROOT / "lib"
+
+
 ROOT = _find_repo_root()
 DEVICE_ROOT = _find_device_root(ROOT)
 LIB_DIR = DEVICE_ROOT / "lib"
@@ -407,28 +436,57 @@ def build_bytecode_lib(
 
 @dataclass(frozen=True)
 class DeployPaths:
-    """Resolved source paths for a deploy operation."""
+    """Resolved source paths for a deploy operation.
 
-    device_root: Path
+    ``lib_dir`` always comes from the installed package so it stays in sync
+    with the OTAmpy version.  The three user files (``config_file``,
+    ``boot_file``, ``main_file``) come from the user's project directory when
+    ``--device-dir`` is supplied, or fall back to the package's own
+    ``examples/`` when running from the repository.
+    """
+
     lib_dir: Path
     config_file: Path
     boot_file: Path
     main_file: Path
 
 
+def _resolve_user_files(device_dir: Path) -> tuple[Path, Path, Path]:
+    """Return (config, boot, main) paths from a user project directory.
+
+    Files are expected flat in *device_dir* (as ``otampy init`` places them).
+    """
+    return (
+        device_dir / "config.py",
+        device_dir / "boot.py",
+        device_dir / "main.py",
+    )
+
+
 def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
-    """Return the effective source paths for *args*, honouring any override."""
+    """Return the effective source paths for *args*.
+
+    ``lib_dir`` is always sourced from the installed package.
+    User files are sourced from ``args.device_dir`` when set, otherwise
+    from the package's own ``examples/`` directory (repo / dev use).
+    """
+    lib_dir = _find_package_lib_dir()
+
     if args.device_dir is not None:
-        device_root = args.device_dir.resolve()
+        config_file, boot_file, main_file = _resolve_user_files(
+            args.device_dir.resolve()
+        )
     else:
-        device_root = DEVICE_ROOT
+        # Repo / developer fallback: files live under examples/
+        config_file = DEVICE_ROOT / "examples" / "config.py"
+        boot_file = DEVICE_ROOT / "examples" / "boot.py"
+        main_file = DEVICE_ROOT / "examples" / "main.py"
 
     return DeployPaths(
-        device_root=device_root,
-        lib_dir=device_root / "lib",
-        config_file=device_root / "examples" / "config.py",
-        boot_file=device_root / "examples" / "boot.py",
-        main_file=device_root / "examples" / "main.py",
+        lib_dir=lib_dir,
+        config_file=config_file,
+        boot_file=boot_file,
+        main_file=main_file,
     )
 
 
@@ -437,7 +495,6 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
     if args is None:
         # Backwards-compatible call with no args — use module-level constants
         paths = DeployPaths(
-            device_root=DEVICE_ROOT,
             lib_dir=LIB_DIR,
             config_file=CONFIG_FILE,
             boot_file=BOOT_FILE,
@@ -465,16 +522,24 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
     )
     print(f"Error: missing deploy source(s): {rel_paths}", file=sys.stderr)
     if paths.config_file in missing:
-        example = paths.config_file.parent / "config.example.py"
-        example_str = (
-            str(example.relative_to(ROOT))
-            if example.is_relative_to(ROOT)
-            else str(example)
-        )
-        print(
-            f"Create config.py from {example_str} before deploying.",
-            file=sys.stderr,
-        )
+        if args is not None and args.device_dir is not None:
+            # User's project dir — tell them to run `otampy init` or copy the example
+            print(
+                f"Run 'otampy init {args.device_dir}' to create the missing files, "
+                "or copy config.example.py to config.py and edit it.",
+                file=sys.stderr,
+            )
+        else:
+            example = paths.config_file.parent / "config.example.py"
+            example_str = (
+                str(example.relative_to(ROOT))
+                if example.is_relative_to(ROOT)
+                else str(example)
+            )
+            print(
+                f"Create config.py from {example_str} before deploying.",
+                file=sys.stderr,
+            )
     raise SystemExit(1)
 
 

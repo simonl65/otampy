@@ -5,8 +5,8 @@ Example main.py
 import config
 import machine  # pyright: ignore[reportMissingImports]
 import utime as time  # pyright: ignore[reportMissingImports]
-
 from Blink import Blink  # type: ignore
+
 from otampy import OTA, NullLogger  # type: ignore
 
 blink = Blink(pin="LED")

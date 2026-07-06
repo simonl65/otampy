@@ -122,7 +122,18 @@ otampy [global-options] <command> [command-options]
 | `-b`, `--baud RATE` | Set the baud rate.                                                    |
 | `--log-level LEVEL` | Host CLI logging: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 
-The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers to retain the setting permanently (`p`), for the current shell session (`s`), or only for the current command (`c`). Permanent settings are stored in `~/.config/otampy/config.json`; session settings use the OS temporary directory. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` environment variables override saved settings.
+The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers to retain the setting permanently (`p`), for the current shell session (`s`), or only for the current command (`c`). 
+
+Permanent port and log-level settings are stored together in `~/.config/otampy/config.json`:
+
+```json
+{
+  "default_port": "/dev/ttyUSB0",
+  "log_level": "DEBUG"
+}
+```
+
+Session-only selections use shell-specific files in the operating system's temporary directory (normally `/tmp` on Linux) and do not alter the permanent configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` environment variables override saved settings.
 
 ### Commands
 
@@ -141,7 +152,23 @@ The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers
 | `rb`         | —                     | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
 | `sr`         | —                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[source[:dest] ...]` | Transactional OTA firmware update.                                  |
+| `upd`        | `[source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                       |
+
+<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `main.py` and all Python files under `lib/` in the current directory.
+
+### Deployment Options
+
+| Option                | Effect                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
+| `--project`           | Select the project containing `device/`.                  |
+| `--with-logger`       | Install the optional `log-to-file` package.               |
+| `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
+| `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
+| `--no-mip`            | Install neither URST nor the optional logger.             |
+| `--no-reset`          | Leave the board without a final reset.                    |
+| `--dry-run`           | Print the complete `mpremote` command without running it. |
+| `--mpremote`          | Use a specific `mpremote` executable.                     |
 
 ### Common examples
 
@@ -180,7 +207,7 @@ otampy cp assets:assets/
 otampy cp 'device/lib/*:lib/'
 ```
 
-Copies targeting `/boot.py` or `/main.py` produce a reminder that the replacement takes effect on the next restart.
+`cp` accepts multiple sources, folders, and local wildcard patterns (`*`, `?`, `[]`, `**`). Folder contents are copied recursively; empty folders are not created. Files are streamed to checksum-verified staging files and committed individually while the device continues running. Copies targeting root `/boot.py` or `/main.py` produce a reminder that the replacement will take effect on the next restart.
 
 Remove files or directories (recovery paths are protected):
 
@@ -189,7 +216,9 @@ otampy rm old.py config.old
 otampy rm 'lib/plugins/*.py'
 ```
 
-Quote wildcards to prevent the shell from expanding them locally. Prefix an argument with `:` (e.g. `:notes.txt`) when the filename also exists locally.
+Quote wildcards to prevent the host shell from expanding them locally (e.g., `otampy rm '*'`). Prefix an argument with `:` (e.g., `:notes.txt`) or use `--literal-remote-paths` if the filename also exists locally to prevent protection/verification aborts. Removing a non-empty directory requires a confirmation prompt. 
+
+To preserve remote recovery, `rm` cannot remove root `/boot.py`, `/main.py`, `/ota-config.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such as `/lib` or `/`.
 
 Trigger an OTA firmware update (defaults to `main.py` and all `lib/` Python files):
 
@@ -203,6 +232,8 @@ Update specific files or mapped paths:
 otampy upd main.py ota-config.py
 otampy upd 'device/lib/something/*.py:lib/something/'
 ```
+
+Directories include all Python files recursively. Local `*`, `?`, `[]`, and `**` patterns are supported. A pattern matching multiple files must map to a destination ending in `/`. If any source or pattern has no matches, the update stops before contacting the device.
 
 Enable **host-side** diagnostics for a single command:
 
@@ -327,7 +358,6 @@ Releases are cut by maintainers using the automated gate described in the [relea
 | ------------------------------------------------------- | ---------------------------------------------------------------- |
 | [Deployment guide](docs/deployment.md)                  | All `deploy` options, logging profiles, and bytecode deployment. |
 | [Device integration guide](src/otampy/device/README.md) | Device-side setup, logger injection, and runtime file copy.      |
-| [CLI reference](docs/README.md)                         | Complete command and option reference.                           |
 | [Protocol specification](docs/protocol.md)              | URST framing, packet types, and error recovery.                  |
 | [Architecture overview](docs/architecture.md)           | Component relationships and design decisions.                    |
 | [Release guide](docs/releasing.md)                      | Versioning, the automated release gate, and publishing.          |

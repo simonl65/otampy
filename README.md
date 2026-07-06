@@ -161,7 +161,7 @@ Session-only selections use shell-specific files in the operating system's tempo
 | Option                | Effect                                                    |
 | --------------------- | --------------------------------------------------------- |
 | `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
-| `--project`           | Select the project containing `device/`.                  |
+| `--device-dir`        | Select the directory containing device/ (`boot.py`, etc.) |
 | `--with-logger`       | Install the optional `log-to-file` package.               |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.             |

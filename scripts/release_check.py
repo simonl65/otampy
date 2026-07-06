@@ -17,16 +17,21 @@ from pathlib import Path
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI_ROOT = ROOT / "packages" / "cli"
-DEVICE_ROOT = ROOT / "packages" / "device"
+CLI_ROOT = ROOT
+DEVICE_ROOT = ROOT / "src" / "otampy" / "device"
 DEFAULT_OUTPUT = ROOT / "release-dist"
-BUNDLE_RELATIVE = Path("src/otampy/_device")
-EXAMPLE_FILES = ("boot.py", "main.py", "config.example.py")
+BUNDLE_RELATIVE = Path("src/otampy/device")
+EXAMPLE_FILES = ("boot.py", "main.py", "ota-config.example.py")
 IGNORED_NAMES = {
     "__pycache__",
     ".coverage",
     ".pytest_cache",
     ".ruff_cache",
+    ".git",
+    ".venv",
+    "release-dist",
+    "dist",
+    "ota-config.py",
 }
 
 
@@ -82,16 +87,7 @@ def stage_package(destination: Path) -> Path:
     shutil.copytree(CLI_ROOT, package_root, ignore=_copy_ignore)
 
     bundle = package_root / BUNDLE_RELATIVE
-    shutil.copytree(
-        DEVICE_ROOT / "lib",
-        bundle / "lib",
-        ignore=_copy_ignore,
-    )
     examples = bundle / "examples"
-    examples.mkdir(parents=True)
-    for name in EXAMPLE_FILES:
-        shutil.copy2(DEVICE_ROOT / "examples" / name, examples / name)
-
     forbidden_config = examples / "ota-config.py"
     if forbidden_config.exists():
         raise ReleaseCheckError(
@@ -138,16 +134,6 @@ def _canonical_bundle_files() -> dict[str, Path]:
         and "__pycache__" not in path.parts
         and path.suffix not in {".pyc", ".pyo"}
     }
-    shared_root = CLI_ROOT / "src" / "otampy" / "shared"
-    files.update(
-        {
-            f"lib/shared/{path.relative_to(shared_root).as_posix()}": path
-            for path in shared_root.rglob("*")
-            if path.is_file()
-            and "__pycache__" not in path.parts
-            and path.suffix not in {".pyc", ".pyo"}
-        }
-    )
     files.update(
         {
             f"examples/{name}": DEVICE_ROOT / "examples" / name
@@ -167,7 +153,7 @@ def inspect_artifact(path: Path) -> None:
         for name in names
         if "__pycache__" in Path(name).parts
         or name.endswith((".pyc", ".pyo"))
-        or name.endswith("/_device/examples/ota-config.py")
+        or name.endswith("/device/examples/ota-config.py")
     ]
     if forbidden_names:
         raise ReleaseCheckError(
@@ -176,7 +162,7 @@ def inspect_artifact(path: Path) -> None:
         )
 
     for relative, canonical in _canonical_bundle_files().items():
-        suffix = f"otampy/_device/{relative}"
+        suffix = f"otampy/device/{relative}"
         member = _find_archive_member(files, suffix)
         if (
             hashlib.sha256(files[member]).digest()
@@ -262,13 +248,13 @@ def smoke_test_install(
         )
     install_command.append(str(wheel))
     _run(install_command)
-    _run([str(executable), "init", str(project)], cwd=workspace)
+    _run([str(executable), "init", "new-project"], cwd=workspace)
     result = _run(
         [
             str(executable),
             "deploy",
-            "--project",
-            str(project),
+            "--device-dir",
+            "new-project",
             "--dry-run",
             "--no-mip",
         ],
@@ -277,13 +263,13 @@ def smoke_test_install(
     )
 
     for name in ("boot.py", "main.py", "ota-config.py"):
-        if not (project / "device" / name).is_file():
-            raise ReleaseCheckError(f"otampy init did not create device/{name}")
+        if not (project / name).is_file():
+            raise ReleaseCheckError(f"otampy init did not create {name}")
     if str(ROOT) in result.stdout or str(ROOT) in result.stderr:
         raise ReleaseCheckError(
             "Installed deploy command leaked or used the source repository path."
         )
-    if "otampy/_device/lib" not in result.stdout:
+    if "otampy/device/lib" not in result.stdout:
         raise ReleaseCheckError(
             "Installed deploy command did not use the packaged device library."
         )
@@ -356,8 +342,17 @@ def main(argv: list[str] | None = None) -> int:
             allow_dirty=args.allow_dirty,
             urst_source=urst_source,
         )
-    except (ReleaseCheckError, subprocess.CalledProcessError) as error:
+    except ReleaseCheckError as error:
         print(f"Release check failed: {error}", file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as error:
+        print(f"Release check failed: {error}", file=sys.stderr)
+        if error.stdout:
+            print("--- Subprocess stdout ---", file=sys.stderr)
+            print(error.stdout, file=sys.stderr)
+        if error.stderr:
+            print("--- Subprocess stderr ---", file=sys.stderr)
+            print(error.stderr, file=sys.stderr)
         return 1
     return 0
 

@@ -2019,7 +2019,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy
-    examples = ["boot.py", "main.py", "config.example.py"]
+    examples = ["boot.py", "main.py", "ota-config.example.py"]
 
     try:
         # Get the examples package resource
@@ -2029,7 +2029,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
 
         for example_file in examples:
             src = pkg_files.joinpath(example_file)
-            if example_file == "config.example.py":
+            if example_file == "ota-config.example.py":
                 dst = path / "ota-config.py"
             else:
                 dst = path / example_file

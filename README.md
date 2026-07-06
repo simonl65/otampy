@@ -311,7 +311,7 @@ Open a GitHub issue and include:
 - A minimal reproduction case.
 - The host OS, Python version, and OTAmpy version (`otampy --version`).
 - The target board, MicroPython version, and transport (XBee model, direct UART, etc.).
-- Any relevant host CLI output captured with `--log-level DEBUG`.
+- Any relevant host CLI and/or device logs (For CLI use: `--log-level DEBUG`. For device set `LOG_LEVEL="DEBUG"` in `config.py`).
 
 ### Release process
 

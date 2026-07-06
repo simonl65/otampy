@@ -53,6 +53,7 @@ The published package contains both the CLI and a read-only copy of the device l
 ```bash
 pipx install git+https://github.com/simonl65/otampy.git
 otampy init
+# Edit ota-config.py
 ```
 
 The `pipx` will be `pipx install otampy` once upon release to PyPI. **<span style="background: red">TODO: Remove before release</span>**
@@ -61,10 +62,11 @@ The `pipx` will be `pipx install otampy` once upon release to PyPI. **<span styl
 
 Preview then perform the initial USB deployment:
 
-> [!WARNING]
+> **WARNING**  
 > `deploy` erases the device filesystem before copying files. Back up any application data and configuration first.
 
 ```bash
+# Edit ota-config.py before deployment
 otampy deploy --port /dev/ttyACM0 --dry-run
 otampy deploy --port /dev/ttyACM0
 ```

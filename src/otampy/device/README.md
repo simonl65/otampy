@@ -15,8 +15,8 @@ MicroPython code to be placed on the device to enable OTA functionality.
 
 1. Ensure the device has MicroPython installed and running correctly.
 2. For an installed OTAmpy package, run `otampy init` in the application
-   project and edit `device/config.py`. In this repository, copy
-   `examples/config.example.py` to `examples/config.py` instead.
+   project and edit `device/ota-config.py`. In this repository, copy
+   `examples/config.example.py` to `examples/ota-config.py` instead.
 3. Install OTAmpy and `urst-mpy` along with the example `boot.py` and `main.py`:
 
    ```bash
@@ -47,7 +47,7 @@ MicroPython code to be placed on the device to enable OTA functionality.
 
    OTAmpy checks the connected firmware's `.mpy` format and small-int width
    before erasing the device. It compiles OTAmpy, `Blink`, and URST; the root
-   `boot.py`, `main.py`, and `config.py` remain readable source.
+   `boot.py`, `main.py`, and `ota-config.py` remain readable source.
 
 See the repository [deployment guide](../../docs/deployment.md) for all deploy
 options.

@@ -50,7 +50,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `RM:path`   | `RM_OK`                  | Remove a file or directory from the device.                          |
 
 The official CLI refuses to send `RM` for `/boot.py`, `/main.py`,
-`/config.py`, `/lib/otampy`, `/lib/urst`, their descendants, or ancestors
+`/ota-config.py`, `/lib/otampy`, `/lib/urst`, their descendants, or ancestors
 needed to contain them. Use the staged copy or update sequence to replace
 those paths. This is a host CLI safety policy; custom clients that issue raw
 protocol commands are responsible for applying an equivalent guard.
@@ -66,13 +66,13 @@ These commands stream one file to a checksum-verified staging path while the
 application continues running. A successful `CP_END` commits the file without
 rebooting.
 
-| Request / Msg                   | Response       | Description                                      |
-| ------------------------------- | -------------- | ------------------------------------------------ |
-| `CP_START:path:size:sha256`      | `CP_READY`     | Start a staged file copy.                        |
-| `CP_CHUNK:seq:base64_data`       | `CP_ACK:seq`   | Append one ordered, base64-encoded chunk.        |
-| `CP_END`                        | `CP_OK`        | Verify size/checksum and commit the staged file. |
-| `CP_ABORT`                      | `CP_ABORTED`   | Close and remove the active staging file.        |
-| Any invalid copy request        | `ERROR:reason` | Abort and clean up the active copy where needed. |
+| Request / Msg               | Response       | Description                                      |
+| --------------------------- | -------------- | ------------------------------------------------ |
+| `CP_START:path:size:sha256` | `CP_READY`     | Start a staged file copy.                        |
+| `CP_CHUNK:seq:base64_data`  | `CP_ACK:seq`   | Append one ordered, base64-encoded chunk.        |
+| `CP_END`                    | `CP_OK`        | Verify size/checksum and commit the staged file. |
+| `CP_ABORT`                  | `CP_ABORTED`   | Close and remove the active staging file.        |
+| Any invalid copy request    | `ERROR:reason` | Abort and clean up the active copy where needed. |
 
 ### 2.4 Update Sequence Commands
 

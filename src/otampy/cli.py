@@ -454,7 +454,9 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 @click.group(cls=AliasedGroup, context_settings=CONTEXT_SETTINGS)
 @click.version_option(
-    None, "-v", "--version",
+    None,
+    "-v",
+    "--version",
     package_name="otampy",
     prog_name="otampy",
 )
@@ -922,7 +924,7 @@ def _expand_remote_targets(
 _PROTECTED_RECOVERY_PATHS = (
     "boot.py",
     "main.py",
-    "config.py",
+    "ota-config.py",
     "lib/otampy",
     "lib/urst",
 )
@@ -1795,7 +1797,7 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
 def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     """Show or manage the saved project directory for deploy.
 
-    The project directory should contain boot.py, main.py, and config.py as
+    The project directory should contain boot.py, main.py, and ota-config.py as
     created by 'otampy init'. The OTAmpy library (lib/) is always sourced
     from the installed package — you do not need lib/ in your project.
 
@@ -1937,7 +1939,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     "--device-dir",
     default=get_default_device_dir,
     help=(
-        "Path to the project directory containing boot.py, main.py, and config.py "
+        "Path to the project directory containing boot.py, main.py, and ota-config.py "
         "(created by 'otampy init'). "
         "The OTAmpy library (lib/) is always sourced from the installed package. "
         "Use 'otampy device-dir' to save this as the default."
@@ -1999,7 +2001,7 @@ def deploy_cmd(
 def init(ctx: click.Context, path: Path | None, force: bool) -> None:
     """Initialize a new project with example configuration files.
 
-    Creates boot.py, main.py, and config.py in the specified directory.
+    Creates boot.py, main.py, and ota-config.py in the specified directory.
     If no directory is given, prompts for one (remembering the last used path).
     """
     console = _console()
@@ -2028,7 +2030,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
         for example_file in examples:
             src = pkg_files.joinpath(example_file)
             if example_file == "config.example.py":
-                dst = path / "config.py"
+                dst = path / "ota-config.py"
             else:
                 dst = path / example_file
 

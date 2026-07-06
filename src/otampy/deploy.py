@@ -123,7 +123,7 @@ def _find_package_lib_dir() -> Path:
 ROOT = _find_repo_root()
 DEVICE_ROOT = _find_device_root(ROOT)
 LIB_DIR = DEVICE_ROOT / "lib"
-CONFIG_FILE = DEVICE_ROOT / "examples" / "config.py"
+CONFIG_FILE = DEVICE_ROOT / "examples" / "ota-config.py"
 BOOT_FILE = DEVICE_ROOT / "examples" / "boot.py"
 MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
 
@@ -458,7 +458,7 @@ def _resolve_user_files(device_dir: Path) -> tuple[Path, Path, Path]:
     Files are expected flat in *device_dir* (as ``otampy init`` places them).
     """
     return (
-        device_dir / "config.py",
+        device_dir / "ota-config.py",
         device_dir / "boot.py",
         device_dir / "main.py",
     )
@@ -479,7 +479,7 @@ def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
         )
     else:
         # Repo / developer fallback: files live under examples/
-        config_file = DEVICE_ROOT / "examples" / "config.py"
+        config_file = DEVICE_ROOT / "examples" / "ota-config.py"
         boot_file = DEVICE_ROOT / "examples" / "boot.py"
         main_file = DEVICE_ROOT / "examples" / "main.py"
 
@@ -527,7 +527,7 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
             # User's project dir — tell them to run `otampy init` or copy the example
             print(
                 f"Run 'otampy init {args.device_dir}' to create the missing files, "
-                "or copy config.example.py to config.py and edit it.",
+                "or copy config.example.py to ota-config.py and edit it.",
                 file=sys.stderr,
             )
         else:
@@ -538,7 +538,7 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
                 else str(example)
             )
             print(
-                f"Create config.py from {example_str} before deploying.",
+                f"Create ota-config.py from {example_str} before deploying.",
                 file=sys.stderr,
             )
     raise SystemExit(1)

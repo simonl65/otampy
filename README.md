@@ -57,7 +57,7 @@ otampy init
 
 The `pipx` will be `pipx install otampy` once upon release to PyPI. **<span style="background: red">TODO: Remove before release</span>**
 
-`init` creates `boot.py`, `main.py`, and `config.py` in your project at the location (`device-dir`) of your choosing. Edit `config.py` to set the UART pins, baud rate, and timeout for your board. `init` will not overwrite existing files but will prompt you; use `--force` only when intentionally replacing all three.
+`init` creates `boot.py`, `main.py`, and `ota-config.py` in your project at the location (`device-dir`) of your choosing. Edit `ota-config.py` to set the UART pins, baud rate, and timeout for your board. `init` will not overwrite existing files but will prompt you; use `--force` only when intentionally replacing all three.
 
 Preview then perform the initial USB deployment:
 
@@ -69,7 +69,7 @@ otampy deploy --port /dev/ttyACM0 --dry-run
 otampy deploy --port /dev/ttyACM0
 ```
 
-The installed package contains the versioned OTAmpy device library and the templates used by `init`. Your project owns `boot.py`, `main.py`, and `config.py`; upgrading the package does not overwrite them.
+The installed package contains the versioned OTAmpy device library and the templates used by `init`. Your project owns `boot.py`, `main.py`, and `ota-config.py`; upgrading the package does not overwrite them.
 
 ### Developer installation from this repository
 
@@ -83,7 +83,7 @@ uv tool install -e .
 
 ### Device library setup (repository checkout)
 
-1. **Copy** `src/otampy/device/examples/config.example.py` to `src/otampy/device/examples/config.py` (do not rename) and set the UART pins and baud rate for your board.
+1. **Copy** `src/otampy/device/examples/config.example.py` to `src/otampy/device/examples/ota-config.py` (do not rename) and set the UART pins and baud rate for your board.
 2. Deploy the device library, example scripts, and URST to your device:
 
    ```bash
@@ -130,7 +130,7 @@ The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers
 | `cp`         | `source[:dest] [...]` | Copy files or folders to the device without rebooting.              |
 | `deploy`     | _(see below)_         | Erase and deploy the full device library over USB.                  |
 | `device-dir` | —                     | Show or manage the saved project directory for deploy.              |
-| `init`       | `[directory]`         | Scaffold `boot.py`, `main.py`, and `config.py`.                     |
+| `init`       | `[directory]`         | Scaffold `boot.py`, `main.py`, and `ota-config.py`.                 |
 | `log-level`  |                       | Show or manage the saved CLI log level.                             |
 | `ls`         | `[path]`              | List device directory contents.                                     |
 | `mem`        | —                     | Query device RAM and flash utilisation.                             |
@@ -198,7 +198,7 @@ otampy upd
 Update specific files or mapped paths:
 
 ```bash
-otampy upd main.py config.py
+otampy upd main.py ota-config.py
 otampy upd 'device/lib/something/*.py:lib/something/'
 ```
 
@@ -311,7 +311,7 @@ Open a GitHub issue and include:
 - A minimal reproduction case.
 - The host OS, Python version, and OTAmpy version (`otampy --version`).
 - The target board, MicroPython version, and transport (XBee model, direct UART, etc.).
-- Any relevant host CLI and/or device logs (For CLI use: `--log-level DEBUG`. For device set `LOG_LEVEL="DEBUG"` in `config.py`).
+- Any relevant host CLI and/or device logs (For CLI use: `--log-level DEBUG`. For device set `LOG_LEVEL="DEBUG"` in `ota-config.py`).
 
 ### Release process
 

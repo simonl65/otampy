@@ -10,11 +10,11 @@ otampy [global-options] command [command-options]
 
 ### Global options
 
-| Option | Effect |
-| --- | --- |
-| `-p`, `--port` | Select the OTA UART adapter. |
-| `-b`, `--baud` | Set the OTA UART baud rate. |
-| `--log-level` | Set host CLI logging to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| Option         | Effect                                                                      |
+| -------------- | --------------------------------------------------------------------------- |
+| `-p`, `--port` | Select the OTA UART adapter.                                                |
+| `-b`, `--baud` | Set the OTA UART baud rate.                                                 |
+| `--log-level`  | Set host CLI logging to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 
 The default host log level is `ERROR`. Supplying an explicit level prompts for
 its scope:
@@ -49,20 +49,20 @@ configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` override saved settings.
 
 ### Commands
 
-| Command    | Args                                            | Description                                                                                      |
-| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **ping**   | None                                            | Connection health check with the MicroPython device                                              |
-| **rb**     | None                                            | Hard reboots the device (requires confirmation)                                                  |
-| **sr**     | None                                            | Soft resets the device (requires confirmation)                                                   |
-| **ls**     | [path]                                          | Lists content of current (or specified) folder on device (folder paths show with a trailing `/`) |
-| **cat**    | file                                            | Shows content of specified file on device                                                        |
-| **cp**     | source[:destination] [...]                      | Copies files or folders without rebooting the device                                             |
-| **rm**     | remote-path [...]                               | Remove non-recovery paths on the remote device (requires confirmation)                           |
-| **mem**    | None                                            | Queries and displays RAM and Flash storage utilization of the device                             |
-| **upd**    | [source[:destination] ...]                       | Updates application firmware on device<sup>2</sup>                                               |
-| **ports**  | None                                            | Lists ports with devices and allows selection for subsequent commands                            |
-| **init**   | `[directory]`                                   | Creates project-owned `device/boot.py`, `main.py`, and `config.py`                               |
-| **deploy** | See deployment options below                    | Erase and deploy OTAmpy, examples, and device dependencies                                        |
+| Command    | Args                         | Description                                                                                      |
+| ---------- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| **ping**   | None                         | Connection health check with the MicroPython device                                              |
+| **rb**     | None                         | Hard reboots the device (requires confirmation)                                                  |
+| **sr**     | None                         | Soft resets the device (requires confirmation)                                                   |
+| **ls**     | [path]                       | Lists content of current (or specified) folder on device (folder paths show with a trailing `/`) |
+| **cat**    | file                         | Shows content of specified file on device                                                        |
+| **cp**     | source[:destination] [...]   | Copies files or folders without rebooting the device                                             |
+| **rm**     | remote-path [...]            | Remove non-recovery paths on the remote device (requires confirmation)                           |
+| **mem**    | None                         | Queries and displays RAM and Flash storage utilization of the device                             |
+| **upd**    | [source[:destination] ...]   | Updates application firmware on device<sup>2</sup>                                               |
+| **ports**  | None                         | Lists ports with devices and allows selection for subsequent commands                            |
+| **init**   | `[directory]`                | Creates project-owned `device/boot.py`, `main.py`, and `ota-config.py`                           |
+| **deploy** | See deployment options below | Erase and deploy OTAmpy, examples, and device dependencies                                       |
 
 With no sources, `upd` selects `main.py` and all Python files under `lib/` in
 the current directory.
@@ -106,7 +106,7 @@ Deploy the default silent source profile over the board's USB serial port:
 
 ```bash
 otampy init
-# Edit device/config.py.
+# Edit device/ota-config.py.
 otampy deploy --port /dev/ttyACM0
 ```
 
@@ -135,17 +135,17 @@ otampy deploy --port /dev/ttyACM0 --bytecode
 
 Deployment options:
 
-| Option | Effect |
-| --- | --- |
-| `-p`, `--port` | Select the USB/serial device used by `mpremote`. |
-| `--project` | Select the project containing `device/`. |
-| `--with-logger` | Install the optional `log-to-file` package. |
+| Option                | Effect                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
+| `--project`           | Select the project containing `device/`.                  |
+| `--with-logger`       | Install the optional `log-to-file` package.               |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
-| `--mpy-cross` | Select the `mpy-cross` executable or command. |
-| `--no-mip` | Install neither URST nor the optional logger. |
-| `--no-reset` | Leave the board without a final reset. |
-| `--dry-run` | Print the complete `mpremote` command without running it. |
-| `--mpremote` | Use a specific `mpremote` executable. |
+| `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
+| `--no-mip`            | Install neither URST nor the optional logger.             |
+| `--no-reset`          | Leave the board without a final reset.                    |
+| `--dry-run`           | Print the complete `mpremote` command without running it. |
+| `--mpremote`          | Use a specific `mpremote` executable.                     |
 
 The standard profile installs URST only. See the
 [deployment guide](../../docs/deployment.md) for prerequisites and the exact
@@ -204,7 +204,7 @@ Removing a non-empty directory requires an additional recursive-removal
 confirmation.
 
 To preserve remote recovery, `rm` cannot remove root `/boot.py`, `/main.py`,
-`/config.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such
+`/ota-config.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such
 as `/lib` or `/`. This also applies to wildcard and recursive selections. The
 CLI expands and validates the complete selection before deleting anything,
 then sends no `RM` if any protected path is present. There is no force option;
@@ -219,7 +219,7 @@ otampy --port /dev/ttyUSB0 upd
 Update specific application firmware files:
 
 ```bash
-otampy --port /dev/ttyUSB0 upd main.py config.py
+otampy --port /dev/ttyUSB0 upd main.py ota-config.py
 otampy --port /dev/ttyUSB0 upd app:/
 otampy --port /dev/ttyUSB0 upd packages/device/lib/otampy/boot.py:lib/otampy/boot.py packages/device/lib/otampy/core.py:lib/otampy/core.py
 otampy --port /dev/ttyUSB0 upd 'packages/device/lib/otampy/*.py:lib/otampy/'

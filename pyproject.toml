@@ -74,7 +74,7 @@ indent-style = "space"
 
 # --- Pytest ---
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/otampy/device/tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
 addopts = "--cov=otampy --cov-report=term-missing"
 
@@ -82,7 +82,7 @@ addopts = "--cov=otampy --cov-report=term-missing"
 urst = { git = "https://github.com/simonl65/urst-mpy.git" }
 
 [tool.uv.workspace]
-members = ["packages/cli"]
+members = ["cli"]
 
 [tool.pyright]
 include = ["."]

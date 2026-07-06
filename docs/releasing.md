@@ -84,7 +84,7 @@ This single command:
 4. builds the sdist and wheel with workspace source overrides disabled;
 5. inspects both archives for every expected device file and checks its hash
    against the canonical source;
-6. rejects `config.py`, bytecode caches, the maintainer's home directory, and
+6. rejects `ota-config.py`, bytecode caches, the maintainer's home directory, and
    repository paths in the artifacts;
 7. installs the wheel and its registry dependencies into a clean temporary
    virtual environment, runs `otampy init`, and runs

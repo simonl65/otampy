@@ -67,7 +67,9 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
             # Write pre-existing port in new project-scoped format
             fake_root = "/fake/project"
             config_file.write_text(
-                json.dumps({"projects": {fake_root: {"default_port": "/dev/ttySaved"}}})
+                json.dumps(
+                    {"projects": {fake_root: {"default_port": "/dev/ttySaved"}}}
+                )
             )
 
             # Use the log-level command to save permanently.
@@ -78,7 +80,9 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
             saved = json.loads(config_file.read_text())
             assert saved.get("global", {}).get("log_level") == "DEBUG"
             # Pre-existing project port must be preserved
-            assert saved["projects"][fake_root]["default_port"] == "/dev/ttySaved"
+            assert (
+                saved["projects"][fake_root]["default_port"] == "/dev/ttySaved"
+            )
 
             # Next plain invocation uses the saved level with no prompt.
             result = runner.invoke(cli, ["ports", "--show"])
@@ -173,7 +177,9 @@ def test_log_level_cmd_set_saves_permanently(tmp_path):
         assert "Permanent log level set to: INFO" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert json.loads(config_file.read_text())["global"]["log_level"] == "INFO"
+        assert (
+            json.loads(config_file.read_text())["global"]["log_level"] == "INFO"
+        )
 
 
 def test_log_level_cmd_set_clears_session_shadow(tmp_path):
@@ -229,7 +235,10 @@ def test_log_level_cmd_interactive_permanent(tmp_path):
         assert "Permanent log level set to: DEBUG" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert json.loads(config_file.read_text())["global"]["log_level"] == "DEBUG"
+        assert (
+            json.loads(config_file.read_text())["global"]["log_level"]
+            == "DEBUG"
+        )
 
 
 def test_log_level_cmd_interactive_session(tmp_path):
@@ -300,9 +309,7 @@ def test_log_level_precedence_is_environment_session_permanent(tmp_path):
         mock.patch("os.getppid", return_value=789),
     ):
         assert get_default_log_level() == "INFO"
-        with mock.patch.dict(
-            "os.environ", {"OTAMPY_LOG_LEVEL": "WARNING"}
-        ):
+        with mock.patch.dict("os.environ", {"OTAMPY_LOG_LEVEL": "WARNING"}):
             assert get_default_log_level() == "WARNING"
 
 
@@ -311,15 +318,19 @@ def test_clearing_port_preserves_permanent_log_level(tmp_path):
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text(
-        json.dumps({
-            "projects": {fake_root: {"default_port": "/dev/ttyFake"}},
-            "global": {"log_level": "DEBUG"},
-        })
+        json.dumps(
+            {
+                "projects": {fake_root: {"default_port": "/dev/ttyFake"}},
+                "global": {"log_level": "DEBUG"},
+            }
+        )
     )
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
-        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=Path(fake_root)
+        ),
     ):
         set_default_port(None)
 
@@ -548,9 +559,7 @@ def test_cli_rm_missing_arg():
     assert "Error: Missing argument" in result.output
 
 
-def test_cli_rm_rejects_arguments_matching_local_paths(
-    tmp_path, monkeypatch
-):
+def test_cli_rm_rejects_arguments_matching_local_paths(tmp_path, monkeypatch):
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
     first = tmp_path / "alpha.txt"
@@ -642,7 +651,7 @@ def test_cli_rm_colon_prefix_marks_matching_local_name_as_remote(
     (
         "boot.py",
         "/main.py",
-        "./config.py",
+        "./ota-config.py",
         "lib/otampy/manager.py",
         "/lib/urst/core.py",
         "lib",
@@ -703,7 +712,7 @@ def test_cli_rm_colon_root_glob_reports_protected_paths_before_prompt():
     with (
         mock.patch(
             "otampy.cli._query",
-            return_value=(b"boot.py,config.py,lib/,logs/,main.py", None),
+            return_value=(b"boot.py,ota-config.py,lib/,logs/,main.py", None),
         ) as query,
         mock.patch("otampy.cli._send_command") as send_command,
     ):
@@ -859,9 +868,7 @@ def test_cli_rm_recursively_removes_nested_directory_with_one_connection():
 
     assert result.exit_code == 0
     assert "Directory removed successfully." in result.output
-    serial.assert_called_once_with(
-        "/dev/ttyFake", baudrate=57600, timeout=2.0
-    )
+    serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
     assert [call.args[1] for call in query_mock.call_args_list] == [
         b"LS:cache",
         b"RM:cache/file.txt",
@@ -1008,21 +1015,21 @@ def test_get_files_to_send_keeps_multiple_mappings(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "source"
     source.mkdir()
-    for name in ("boot.py", "main.py", "config.py"):
+    for name in ("boot.py", "main.py", "ota-config.py"):
         (source / name).write_text(f"# {name}\n")
 
     files = _get_files_to_send(
         (
             "source/boot.py:lib/otampy/boot.py",
             "source/main.py:lib/otampy/main.py",
-            "source/config.py:lib/otampy/config.py",
+            "source/ota-config.py:lib/otampy/ota-config.py",
         )
     )
 
     assert [target for target, _source in files] == [
         "lib/otampy/boot.py",
         "lib/otampy/main.py",
-        "lib/otampy/config.py",
+        "lib/otampy/ota-config.py",
     ]
 
 
@@ -1052,12 +1059,12 @@ def test_get_files_to_send_rejects_missing_explicit_sources(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "boot.py").write_text("# boot\n")
 
-    with pytest.raises(click.ClickException, match="main.py, config.py"):
+    with pytest.raises(click.ClickException, match="main.py, ota-config.py"):
         _get_files_to_send(
             (
                 "boot.py:lib/otampy/boot.py",
                 "main.py:lib/otampy/main.py",
-                "config.py:lib/otampy/config.py",
+                "ota-config.py:lib/otampy/ota-config.py",
             )
         )
 
@@ -1121,9 +1128,7 @@ def test_cli_cp_streams_multiple_files_without_reboot(tmp_path):
     assert "Copied main.py successfully." in result.output
     assert "Copied lib/data.bin successfully." in result.output
     assert "Reboot required: /main.py" in result.output
-    serial.assert_called_once_with(
-        "/dev/ttyFake", baudrate=57600, timeout=2.0
-    )
+    serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
     sent = [call.args[0] for call in transport.send.call_args_list]
     assert sum(command.startswith(b"CP_START:") for command in sent) == 2
     assert sent.count(b"CP_END") == 2
@@ -1450,7 +1455,10 @@ def test_cli_port_interactive(tmp_path):
             return_value=[mock_port1, mock_port2],
         ),
         mock.patch("pathlib.Path.home", return_value=tmp_path),
-        mock.patch("otampy.cli._detect_project_root", return_value=Path("/fake/project")),
+        mock.patch(
+            "otampy.cli._detect_project_root",
+            return_value=Path("/fake/project"),
+        ),
     ):
         fake_root = "/fake/project"
 
@@ -1459,8 +1467,7 @@ def test_cli_port_interactive(tmp_path):
         assert result.exit_code == 0
         assert "Available serial ports:" in result.output
         assert (
-            "1: /dev/ttyFake1 SERIAL1 2e8a:0005 "
-            "MicroPython Board in FS mode"
+            "1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode"
         ) in result.output
         assert "Permanent default port set to: /dev/ttyFake1" in result.output
 
@@ -1469,7 +1476,10 @@ def test_cli_port_interactive(tmp_path):
         assert config_file.is_file()
 
         with open(config_file) as f:
-            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
+            assert (
+                json.load(f)["projects"][fake_root]["default_port"]
+                == "/dev/ttyFake1"
+            )
 
         # The effective selected port is marked, including a --port override.
         result = runner.invoke(
@@ -1483,8 +1493,7 @@ def test_cli_port_interactive(tmp_path):
             "MicroPython Board in FS mode"
         ) in result.output
         assert (
-            "  * 2: /dev/ttyFake2 SERIAL2 0403:6001 "
-            "FTDI FT232R USB UART"
+            "  * 2: /dev/ttyFake2 SERIAL2 0403:6001 FTDI FT232R USB UART"
         ) in result.output
 
         # 2. Interactive choice: select 2, select session 's'
@@ -1508,7 +1517,10 @@ def test_cli_port_interactive(tmp_path):
             "Permanent default port set to: /dev/ttyFakeX" in result_set.output
         )
         with open(config_file) as f:
-            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFakeX"
+            assert (
+                json.load(f)["projects"][fake_root]["default_port"]
+                == "/dev/ttyFakeX"
+            )
 
 
 def test_permanent_port_clears_session_shadow(tmp_path):
@@ -1548,14 +1560,19 @@ def test_permanent_port_clears_session_shadow(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=Path(fake_root)
+        ),
     ):
         # Step 1: Save ttyFake2 as the session port.
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0
         assert "Session default port set to: /dev/ttyFake2" in result.output
         assert session_file.is_file()
-        assert json.loads(session_file.read_text()).get("default_port") == "/dev/ttyFake2"
+        assert (
+            json.loads(session_file.read_text()).get("default_port")
+            == "/dev/ttyFake2"
+        )
 
         # Step 2: Save ttyFake1 permanently — must also clear the session shadow.
         result = runner.invoke(cli, ["ports"], input="1\np\n")
@@ -1572,7 +1589,10 @@ def test_permanent_port_clears_session_shadow(tmp_path):
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         assert config_file.is_file()
         with open(config_file) as f:
-            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
+            assert (
+                json.load(f)["projects"][fake_root]["default_port"]
+                == "/dev/ttyFake1"
+            )
 
         # Step 3: get_default_port() must return ttyFake1, not ttyFake2.
         result = runner.invoke(cli, ["ports"], input="\n")
@@ -1601,7 +1621,9 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=Path(fake_root)
+        ),
     ):
         # Plant a session JSON file with ttyFake2 as the port.
         session_file.write_text(json.dumps({"default_port": "/dev/ttyFake2"}))
@@ -1621,4 +1643,7 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         # Permanent config must have ttyFake1 under the project key.
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         with open(config_file) as f:
-            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
+            assert (
+                json.load(f)["projects"][fake_root]["default_port"]
+                == "/dev/ttyFake1"
+            )

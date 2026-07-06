@@ -36,10 +36,10 @@ addressing the dominant footprint issues here.
 
 The supplied snapshot is:
 
-| Resource | Allocated/used | Free | Assessment |
-| --- | ---: | ---: | --- |
-| Python heap | 77.8 KB (38.8%) | 122.9 KB | Healthy at the sampled instant, but no peak or fragmentation data |
-| Device filesystem | 196.0 KB (23.1%) | 652.0 KB | Healthy, but not attributable to OTAmpy from this snapshot |
+| Resource          |   Allocated/used |     Free | Assessment                                                        |
+| ----------------- | ---------------: | -------: | ----------------------------------------------------------------- |
+| Python heap       |  77.8 KB (38.8%) | 122.9 KB | Healthy at the sampled instant, but no peak or fragmentation data |
+| Device filesystem | 196.0 KB (23.1%) | 652.0 KB | Healthy, but not attributable to OTAmpy from this snapshot        |
 
 `manager.py` samples `gc.mem_alloc()` directly. It does not run
 `gc.collect()` first, so the 77.8 KB includes both live objects and any
@@ -52,10 +52,10 @@ On 2026-06-30, the pre-refactor deployment was inspected on a Raspberry Pi
 Pico W running MicroPython v1.28.0. After connecting to the already-running
 application:
 
-| Checkpoint | Allocated | Free |
-| --- | ---: | ---: |
-| Before explicit GC | 150,864 bytes | 54,576 bytes |
-| After `gc.collect()` | 31,200 bytes | 174,240 bytes |
+| Checkpoint           |     Allocated |          Free |
+| -------------------- | ------------: | ------------: |
+| Before explicit GC   | 150,864 bytes |  54,576 bytes |
+| After `gc.collect()` |  31,200 bytes | 174,240 bytes |
 
 Both `otampy.boot` and `otampy.manager` were present in `sys.modules`. The
 119,664-byte post-GC reduction confirms that an uncollected `MEM` result is not
@@ -67,13 +67,13 @@ diagnostic evidence only and does not complete FP-01.
 The lazy-import facade was deployed to the same board and verified by SHA-256.
 The boot-only checkpoint and two normal-lifecycle runs produced:
 
-| Lifecycle | Allocated after GC | Free after GC | `boot` loaded | `manager` loaded |
-| --- | ---: | ---: | --- | --- |
-| Boot only | 25,440 bytes | 180,000 bytes | Yes | No |
-| Normal boot-to-main, run 1 | 29,952 bytes | 175,488 bytes | Yes | Yes |
-| Normal boot-to-main, run 2 | 29,952 bytes | 175,488 bytes | Yes | Yes |
-| Boot only, after release | 22,064 bytes | 183,376 bytes | No | No |
-| Normal boot-to-main, after release | 26,400 bytes | 179,040 bytes | No | Yes |
+| Lifecycle                          | Allocated after GC | Free after GC | `boot` loaded | `manager` loaded |
+| ---------------------------------- | -----------------: | ------------: | ------------- | ---------------- |
+| Boot only                          |       25,440 bytes | 180,000 bytes | Yes           | No               |
+| Normal boot-to-main, run 1         |       29,952 bytes | 175,488 bytes | Yes           | Yes              |
+| Normal boot-to-main, run 2         |       29,952 bytes | 175,488 bytes | Yes           | Yes              |
+| Boot only, after release           |       22,064 bytes | 183,376 bytes | No            | No               |
+| Normal boot-to-main, after release |       26,400 bytes | 179,040 bytes | No            | Yes              |
 
 The isolated mode behaviour and explicit boot-module release work on the
 target. Releasing `boot` recovered 3,376 bytes in the boot-only checkpoint and
@@ -93,17 +93,17 @@ bytecode are therefore included in every probe checkpoint; compare future
 results using the same probe and firmware rather than treating `clean_boot` as
 the production application's absolute floor.
 
-| Checkpoint | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `clean_boot` | 8,704 | 196,736 | 6,448 | 198,992 | baseline |
-| `import_otampy` | 40,432 | 165,008 | 19,216 | 186,224 | +12,768 |
-| `ota_inputs_ready` | 26,608 | 178,832 | 22,416 | 183,024 | +3,200 |
-| `ota_constructed` | 23,008 | 182,432 | 22,816 | 182,624 | +400 |
-| `no_flag_boot` | 23,376 | 182,064 | 23,376 | 182,064 | +560 |
-| `first_poll` | 27,600 | 177,840 | 25,440 | 180,000 | +2,064 |
-| `idle_poll` | 25,488 | 179,952 | 25,440 | 180,000 | 0 |
-| `LS /` | 63,760 | 141,680 | 25,792 | 179,648 | operation |
-| `CAT config.py` (491 bytes) | 64,992 | 140,448 | 25,808 | 179,632 | operation |
+| Checkpoint                      | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
+| ------------------------------- | ------------------: | -------------: | -----------------: | ------------: | ------------: |
+| `clean_boot`                    |               8,704 |        196,736 |              6,448 |       198,992 |      baseline |
+| `import_otampy`                 |              40,432 |        165,008 |             19,216 |       186,224 |       +12,768 |
+| `ota_inputs_ready`              |              26,608 |        178,832 |             22,416 |       183,024 |        +3,200 |
+| `ota_constructed`               |              23,008 |        182,432 |             22,816 |       182,624 |          +400 |
+| `no_flag_boot`                  |              23,376 |        182,064 |             23,376 |       182,064 |          +560 |
+| `first_poll`                    |              27,600 |        177,840 |             25,440 |       180,000 |        +2,064 |
+| `idle_poll`                     |              25,488 |        179,952 |             25,440 |       180,000 |             0 |
+| `LS /`                          |              63,760 |        141,680 |             25,792 |       179,648 |     operation |
+| `CAT ota-config.py` (491 bytes) |              64,992 |        140,448 |             25,808 |       179,632 |     operation |
 
 The deltas are between adjacent post-GC boot-probe checkpoints. `LS` and `CAT`
 were measured independently after a normal reset, successful command, and
@@ -123,10 +123,10 @@ update. It intercepted the updater reset, measured from inside transport
 acknowledgements, and removed its flag, target, and staging files:
 
 | Update checkpoint | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `flagged_boot` | 62,784 | 142,656 | 31,120 | 174,320 | baseline |
-| `update_chunk` | 33,616 | 171,824 | 33,072 | 172,368 | +1,952 |
-| `update_commit` | 33,552 | 171,888 | 33,264 | 172,176 | +192 |
+| ----------------- | ------------------: | -------------: | -----------------: | ------------: | ------------: |
+| `flagged_boot`    |              62,784 |        142,656 |             31,120 |       174,320 |      baseline |
+| `update_chunk`    |              33,616 |        171,824 |             33,072 |       172,368 |        +1,952 |
+| `update_commit`   |              33,552 |        171,888 |             33,264 |       172,176 |          +192 |
 
 The three probe paths were verified absent afterward, the board was reset, and
 normal OTA operation was verified with `PONG`.
@@ -136,56 +136,56 @@ normal OTA operation was verified with `PONG`.
 On 2026-07-01, `packages/device/tools/footprint_fs.py` inventoried the running
 device without modifying it. The filesystem geometry was:
 
-| Property | Value |
-| --- | ---: |
-| Block/fragment size | 4,096 bytes |
-| Total blocks | 212 |
-| Free/available blocks | 161 |
-| Used blocks | 51 |
-| Total | 868,352 bytes (848 KiB) |
-| Current used | 208,896 bytes (204 KiB) |
-| Current free | 659,456 bytes (644 KiB) |
+| Property              |                   Value |
+| --------------------- | ----------------------: |
+| Block/fragment size   |             4,096 bytes |
+| Total blocks          |                     212 |
+| Free/available blocks |                     161 |
+| Used blocks           |                      51 |
+| Total                 | 868,352 bytes (848 KiB) |
+| Current used          | 208,896 bytes (204 KiB) |
+| Current free          | 659,456 bytes (644 KiB) |
 
 Every deployed file was captured:
 
-| File | Logical bytes | Minimum rounded bytes |
-| --- | ---: | ---: |
-| `/boot.py` | 688 | 4,096 |
-| `/config.py` | 491 | 4,096 |
-| `/main.py` | 2,568 | 4,096 |
-| `/lib/Blink.py` | 346 | 4,096 |
-| `/lib/log_to_file/__init__.py` | 5,018 | 8,192 |
-| `/lib/otampy/__init__.py` | 190 | 4,096 |
-| `/lib/otampy/boot.py` | 8,244 | 12,288 |
-| `/lib/otampy/core.py` | 1,308 | 4,096 |
-| `/lib/otampy/logger.py` | 2,319 | 4,096 |
-| `/lib/otampy/manager.py` | 4,204 | 8,192 |
-| `/lib/otampy/ota.py` | 1,584 | 4,096 |
-| `/lib/shared/performance_timer.py` | 966 | 4,096 |
-| `/lib/shared/protocol.py` | 513 | 4,096 |
-| `/lib/urst/__init__.py` | 671 | 4,096 |
-| `/lib/urst/codec_layer.py` | 4,705 | 8,192 |
-| `/lib/urst/constants.py` | 1,106 | 4,096 |
-| `/lib/urst/core_handler.py` | 4,393 | 8,192 |
-| `/lib/urst/protocol_layer.py` | 9,104 | 12,288 |
-| `/lib/urst/transport_layer.py` | 223 | 4,096 |
-| `/logs/ota.log` | 4,957 | 8,192 |
+| File                               | Logical bytes | Minimum rounded bytes |
+| ---------------------------------- | ------------: | --------------------: |
+| `/boot.py`                         |           688 |                 4,096 |
+| `/ota-config.py`                   |           491 |                 4,096 |
+| `/main.py`                         |         2,568 |                 4,096 |
+| `/lib/Blink.py`                    |           346 |                 4,096 |
+| `/lib/log_to_file/__init__.py`     |         5,018 |                 8,192 |
+| `/lib/otampy/__init__.py`          |           190 |                 4,096 |
+| `/lib/otampy/boot.py`              |         8,244 |                12,288 |
+| `/lib/otampy/core.py`              |         1,308 |                 4,096 |
+| `/lib/otampy/logger.py`            |         2,319 |                 4,096 |
+| `/lib/otampy/manager.py`           |         4,204 |                 8,192 |
+| `/lib/otampy/ota.py`               |         1,584 |                 4,096 |
+| `/lib/shared/performance_timer.py` |           966 |                 4,096 |
+| `/lib/shared/protocol.py`          |           513 |                 4,096 |
+| `/lib/urst/__init__.py`            |           671 |                 4,096 |
+| `/lib/urst/codec_layer.py`         |         4,705 |                 8,192 |
+| `/lib/urst/constants.py`           |         1,106 |                 4,096 |
+| `/lib/urst/core_handler.py`        |         4,393 |                 8,192 |
+| `/lib/urst/protocol_layer.py`      |         9,104 |                12,288 |
+| `/lib/urst/transport_layer.py`     |           223 |                 4,096 |
+| `/logs/ota.log`                    |         4,957 |                 8,192 |
 
 The six directories were `/lib`, `/lib/log_to_file`, `/lib/otampy`,
 `/lib/shared`, `/lib/urst`, and `/logs`. No update flag or `.ota` staging file
 was present.
 
-| Content group | Logical bytes | Rounded file bytes |
-| --- | ---: | ---: |
-| Root application/config | 3,747 | 12,288 |
-| `Blink.py` | 346 | 4,096 |
-| MIP `log_to_file` | 5,018 | 8,192 |
-| OTAmpy | 17,849 | 36,864 |
-| MIP shared helpers | 1,479 | 8,192 |
-| MIP URST | 20,202 | 40,960 |
-| Generated OTA log | 4,957 | 8,192 |
-| **Current total** | **53,598** | **118,784** |
-| **Clean-deploy files (without generated log)** | **48,641** | **110,592** |
+| Content group                                  | Logical bytes | Rounded file bytes |
+| ---------------------------------------------- | ------------: | -----------------: |
+| Root application/config                        |         3,747 |             12,288 |
+| `Blink.py`                                     |           346 |              4,096 |
+| MIP `log_to_file`                              |         5,018 |              8,192 |
+| OTAmpy                                         |        17,849 |             36,864 |
+| MIP shared helpers                             |         1,479 |              8,192 |
+| MIP URST                                       |        20,202 |             40,960 |
+| Generated OTA log                              |         4,957 |              8,192 |
+| **Current total**                              |    **53,598** |        **118,784** |
+| **Clean-deploy files (without generated log)** |    **48,641** |        **110,592** |
 
 The current filesystem is exactly 8,192 bytes above the originally reported
 196 KiB use, matching the two blocks occupied by the generated log. Removing
@@ -214,14 +214,14 @@ the point where the complete response and production temporaries are still
 live on the caller's stack. This is a repeatable protocol-boundary minimum,
 not a VM allocator trace; future comparisons must use the same harness.
 
-| Scenario | Free before | Minimum free | Peak consumed | Free after cleanup | Result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `CAT`, valid 16 KiB file | 162,704 | 111,440 | 51,264 | 162,704 | PASS |
-| `LS`, directory with 64 files | 162,704 | 139,040 | 23,664 | 162,704 | PASS |
-| Update, maximum 256-byte chunk | 161,808 | 157,856 | 3,952 | 161,808 | PASS |
-| Update, 32-file manifest | 161,616 | 68,672 | 92,944 | 161,616 | PASS |
-| Update, failed checksum | 161,312 | 158,080 | 3,232 | 161,312 | PASS |
-| Interrupted update after one chunk | 161,008 | 158,032 | 2,976 | 161,008 | PASS |
+| Scenario                           | Free before | Minimum free | Peak consumed | Free after cleanup | Result |
+| ---------------------------------- | ----------: | -----------: | ------------: | -----------------: | ------ |
+| `CAT`, valid 16 KiB file           |     162,704 |      111,440 |        51,264 |            162,704 | PASS   |
+| `LS`, directory with 64 files      |     162,704 |      139,040 |        23,664 |            162,704 | PASS   |
+| Update, maximum 256-byte chunk     |     161,808 |      157,856 |         3,952 |            161,808 | PASS   |
+| Update, 32-file manifest           |     161,616 |       68,672 |        92,944 |            161,616 | PASS   |
+| Update, failed checksum            |     161,312 |      158,080 |         3,232 |            161,312 | PASS   |
+| Interrupted update after one chunk |     161,008 |      158,032 |         2,976 |            161,008 | PASS   |
 
 The functional assertions verify the `CAT` response size, prefix, and content;
 all 64 unique `LS` entries; update acknowledgements and committed content;
@@ -247,15 +247,15 @@ one.
 The FP-01 cold-boot probe was rerun on the same Pico W and MicroPython v1.28.0
 firmware. Values below are allocated bytes immediately after `gc.collect()`:
 
-| Checkpoint | Before FP-04 | After FP-04 | Change |
-| --- | ---: | ---: | ---: |
-| `clean_boot` | 6,448 | 6,448 | 0 |
-| `import_otampy` | 19,216 | 10,160 | -9,056 |
-| `ota_inputs_ready` | 22,416 | 13,392 | -9,024 |
-| `ota_constructed` | 22,816 | 13,552 | -9,264 |
-| `no_flag_boot` | 23,376 | 15,072 | **-8,304** |
-| `first_poll` | 25,440 | 25,616 | +176 |
-| `idle_poll` | 25,440 | 25,616 | +176 |
+| Checkpoint         | Before FP-04 | After FP-04 |     Change |
+| ------------------ | -----------: | ----------: | ---------: |
+| `clean_boot`       |        6,448 |       6,448 |          0 |
+| `import_otampy`    |       19,216 |      10,160 |     -9,056 |
+| `ota_inputs_ready` |       22,416 |      13,392 |     -9,024 |
+| `ota_constructed`  |       22,816 |      13,552 |     -9,264 |
+| `no_flag_boot`     |       23,376 |      15,072 | **-8,304** |
+| `first_poll`       |       25,440 |      25,616 |       +176 |
+| `idle_poll`        |       25,440 |      25,616 |       +176 |
 
 The identical clean checkpoint confirms a comparable run. The no-update path
 recovers 8,304 bytes, while first polling pays the deferred import and returns
@@ -283,15 +283,15 @@ class, methods, and instance cost 320–384 bytes more than the copied
 dictionary. The final function-based design was then measured with the same
 FP-01 probe:
 
-| Checkpoint | After FP-04 | After FP-06 | Change |
-| --- | ---: | ---: | ---: |
-| `clean_boot` | 6,448 | 6,448 | 0 |
-| `import_otampy` | 10,160 | 10,128 | -32 |
-| `ota_inputs_ready` | 13,392 | 13,456 | +64 |
-| `ota_constructed` | 13,552 | 13,536 | -16 |
-| `no_flag_boot` | 15,072 | 14,912 | **-160** |
-| `first_poll` | 25,616 | 25,408 | **-208** |
-| `idle_poll` | 25,616 | 25,408 | **-208** |
+| Checkpoint         | After FP-04 | After FP-06 |   Change |
+| ------------------ | ----------: | ----------: | -------: |
+| `clean_boot`       |       6,448 |       6,448 |        0 |
+| `import_otampy`    |      10,160 |      10,128 |      -32 |
+| `ota_inputs_ready` |      13,392 |      13,456 |      +64 |
+| `ota_constructed`  |      13,552 |      13,536 |      -16 |
+| `no_flag_boot`     |      15,072 |      14,912 | **-160** |
+| `first_poll`       |      25,616 |      25,408 | **-208** |
+| `idle_poll`        |      25,616 |      25,408 | **-208** |
 
 The `ota_inputs_ready` checkpoint precedes `OTACore` construction, so its
 64-byte movement is allocator/layout variation rather than retained
@@ -299,7 +299,7 @@ configuration state. The lifecycle checkpoints where configuration is live
 show a small but real reduction. This confirms that a dedicated adapter would
 be over-engineering on this MicroPython build.
 
-The probe exercised the deployed module-style `config.py` through no-flag boot
+The probe exercised the deployed module-style `ota-config.py` through no-flag boot
 and runtime polling. Production `/boot.py` was restored to its established
 SHA-256, all three changed modules matched their committed checksums, and the
 board was reset and verified responsive over USB.
@@ -324,10 +324,10 @@ accumulated garbage. Collection now occurs after each acknowledged fragment
 and periodically during directory walks, safe points where no frame is in
 flight. A fresh-interpreter rerun of the FP-03 matrix measured:
 
-| Scenario | FP-03 peak | FP-07 peak | Reduction | FP-07 minimum free | Result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `CAT`, valid 16 KiB file | 51,264 | 4,416 | **46,848 (91.4%)** | 157,248 | PASS |
-| `LS`, directory with 64 files | 23,664 | 2,800 | **20,864 (88.2%)** | 158,864 | PASS |
+| Scenario                      | FP-03 peak | FP-07 peak |          Reduction | FP-07 minimum free | Result |
+| ----------------------------- | ---------: | ---------: | -----------------: | -----------------: | ------ |
+| `CAT`, valid 16 KiB file      |     51,264 |      4,416 | **46,848 (91.4%)** |            157,248 | PASS   |
+| `LS`, directory with 64 files |     23,664 |      2,800 | **20,864 (88.2%)** |            158,864 | PASS   |
 
 The other four stress cases retained their expected results, including the
 92,944-byte many-file update peak. Host regressions reassemble every emitted
@@ -335,7 +335,7 @@ fragment and prove exact logical payloads for both large cases; existing
 ordinary-response tests remain byte-for-byte unchanged.
 
 The physical OTA UART round trip was completed later on 2026-07-01. CLI
-`PING` returned `PONG`; fragmented `CAT config.py` reassembled 491 bytes with
+`PING` returned `PONG`; fragmented `CAT ota-config.py` reassembled 491 bytes with
 SHA-256 `5acd4e06427a59b9afcd97655915fda057558525096de4e98ce24f3dca4930cf`,
 exactly matching the file on the Pico; and fragmented `LS /fp-stress-dir`
 reassembled a 255-byte payload containing exactly 64 expected filenames. The
@@ -365,12 +365,12 @@ state are durable and while the host is already waiting.
 
 The fresh-interpreter FP-03 matrix measured:
 
-| Scenario | Before FP-08 | After FP-08 | Reduction | Minimum free | Result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Maximum 256-byte chunk | 3,952 | 2,432 | 1,520 (38.5%) | 158,224 | PASS |
-| 32-file manifest | 92,944 | 11,488 | **81,456 (87.6%)** | 148,976 | PASS |
-| Failed checksum | 3,232 | 2,256 | 976 (30.2%) | 157,904 | PASS |
-| Interrupted update | 2,976 | 2,256 | 720 (24.2%) | 157,600 | PASS |
+| Scenario               | Before FP-08 | After FP-08 |          Reduction | Minimum free | Result |
+| ---------------------- | -----------: | ----------: | -----------------: | -----------: | ------ |
+| Maximum 256-byte chunk |        3,952 |       2,432 |      1,520 (38.5%) |      158,224 | PASS   |
+| 32-file manifest       |       92,944 |      11,488 | **81,456 (87.6%)** |      148,976 | PASS   |
+| Failed checksum        |        3,232 |       2,256 |        976 (30.2%) |      157,904 | PASS   |
+| Interrupted update     |        2,976 |       2,256 |        720 (24.2%) |      157,600 | PASS   |
 
 The bounded `CAT` and `LS` peaks remained 4,416 and 2,800 bytes. All six
 stress cases passed their content, acknowledgement, checksum, commit,
@@ -405,15 +405,15 @@ breaking API change.
 
 The same cold-boot probe measured allocated bytes after GC:
 
-| Checkpoint | Before FP-10 | After FP-10 | Clean-adjusted change |
-| --- | ---: | ---: | ---: |
-| `clean_boot` | 6,448 | 6,560 | baseline |
-| `import_otampy` | 10,128 | 8,624 | **-1,616** |
-| `ota_inputs_ready` | 13,456 | 9,456 | **-4,112** |
-| `ota_constructed` | 13,536 | 9,552 | **-4,096** |
-| `no_flag_boot` | 14,944 | 10,576 | **-4,480** |
-| `first_poll` | 28,640 | 23,296 | **-5,456** |
-| `idle_poll` | 28,640 | 23,296 | **-5,456** |
+| Checkpoint         | Before FP-10 | After FP-10 | Clean-adjusted change |
+| ------------------ | -----------: | ----------: | --------------------: |
+| `clean_boot`       |        6,448 |       6,560 |              baseline |
+| `import_otampy`    |       10,128 |       8,624 |            **-1,616** |
+| `ota_inputs_ready` |       13,456 |       9,456 |            **-4,112** |
+| `ota_constructed`  |       13,536 |       9,552 |            **-4,096** |
+| `no_flag_boot`     |       14,944 |      10,576 |            **-4,480** |
+| `first_poll`       |       28,640 |      23,296 |            **-5,456** |
+| `idle_poll`        |       28,640 |      23,296 |            **-5,456** |
 
 Changes are adjusted for the 112-byte difference between clean-boot
 baselines. Relative to the intermediate bundled-logger result, the final
@@ -455,18 +455,18 @@ profile deliberately emits bytecode rather than native code, so the `.mpy`
 minor/native-architecture compatibility rules do not apply.
 
 Only library and dependency modules are compiled. Root `boot.py`, `main.py`,
-and `config.py` remain source files. The bytecode profile packages URST itself,
+and `ota-config.py` remain source files. The bytecode profile packages URST itself,
 does not run MIP, and rejects `--with-logger`; source plus optional
 `log-to-file` remains the development profile.
 
 The clean library tree measured:
 
-| Content | Source bytes | Source allocation | `.mpy` bytes | `.mpy` allocation | Allocated saving |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `Blink` | 346 | 4,096 | 263 | 4,096 | 0 |
-| OTAmpy | 21,002 | 32,768 | 7,506 | 20,480 | 12,288 |
-| URST | 20,232 | 40,960 | 6,779 | 24,576 | 16,384 |
-| **Library total** | **41,580** | **77,824** | **14,548** | **49,152** | **28,672 (36.8%)** |
+| Content           | Source bytes | Source allocation | `.mpy` bytes | `.mpy` allocation |   Allocated saving |
+| ----------------- | -----------: | ----------------: | -----------: | ----------------: | -----------------: |
+| `Blink`           |          346 |             4,096 |          263 |             4,096 |                  0 |
+| OTAmpy            |       21,002 |            32,768 |        7,506 |            20,480 |             12,288 |
+| URST              |       20,232 |            40,960 |        6,779 |            24,576 |             16,384 |
+| **Library total** |   **41,580** |        **77,824** |   **14,548** |        **49,152** | **28,672 (36.8%)** |
 
 The raw payload fell by 27,032 bytes (65.0%). Clean in-place free space rose
 from 712,704 to 778,240 bytes, an observed 65,536-byte increase. LittleFS
@@ -475,15 +475,15 @@ cleanup and metadata account for the difference beyond the guaranteed
 
 The same cold-boot probe measured allocated bytes after GC:
 
-| Checkpoint | Source | `.mpy` | Change |
-| --- | ---: | ---: | ---: |
-| `clean_boot` | 6,560 | 6,560 | baseline |
-| `import_otampy` | 8,624 | 8,640 | +16 |
-| `ota_inputs_ready` | 9,456 | 9,440 | -16 |
-| `ota_constructed` | 9,552 | 9,536 | -16 |
-| `no_flag_boot` | 10,576 | 10,272 | **-304** |
-| `first_poll` | 23,296 | 22,624 | **-672** |
-| `idle_poll` | 23,296 | 22,624 | **-672** |
+| Checkpoint         | Source | `.mpy` |   Change |
+| ------------------ | -----: | -----: | -------: |
+| `clean_boot`       |  6,560 |  6,560 | baseline |
+| `import_otampy`    |  8,624 |  8,640 |      +16 |
+| `ota_inputs_ready` |  9,456 |  9,440 |      -16 |
+| `ota_constructed`  |  9,552 |  9,536 |      -16 |
+| `no_flag_boot`     | 10,576 | 10,272 | **-304** |
+| `first_poll`       | 23,296 | 22,624 | **-672** |
+| `idle_poll`        | 23,296 | 22,624 | **-672** |
 
 As expected, `.mpy` primarily saves flash: its steady heap improvement is only
 672 bytes because imported bytecode still occupies RAM. All 12 modules
@@ -494,13 +494,13 @@ physical `PING`, `LS`, and `CAT` passed; and all 95 host regressions passed.
 
 These are host-side raw `.py` byte counts, not on-device allocation:
 
-| Deployed content | Files | Raw bytes |
-| --- | ---: | ---: |
-| `lib/otampy` | 5 | 21,002 |
-| `lib/Blink.py` | 1 | 346 |
-| deployed `boot.py`, `main.py`, and current `config.py` | 3 | 3,874 |
-| locally installed URST package | 6 | 20,232 |
-| **Known subtotal** | **15** | **45,454** |
+| Deployed content                                           |  Files |  Raw bytes |
+| ---------------------------------------------------------- | -----: | ---------: |
+| `lib/otampy`                                               |      5 |     21,002 |
+| `lib/Blink.py`                                             |      1 |        346 |
+| deployed `boot.py`, `main.py`, and current `ota-config.py` |      3 |      3,874 |
+| locally installed URST package                             |      6 |     20,232 |
+| **Known subtotal**                                         | **15** | **45,454** |
 
 This subtotal excludes `log-to-file`, logs, orphaned `.ota` files, other
 application files, and filesystem overhead. Consequently, source minification
@@ -670,7 +670,7 @@ timeout cases.
 
 ### F7. Filesystem `.py`, `.mpy`, and frozen builds target different costs
 
-**Impact:** Medium flash for `.mpy`; potentially high RAM for freezing  
+**Impact:** Medium flash for `.mpy`; potentially high RAM for freezing
 
 Add reproducible deployment profiles:
 
@@ -754,96 +754,96 @@ contents, configuration, and lifecycle checkpoint.
 ### P0 — establish trustworthy baselines
 
 - [x] **FP-01 — Build a repeatable RAM checkpoint harness.** Record
-  `gc.mem_alloc/free()` before and after `gc.collect()` at: clean boot,
-  `import otampy`, `OTA` construction, first/idle poll, no-flag boot, flagged
-  boot, one update chunk, update commit, representative `LS`, and
-  representative `CAT`. Capture `micropython.mem_info(1)` for fragmentation.
-  **Done when:** results and exact board/firmware revision are committed.
-  **Completed (2026-07-01):** reusable boot and update probes, all named
-  checkpoint results, the exact target/firmware, a fragmentation map, and
-  restoration checks are committed.
+      `gc.mem_alloc/free()` before and after `gc.collect()` at: clean boot,
+      `import otampy`, `OTA` construction, first/idle poll, no-flag boot, flagged
+      boot, one update chunk, update commit, representative `LS`, and
+      representative `CAT`. Capture `micropython.mem_info(1)` for fragmentation.
+      **Done when:** results and exact board/firmware revision are committed.
+      **Completed (2026-07-01):** reusable boot and update probes, all named
+      checkpoint results, the exact target/firmware, a fragmentation map, and
+      restoration checks are committed.
 - [x] **FP-02 — Inventory the deployed filesystem.** Capture every file's
-  logical size, `statvfs` block size/count, logs, `.ota` files, MIP-installed
-  dependency files, and clean-deploy total. Reconcile the 196.0 KB figure.
-  **Done when:** known files plus measured filesystem overhead explain the
-  clean baseline.
-  **Completed (2026-07-01):** all 20 files and six directories, dependency and
-  log allocations, filesystem geometry, clean-deploy total, and 90,112 bytes
-  of filesystem/directory overhead are recorded. The generated two-block log
-  exactly explains the change from 196 KiB to 204 KiB used.
+      logical size, `statvfs` block size/count, logs, `.ota` files, MIP-installed
+      dependency files, and clean-deploy total. Reconcile the 196.0 KB figure.
+      **Done when:** known files plus measured filesystem overhead explain the
+      clean baseline.
+      **Completed (2026-07-01):** all 20 files and six directories, dependency and
+      log allocations, filesystem geometry, clean-deploy total, and 90,112 bytes
+      of filesystem/directory overhead are recorded. The generated two-block log
+      exactly explains the change from 196 KiB to 204 KiB used.
 - [x] **FP-03 — Add a peak-memory stress matrix.** Include a large valid file
-  for `CAT`, a large directory for `LS`, maximum update chunk, many-file
-  manifest, failed checksum, and interrupted update. **Done when:** each case
-  reports minimum free heap and passes existing functional assertions.
-  **Completed (2026-07-01):** all six cases pass on the target, report
-  protocol-boundary minimum free heap, verify their functional invariants,
-  clean their fixtures, and recover their per-scenario baseline after GC.
+      for `CAT`, a large directory for `LS`, maximum update chunk, many-file
+      manifest, failed checksum, and interrupted update. **Done when:** each case
+      reports minimum free heap and passes existing functional assertions.
+      **Completed (2026-07-01):** all six cases pass on the target, report
+      protocol-boundary minimum free heap, verify their functional invariants,
+      clean their fixtures, and recover their per-scenario baseline after GC.
 
 ### P1 — remove the dominant costs
 
 - [x] **FP-04 — Defer URST import and construction on the no-flag boot path**
-  (F2). Measure cold boot and post-GC application heap.
-  **Completed (2026-07-01):** package import and `OTA` construction no longer
-  load URST; no-flag boot recovers 8,304 bytes after GC, and first/idle polling
-  preserves runtime transport behaviour. Covered by target checkpoints and
-  regression tests in commit `755b90e`.
+      (F2). Measure cold boot and post-GC application heap.
+      **Completed (2026-07-01):** package import and `OTA` construction no longer
+      load URST; no-flag boot recovers 8,304 bytes after GC, and first/idle polling
+      preserves runtime transport behaviour. Covered by target checkpoints and
+      regression tests in commit `755b90e`.
 - [x] **FP-05 — Make boot/runtime imports mode-specific and release boot-only
-  state** (F1). Preserve the public facade and test both lifecycle paths.
-  **Completed (2026-06-30):** regression tests cover lazy imports, release,
-  repeated calls, and MicroPython's missing `__package__` global. Pico W
-  measurements confirm boot-only retains neither mode and normal runtime
-  retains only `manager`, recovering 3,552 bytes in the measured lifecycle.
+      state** (F1). Preserve the public facade and test both lifecycle paths.
+      **Completed (2026-06-30):** regression tests cover lazy imports, release,
+      repeated calls, and MicroPython's missing `__package__` global. Pico W
+      measurements confirm boot-only retains neither mode and normal runtime
+      retains only `manager`, recovering 3,552 bytes in the measured lifecycle.
 - [x] **FP-06 — Eliminate module-to-dictionary config copying** (F3). Test
-  mapping, module, empty, and custom config inputs.
-  **Completed (2026-07-01):** all input forms retain their settings without a
-  copied dictionary; target lifecycle measurements and 79 host regressions
-  pass in commits `43810bd` and `df5ebef`.
+      mapping, module, empty, and custom config inputs.
+      **Completed (2026-07-01):** all input forms retain their settings without a
+      copied dictionary; target lifecycle measurements and 79 host regressions
+      pass in commits `43810bd` and `df5ebef`.
 - [x] **FP-07 — Implement bounded, wire-compatible `CAT` and `LS` response
-  production with URST** (F4). Prove the peak no longer scales as multiple
-  full-response copies.
-  **Completed (2026-07-01):** bounded URST fragments preserve exact logical
-  payloads and reduce target peaks by 46,848 bytes for `CAT` and 20,864 bytes
-  for `LS`, without consuming another filesystem block.
+      production with URST** (F4). Prove the peak no longer scales as multiple
+      full-response copies.
+      **Completed (2026-07-01):** bounded URST fragments preserve exact logical
+      payloads and reduce target peaks by 46,848 bytes for `CAT` and 20,864 bytes
+      for `LS`, without consuming another filesystem block.
 - [x] **FP-08 — Parse update commands as bytes and compact update state**
-  (F5). Record peak heap for the stress matrix before and after.
-  **Completed (2026-07-01):** the many-file peak fell from 92,944 to 11,488
-  bytes, maximum-chunk and failure peaks also fell, all stress assertions
-  passed, and a physical CLI update completed and verified successfully.
+      (F5). Record peak heap for the stress matrix before and after.
+      **Completed (2026-07-01):** the many-file peak fell from 92,944 to 11,488
+      bytes, maximum-chunk and failure peaks also fell, all stress assertions
+      passed, and a physical CLI update completed and verified successfully.
 - [ ] **FP-09 — Define and test a MicroPython-specific URST artifact** (F6).
-  Keep all reliability semantics and publish its source, `.mpy`, import-RAM,
-  and peak-buffer deltas.
-  **Deferred (2026-07-02):** intentionally skipped for now; retain this item
-  for later work in the canonical URST repository.
+      Keep all reliability semantics and publish its source, `.mpy`, import-RAM,
+      and peak-buffer deltas.
+      **Deferred (2026-07-02):** intentionally skipped for now; retain this item
+      for later work in the canonical URST repository.
 - [x] **FP-10 — Consolidate device logging to one implementation** (F6).
-  Preserve levels, file fallback, module labels, and formatting used by the
-  examples before removing either dependency.
-  **Completed (2026-07-02):** production defaults to `NullLogger`, development
-  can install `log-to-file` with `--with-logger`, runtime heap falls 5,456
-  clean-adjusted bytes, guaranteed production file allocation falls 12 KiB,
-  both target profiles and physical OTA pass, and 78 regressions pass.
+      Preserve levels, file fallback, module labels, and formatting used by the
+      examples before removing either dependency.
+      **Completed (2026-07-02):** production defaults to `NullLogger`, development
+      can install `log-to-file` with `--with-logger`, runtime heap falls 5,456
+      clean-adjusted bytes, guaranteed production file allocation falls 12 KiB,
+      both target profiles and physical OTA pass, and 78 regressions pass.
 - [x] **FP-11 — Add a target-matched `.mpy` deployment profile** (F7). Fail
-  deployment clearly on incompatible bytecode and retain source deployment
-  for development.
-  **Completed (2026-07-02):** the profile validates target version/small-int
-  compatibility before erase, saves 28,672 allocated file bytes and 672
-  steady heap bytes, passes 95 regressions, and completes physical
-  import/boot/`PING`/`LS`/`CAT` checks.
+      deployment clearly on incompatible bytecode and retain source deployment
+      for development.
+      **Completed (2026-07-02):** the profile validates target version/small-int
+      compatibility before erase, saves 28,672 allocated file bytes and 672
+      steady heap bytes, passes 95 regressions, and completes physical
+      import/boot/`PING`/`LS`/`CAT` checks.
 
 ### P2 — compound the gains
 
 - [ ] **FP-12 — Evaluate module consolidation using measured filesystem
-  allocation and module RAM** (F8). Merge only always-loaded pieces.
+      allocation and module RAM** (F8). Merge only always-loaded pieces.
 - [ ] **FP-13 — Evaluate `__slots__`, injected-logger overhead, and ownership
-  cleanup** (F9) on all supported ports.
+      cleanup** (F9) on all supported ports.
 - [ ] **FP-14 — Add explicit GC checkpoints/threshold only if stress data
-  improves** (F9). Record pause-time and fragmentation effects as well as free
-  bytes.
+      improves** (F9). Record pause-time and fragmentation effects as well as free
+      bytes.
 
 ### P3 — production option
 
 - [ ] **FP-15 — Prototype a frozen-module firmware profile** (F7). Freeze
-  stable OTAmpy and URST dependencies, then compare heap, import time,
-  firmware size, filesystem free space, and update workflow against FP-01/02.
+      stable OTAmpy and URST dependencies, then compare heap, import time,
+      firmware size, filesystem free space, and update workflow against FP-01/02.
 
 ## Acceptance rules for every footprint change
 

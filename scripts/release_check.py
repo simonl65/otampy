@@ -92,7 +92,7 @@ def stage_package(destination: Path) -> Path:
     for name in EXAMPLE_FILES:
         shutil.copy2(DEVICE_ROOT / "examples" / name, examples / name)
 
-    forbidden_config = examples / "config.py"
+    forbidden_config = examples / "ota-config.py"
     if forbidden_config.exists():
         raise ReleaseCheckError(
             f"Private configuration must not enter the release: {forbidden_config}"
@@ -167,7 +167,7 @@ def inspect_artifact(path: Path) -> None:
         for name in names
         if "__pycache__" in Path(name).parts
         or name.endswith((".pyc", ".pyo"))
-        or name.endswith("/_device/examples/config.py")
+        or name.endswith("/_device/examples/ota-config.py")
     ]
     if forbidden_names:
         raise ReleaseCheckError(
@@ -178,9 +178,10 @@ def inspect_artifact(path: Path) -> None:
     for relative, canonical in _canonical_bundle_files().items():
         suffix = f"otampy/_device/{relative}"
         member = _find_archive_member(files, suffix)
-        if hashlib.sha256(files[member]).digest() != hashlib.sha256(
-            canonical.read_bytes()
-        ).digest():
+        if (
+            hashlib.sha256(files[member]).digest()
+            != hashlib.sha256(canonical.read_bytes()).digest()
+        ):
             raise ReleaseCheckError(
                 f"Bundled file differs from canonical source: {member}"
             )
@@ -275,7 +276,7 @@ def smoke_test_install(
         capture=True,
     )
 
-    for name in ("boot.py", "main.py", "config.py"):
+    for name in ("boot.py", "main.py", "ota-config.py"):
         if not (project / "device" / name).is_file():
             raise ReleaseCheckError(f"otampy init did not create device/{name}")
     if str(ROOT) in result.stdout or str(ROOT) in result.stderr:

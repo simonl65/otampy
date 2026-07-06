@@ -1159,18 +1159,18 @@ def memory_info(ctx: click.Context) -> None:
     _console().print()
     _console().print("[bold]RAM (Random Access Memory):[/bold]")
     _console().print(
-        f"  Free:      {format_size(ram_free):<9} / {format_size(ram_total)} ({ram_free_pct:.1f}%)"
+        f"  Free:      {ram_free_pct:.1f}% ({format_size(ram_free):<7} / {format_size(ram_total)})"
     )
     _console().print(
-        f"  Allocated: {format_size(ram_alloc):<9} ({ram_alloc_pct:.1f}%)"
+        f"  Allocated: {ram_alloc_pct:.1f}% ({format_size(ram_alloc):<7})"
     )
     _console().print()
     _console().print("[bold]Flash (Storage):[/bold]")
     _console().print(
-        f"  Free:      {format_size(flash_free):<9} / {format_size(flash_total)} ({flash_free_pct:.1f}%)"
+        f"  Free:      {flash_free_pct:.1f}% ({format_size(flash_free):<7} / {format_size(flash_total)})"
     )
     _console().print(
-        f"  Used:      {format_size(flash_used):<9} ({flash_used_pct:.1f}%)"
+        f"  Used:      {flash_used_pct:.1f}% ({format_size(flash_used):<7})"
     )
 
 

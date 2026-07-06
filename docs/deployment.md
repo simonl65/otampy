@@ -35,7 +35,7 @@ Use a dry run to inspect the operation without changing the device:
 otampy deploy --port /dev/ttyACM0 --dry-run
 ```
 
-Run the command from the project root or pass `--project /path/to/project`.
+Run the command from the project root or pass `--device-dir /path/to/project/device`.
 
 ## Source profile
 
@@ -128,7 +128,7 @@ profile for development file logging.
 | Option                | Description                                                           |
 | --------------------- | --------------------------------------------------------------------- |
 | `-p`, `--port PORT`   | Select the device port, such as `/dev/ttyACM0` or `COM3`.             |
-| `--project DIRECTORY` | Select the project containing `device/` (default: current directory). |
+| `--device-dir DIRECTORY` | Select the directory containing `device/` templates.                   |
 | `--with-logger`       | Install `log-to-file` for development logging.                        |
 | `--bytecode`, `--mpy` | Compile and deploy target-matched `.mpy` libraries.                   |
 | `--mpy-cross COMMAND` | Select the compiler executable or command.                            |

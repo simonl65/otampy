@@ -37,7 +37,6 @@ Every request from the Host CLI expects a corresponding response from the Device
 | Request | Response | Description                                         |
 | ------- | -------- | --------------------------------------------------- |
 | `PING`  | `PONG`   | Connection health check.                            |
-| `BL`    | `BL_OK`  | Reboot device into its hardware bootloader.         |
 | `RB`    | `RB_OK`  | Trigger a hardware hard reboot (`machine.reset()`). |
 | `SR`    | `SR_OK`  | Trigger a soft reboot (`machine.soft_reset()`).     |
 

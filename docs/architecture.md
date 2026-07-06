@@ -10,9 +10,10 @@ OTAmpy is structured as a monorepo containing two primary src:
 
 ```
 otampy/
-├── src/
-│   ├── cli/           # Python-based Host Command Line Interface (CPython)
-|       └── device/    # MicroPython libraries and update engine (runs on device)
+└── src/otampy/        # Host CLI package (Python >= 3.12)
+    ├── cli.py         # Click-based command-line interface
+    ├── deploy.py      # Deploy command implementation
+    └── device/        # MicroPython device library & update engine (runs on device)
 ```
 
 The host CLI talks to the device over a serial interface running the **Universal Reliable Serial Transport (URST)** protocol.
@@ -176,10 +177,10 @@ while True:
 
 ## Test Environment Architecture
 
-Since both the CLI package (`src/cli`) and the device package (`src/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.
+Since both the CLI package (`src/otampy`) and the device package (`src/otampy/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.
 
 To achieve complete test isolation:
 
-- `src/device/tests/conftest.py` runs before the device test modules are collected.
+- `src/otampy/device/tests/conftest.py` runs before the device test modules are collected.
 - It dynamically loads the device library into python under the virtual name **`device_otampy`**.
 - This registers all device-side code (e.g., `device_otampy.ota`, `device_otampy.core`) independently, leaving the `otampy` namespace clear for the CPython host CLI package.

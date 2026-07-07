@@ -5,8 +5,6 @@
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PyPI version](https://img.shields.io/pypi/v/otampy.svg)](https://pypi.org/project/otampy/)
-[![Python](https://img.shields.io/pypi/pyversions/otampy.svg)](https://pypi.org/project/otampy/)
-[![CI](https://github.com/simonl65/otampy/actions/workflows/ci.yml/badge.svg)](https://github.com/simonl65/otampy/actions/workflows/ci.yml)
 
 OTAmpy is a lightweight Over-The-Air (OTA) file and system management suite for MicroPython microcontrollers (Raspberry Pi Pico, ESP32, ESP8266, and compatible boards). It provides robust remote firmware updates and device control over wireless serial modules (such as XBee) or any transparent UART connection.
 

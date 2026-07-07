@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 import unittest.mock as mock
 from pathlib import Path
@@ -9,6 +10,8 @@ import pytest
 from click.testing import CliRunner
 
 from otampy.cli import DeviceError, cli, get_default_log_level, set_default_port
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def test_cli_help():
@@ -1428,7 +1431,7 @@ def test_cli_query_connection_retry():
 
 
 def test_cli_port_interactive(tmp_path):
-    runner = CliRunner()
+    runner = CliRunner(env={"NO_COLOR": "1"})
 
     # Mock comports
     mock_port1 = mock.MagicMock()
@@ -1464,12 +1467,13 @@ def test_cli_port_interactive(tmp_path):
 
         # 1. Interactive choice: select 1 (ttyFake1), then select permanent 'p'
         result = runner.invoke(cli, ["ports"], input="1\np\n")
+        plain = _ANSI_ESCAPE.sub("", result.output)
         assert result.exit_code == 0
-        assert "Available serial ports:" in result.output
+        assert "Available serial ports:" in plain
         assert (
             "1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode"
-        ) in result.output
-        assert "Permanent default port set to: /dev/ttyFake1" in result.output
+        ) in plain
+        assert "Permanent default port set to: /dev/ttyFake1" in plain
 
         # Verify file config.json exists and has correct default_port value
         config_file = tmp_path / ".config" / "otampy" / "config.json"
@@ -1487,14 +1491,15 @@ def test_cli_port_interactive(tmp_path):
             ["--port", "/dev/ttyFake2", "ports"],
             input="\n",
         )
+        plain = _ANSI_ESCAPE.sub("", result.output)
         assert result.exit_code == 0
         assert (
             "    1: /dev/ttyFake1 SERIAL1 2e8a:0005 "
             "MicroPython Board in FS mode"
-        ) in result.output
+        ) in plain
         assert (
             "  * 2: /dev/ttyFake2 SERIAL2 0403:6001 FTDI FT232R USB UART"
-        ) in result.output
+        ) in plain
 
         # 2. Interactive choice: select 2, select session 's'
         result = runner.invoke(cli, ["ports"], input="2\ns\n")

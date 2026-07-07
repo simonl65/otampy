@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-release_candidate_(v2.0.0_rc1)-orange?logoColor=orange>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(v2.0.0)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)

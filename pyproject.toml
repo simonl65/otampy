@@ -1,6 +1,6 @@
 [project]
 name = "otampy"
-version = "1.0.0rc2"
+version = "2.0.0rc1"
 description = "Serial OTA application firmware update solution for MicroPython"
 readme = "README.md"
 license = "SUL-1.0"
@@ -14,8 +14,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/simonl65/URST-mpy"
-"Bug Tracker" = "https://github.com/simonl65/URST-mpy/issues"
+"Homepage" = "https://github.com/simonl65/otampy"
+"Bug Tracker" = "https://github.com/simonl65/otampy/issues"
 
 [project.scripts]
 otampy = "otampy.cli:main"
@@ -78,8 +78,8 @@ testpaths = ["tests", "src/otampy/device/tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
 addopts = "--cov=otampy --cov-report=term-missing"
 
-[tool.uv.sources]
-urst = { git = "https://github.com/simonl65/urst-mpy.git" }
+# [tool.uv.sources]
+# urst = { git = "https://github.com/simonl65/urst-mpy.git" }
 
 [tool.uv.workspace]
 members = ["cli"]

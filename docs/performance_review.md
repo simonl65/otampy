@@ -6,32 +6,19 @@ This document contains a speed and memory allocation audit of the `otampy` devic
 
 ## 1. Design & Allocation Review (Stage 1)
 
-### Red Flag: Frequent Heap Allocations in the Hot Path
+### Resolved: Frequent Logging in the Hot Path
 In MicroPython, the garbage collector (GC) costs several milliseconds when it triggers. To avoid this, we must minimize heap allocations in code that runs inside tight loops.
 
-*   **Problem**: In `packages/device/lib/otampy/ota.py`:
+*   **Previous problem**: `OTA.poll()` used to log on every iteration:
     ```python
     def poll(self, callback=None):
-        self._core.logger.debug("OTA manager poll")  # <-- RUNS EVERY ITERATION
+        self._core.logger.debug("OTA manager poll")
         _manager.poll(self._core, callback)
     ```
-    Every loop cycle in `main.py` calls `ota.poll()`. This constantly allocates a string object `"OTA manager poll"` and makes a bound method lookup on the logger. Even if the log level is `ERROR` (discarding the log), Python still pays the lookup and reference cost.
-*   **Recommendation**: Remove the debug print from `poll()` entirely.
-
-*   **Problem**: Example application loop in `packages/device/examples/main.py`:
-    ```python
-    while True:
-        logger.debug("Calling ota.poll()")
-        ota.poll(callback=application_callback)
-
-        logger.debug("Do application stuff")
-        do_application_stuff(counter, last_telemetry)
-
-        logger.debug("Blink!")
-        blinker.blink(1)
-    ```
-    These debug logs allocate string objects on every single loop iteration.
-*   **Recommendation**: Either remove the debug logs, or wrap them behind a level check (see Stage 3).
+*   **Current state**: The call has been removed. The standard deployment also
+    defaults to `NullLogger`, while `--with-logger` installs optional
+    development logging. The example loop performs no unconditional
+    per-iteration logging.
 
 ---
 
@@ -64,12 +51,18 @@ Decorate `ota.poll` or your main loop functions during testing to capture precis
 Dictionary lookups (like resolving `self._core.logger.debug`) are expensive in MicroPython. We can cache reference calls or guard them behind a quick integer comparison.
 
 *   **Guard Logging Calls**:
-    Add a cached `min_level` integer comparison before invoking log operations in loop cycles:
+    For an injected logger in an application hot loop, cache its method and
+    guard message construction behind its level:
     ```python
-    # Inside main loop
-    if logger.min_level <= 0:  # 0 corresponds to DEBUG
-        logger.debug("Calling ota.poll()")
+    debug = logger.debug
+    debug_enabled = getattr(logger, "min_level", 0) <= 0
+
+    # Inside the main loop
+    if debug_enabled:
+        debug("sensor value: %s", sensor_value)
     ```
+    OTAmpy's `NullLogger` sets `min_level` above DEBUG, so this guard also
+    avoids formatting work in the silent profile.
 *   **Use `const()` for Numeric Constants**:
     If your telemetry or manager parser defines state machines or flags, ensure they are declared as `const()` to substitute values at compile-time:
     ```python

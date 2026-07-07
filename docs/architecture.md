@@ -6,13 +6,14 @@ This document describes the design and software architecture of **OTAmpy** — a
 
 ## High-Level Architecture Overview
 
-OTAmpy is structured as a monorepo containing two primary packages:
+OTAmpy is structured as a monorepo containing two primary src:
 
 ```
 otampy/
-├── packages/
-│   ├── cli/       # Python-based Host Command Line Interface (CPython)
-│   └── device/    # MicroPython libraries and update engine (runs on device)
+└── src/otampy/        # Host CLI package (Python >= 3.12)
+    ├── cli.py         # Click-based command-line interface
+    ├── deploy.py      # Deploy command implementation
+    └── device/        # MicroPython device library & update engine (runs on device)
 ```
 
 The host CLI talks to the device over a serial interface running the **Universal Reliable Serial Transport (URST)** protocol.
@@ -38,7 +39,7 @@ classDiagram
     class OTACore {
         +dict config
         +Urst transport
-        +OTALogger logger
+        +Logger logger
         +UART uart
     }
 
@@ -50,7 +51,16 @@ classDiagram
         +poll(OTACore, callback)
     }
 
-    class OTALogger {
+    class Logger {
+        +debug(msg)
+        +info(msg)
+        +warning(msg)
+        +error(msg)
+        +critical(msg)
+    }
+
+    class NullLogger {
+        +int min_level
         +debug(msg)
         +info(msg)
         +warning(msg)
@@ -61,18 +71,32 @@ classDiagram
     OTA --> OTACore : instantiates
     OTA ..> boot : delegates boot() to
     OTA ..> manager : delegates poll() to
-    OTACore --> OTALogger : uses
+    OTACore --> Logger : injected or no-op
+    NullLogger ..|> Logger
 ```
 
 ### Module Responsibilities
 
-| File         | Module/Class           | Description                                                                                                  |
-| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ota.py`     | `OTA`                  | The public **Facade** class. Exposes a simple interface to developers.                                       |
-| `core.py`    | `OTACore`              | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
-| `logger.py`  | `OTALogger`            | Lightweight logging utilities that log to `/logs/ota.log` or fallback to stdout on file system lockups.      |
-| `boot.py`    | `run(core, callback)`  | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag.       |
-| `manager.py` | `poll(core, callback)` | Run-time polling function. Periodically inspects serial transport for command payloads and dispatches them.  |
+| File          | Module/Class            | Description                                                                                                  |
+| ------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ota.py`      | `OTA`                   | The public **Facade** class. Exposes a simple interface to developers.                                       |
+| `core.py`     | `OTACore`               | Shared state container. Handles UART/URST wrapping, default configuration setups, and logger initialization. |
+| `boot.py`     | `run(core, callback)`   | Linear boot-time logic. Checks for the update flag, runs the updater callback, and cleans up the flag.       |
+| `manager.py`  | `poll(core, callback)`  | Run-time polling function. Dispatches commands and lazily delegates copy transfers.                          |
+| `filecopy.py` | `handle(core, command)` | Lazily loaded staged, checksum-verified runtime copy state machine.                                          |
+
+Applications may inject any logger with the methods shown above. If they do
+not, `OTACore` uses the allocation-light `NullLogger`. The example application
+selects the optional `log-to-file` logger when installed and otherwise remains
+silent. OTAmpy does not import a file-logging module in the production profile.
+Runtime copies retain a flat transfer state on `OTACore` only while a copy is
+active; file content is written and hashed in bounded chunks rather than held
+in RAM.
+The host CLI preserves the remote recovery control plane by rejecting a
+complete removal selection before sending its first `RM`.
+It also rejects arguments matching host filesystem entries unless explicitly
+marked as intentional remote path names; no RM path invokes a host deletion
+operation.
 
 ---
 
@@ -80,9 +104,11 @@ classDiagram
 
 Integrating OTAmpy into a MicroPython device requires simple configuration and imports.
 
-### 1. Device Configuration (`config.py`)
+### 1. Device Configuration (`ota-config.py`)
 
-Place a `config.py` in the root of the device directory containing UART connection settings:
+Place a `ota-config.py` in the root of the device directory containing UART
+connection settings. `LOG_LEVEL` and `LOG_FILE` are used by the deployed
+examples only when the optional `log-to-file` package is installed:
 
 ```python
 LOG_LEVEL = "DEBUG"
@@ -114,6 +140,9 @@ uart = UART(
 # Run boot checker (non-blocking if no update requested)
 OTA(uart, config=config).boot()
 ```
+
+Pass the same injected logger to `OTA` in both scripts if the application
+wants logging. Omitting it selects `NullLogger`.
 
 ### 3. Application Main Loop (`main.py`)
 
@@ -148,10 +177,10 @@ while True:
 
 ## Test Environment Architecture
 
-Since both the CLI package (`packages/cli`) and the device package (`packages/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.
+Since both the CLI package (`src/otampy`) and the device package (`src/otampy/device`) share the package namespace `otampy`, global test suites (e.g., executing `pytest` at the repository root) could clash within the python `sys.modules` cache.
 
 To achieve complete test isolation:
 
-- `packages/device/tests/conftest.py` runs before the device test modules are collected.
+- `src/otampy/device/tests/conftest.py` runs before the device test modules are collected.
 - It dynamically loads the device library into python under the virtual name **`device_otampy`**.
 - This registers all device-side code (e.g., `device_otampy.ota`, `device_otampy.core`) independently, leaving the `otampy` namespace clear for the CPython host CLI package.

@@ -3,6 +3,7 @@ __pycache__/
 *.py[oc]
 build/
 dist/
+/release-dist/
 wheels/
 *.egg-info
 
@@ -10,9 +11,12 @@ wheels/
 .venv
 
 config.py
+ota-config.py
 .agents
 .antigravity*
 TODO.md
 .coverage
 *.log
 typings*
+.codex
+/device

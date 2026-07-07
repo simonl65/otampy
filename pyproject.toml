@@ -1,3 +1,41 @@
+[project]
+name = "otampy"
+version = "2.0.0"
+description = "Serial OTA application firmware update solution for MicroPython"
+readme = "README.md"
+license = "SUL-1.0"
+authors = [{ name = "Simon R. Lincoln", email = "oss@codeability.co.uk" }]
+requires-python = ">=3.12"
+dependencies = [
+    "pyserial>=3.5",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "urst-mpy>=1.0.0,<2.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/simonl65/otampy"
+"Bug Tracker" = "https://github.com/simonl65/otampy/issues"
+
+[project.scripts]
+otampy = "otampy.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+
+# This tells pip/setuptools to ignore the 'hardware' and 'packages' 
+# folders and look specifically in the src folder for the code, allowing 
+# installation with:
+# pipx install git+https://github.com/simonl65/otampy.git@develop
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+otampy = ["device/examples/*.py"]
+
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -5,12 +43,13 @@ dev = [
     "ruff>=0.4",
     "micropython-rp2-rpi_pico_w-stubs==1.28.0.*",
     "pytest-watcher>=0.6.3",
+    "python-semantic-release>=10.6.0",
 ]
 
 
 # --- Ruff ---
 [tool.ruff]
-src = ["packages/cli/src", "packages/device/lib"]
+src = ["src"]
 line-length = 80
 target-version = "py310"
 
@@ -35,20 +74,19 @@ indent-style = "space"
 
 # --- Pytest ---
 [tool.pytest.ini_options]
-testpaths = ["packages/cli/tests", "packages/device/tests", "tests"]
+testpaths = ["tests", "src/otampy/device/tests"]
 python_files = ["test_*.py", "*_test.py", "*_tests.py"]
-addopts = "--cov=packages/cli/src/otampy --cov-report=term-missing"
+addopts = "--cov=otampy --cov-report=term-missing"
 
-[tool.uv.sources]
-urst = { git = "https://github.com/simonl65/urst-mpy.git" }
-logger = { git = "https://github.com/simonl65/log-to-file.git" }
+# [tool.uv.sources]
+# urst = { git = "https://github.com/simonl65/urst-mpy.git" }
 
 [tool.uv.workspace]
-members = ["packages/cli"]
+members = ["cli"]
 
 [tool.pyright]
 include = ["."]
-extraPaths = ["./lib", "./packages/cli/src/otampy/deploy.py"]
+extraPaths = ["./lib", "./src/otampy/deploy.py", "./src/otampy/device/examples"]
 ignore = ["**/typings", "**/test/**", "**/tests/**"]
 exclude = [
     ".*",
@@ -69,3 +107,8 @@ pythonPlatform = "Linux"
 reportMissingModuleSource = "none"
 
 stubs = ["micropython-rp2-rpi_pico_w-stubs==1.28.0.*"]
+
+[tool.semantic_release]
+version_variable = "pyproject.toml:version"
+branch = "main"
+upload_to_pypi = false                      # Set this to true when releases also go to PyPI

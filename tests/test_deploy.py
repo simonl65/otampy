@@ -23,9 +23,7 @@ def _patch_sources(exist_flags: dict[str, bool]):
     patches = []
     for name, exists in exist_flags.items():
         real_path: Path = getattr(deploy, name)
-        mock_path = Path(
-            real_path
-        )  # keep the real value for relative_to checks
+        mock_path = Path(real_path)  # keep the real value for relative_to checks
         mock_path = type(  # create a subclass with a patched exists()
             "MockPath",
             (Path,),
@@ -45,7 +43,7 @@ class TestValidateDeploySourcesAllPresent:
     def test_returns_none_when_all_sources_exist(self, tmp_path):
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir()
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         boot = tmp_path / "boot.py"
         boot.touch()
@@ -67,7 +65,7 @@ class TestValidateDeploySourcesMissing:
     """validate_deploy_sources() should exit with code 1 when sources are missing."""
 
     def test_raises_system_exit_when_lib_dir_missing(self, tmp_path):
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         boot = tmp_path / "boot.py"
         boot.touch()
@@ -96,9 +94,7 @@ class TestValidateDeploySourcesMissing:
         with (
             mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "LIB_DIR", lib_dir),  # pyright: ignore[reportFunctionMemberAccess]
-            mock.patch.object(
-                deploy, "CONFIG_FILE", tmp_path / "ota-config.py"
-            ),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "configota.py"),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "BOOT_FILE", boot),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "MAIN_FILE", main),  # pyright: ignore[reportFunctionMemberAccess]
             pytest.raises(SystemExit) as exc_info,
@@ -110,7 +106,7 @@ class TestValidateDeploySourcesMissing:
     def test_raises_system_exit_when_boot_missing(self, tmp_path):
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir()
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         main = tmp_path / "main.py"
         main.touch()
@@ -129,7 +125,7 @@ class TestValidateDeploySourcesMissing:
     def test_raises_system_exit_when_main_missing(self, tmp_path):
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir()
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         boot = tmp_path / "boot.py"
         boot.touch()
@@ -149,9 +145,7 @@ class TestValidateDeploySourcesMissing:
         with (
             mock.patch.object(deploy, "ROOT", tmp_path),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "LIB_DIR", tmp_path / "lib"),  # pyright: ignore[reportFunctionMemberAccess]
-            mock.patch.object(
-                deploy, "CONFIG_FILE", tmp_path / "ota-config.py"
-            ),  # pyright: ignore[reportFunctionMemberAccess]
+            mock.patch.object(deploy, "CONFIG_FILE", tmp_path / "configota.py"),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "BOOT_FILE", tmp_path / "boot.py"),  # pyright: ignore[reportFunctionMemberAccess]
             mock.patch.object(deploy, "MAIN_FILE", tmp_path / "main.py"),  # pyright: ignore[reportFunctionMemberAccess]
             pytest.raises(SystemExit) as exc_info,
@@ -167,7 +161,7 @@ class TestValidateDeploySourcesStderr:
     def test_prints_missing_paths_to_stderr(self, tmp_path, capsys):
         missing_lib = tmp_path / "lib"
 
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         boot = tmp_path / "boot.py"
         boot.touch()
@@ -191,7 +185,7 @@ class TestValidateDeploySourcesStderr:
     def test_prints_config_hint_when_config_missing(self, tmp_path, capsys):
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir()
-        missing_config = tmp_path / "ota-config.py"
+        missing_config = tmp_path / "configota.py"
         boot = tmp_path / "boot.py"
         boot.touch()
         main = tmp_path / "main.py"
@@ -211,15 +205,13 @@ class TestValidateDeploySourcesStderr:
             deploy.validate_deploy_sources()
 
         captured = capsys.readouterr()
-        assert "ota-config.py" in captured.err
+        assert "configota.py" in captured.err
         assert "config.example.py" in captured.err
 
-    def test_no_config_hint_when_only_other_files_missing(
-        self, tmp_path, capsys
-    ):
+    def test_no_config_hint_when_only_other_files_missing(self, tmp_path, capsys):
         lib_dir = tmp_path / "lib"
         # lib_dir intentionally not created
-        config = tmp_path / "ota-config.py"
+        config = tmp_path / "configota.py"
         config.touch()
         boot = tmp_path / "boot.py"
         boot.touch()
@@ -237,8 +229,8 @@ class TestValidateDeploySourcesStderr:
             deploy.validate_deploy_sources()
 
         captured = capsys.readouterr()
-        # ota-config.py hint should NOT appear when config is not missing
-        assert "Create ota-config.py" not in captured.err
+        # configota.py hint should NOT appear when config is not missing
+        assert "Create configota.py" not in captured.err
 
 
 def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):

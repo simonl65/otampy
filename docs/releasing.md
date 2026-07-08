@@ -68,10 +68,10 @@ This single command:
 
 1. runs `uv run ruff check .`;
 2. runs the complete pytest suite;
-3. stages the files and verifies that the canonical device library, `boot.py`, `main.py`, and `ota-config.example.py` are properly bundled;
+3. stages the files and verifies that the canonical device library, `boot.py`, `main.py`, and `configota.example.py` are properly bundled;
 4. builds the sdist and wheel with workspace source overrides disabled;
 5. inspects both archives for every expected device file and checks its hash against the canonical source;
-6. rejects `ota-config.py`, bytecode caches, the maintainer's home directory, and repository paths in the artifacts;
+6. rejects `configota.py`, bytecode caches, the maintainer's home directory, and repository paths in the artifacts;
 7. installs the wheel and its registry dependencies into a clean temporary virtual environment, runs `otampy init`, and runs `otampy deploy --dry-run --no-mip` against the new project.
 
 Verified artifacts are left in `release-dist/`. Temporary staging, installation, and sample-project directories are automatically removed.

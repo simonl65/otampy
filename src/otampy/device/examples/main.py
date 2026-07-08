@@ -2,7 +2,7 @@
 Example main.py
 """
 
-import config  # type: ignore
+import configota as config  # type: ignore
 import machine  # type: ignore
 import utime as time  # type: ignore
 from Blink import Blink  # type: ignore
@@ -17,10 +17,7 @@ try:
 except ImportError:
     logger = NullLogger()
 else:
-    logger = (
-        Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
-        or NullLogger()
-    )
+    logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL) or NullLogger()
 
 logger.debug("MAIN start-up...")
 

@@ -93,17 +93,17 @@ bytecode are therefore included in every probe checkpoint; compare future
 results using the same probe and firmware rather than treating `clean_boot` as
 the production application's absolute floor.
 
-| Checkpoint                      | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
-| ------------------------------- | ------------------: | -------------: | -----------------: | ------------: | ------------: |
-| `clean_boot`                    |               8,704 |        196,736 |              6,448 |       198,992 |      baseline |
-| `import_otampy`                 |              40,432 |        165,008 |             19,216 |       186,224 |       +12,768 |
-| `ota_inputs_ready`              |              26,608 |        178,832 |             22,416 |       183,024 |        +3,200 |
-| `ota_constructed`               |              23,008 |        182,432 |             22,816 |       182,624 |          +400 |
-| `no_flag_boot`                  |              23,376 |        182,064 |             23,376 |       182,064 |          +560 |
-| `first_poll`                    |              27,600 |        177,840 |             25,440 |       180,000 |        +2,064 |
-| `idle_poll`                     |              25,488 |        179,952 |             25,440 |       180,000 |             0 |
-| `LS /`                          |              63,760 |        141,680 |             25,792 |       179,648 |     operation |
-| `CAT ota-config.py` (491 bytes) |              64,992 |        140,448 |             25,808 |       179,632 |     operation |
+| Checkpoint                     | Before GC allocated | Before GC free | After GC allocated | After GC free | Post-GC delta |
+| ------------------------------ | ------------------: | -------------: | -----------------: | ------------: | ------------: |
+| `clean_boot`                   |               8,704 |        196,736 |              6,448 |       198,992 |      baseline |
+| `import_otampy`                |              40,432 |        165,008 |             19,216 |       186,224 |       +12,768 |
+| `ota_inputs_ready`             |              26,608 |        178,832 |             22,416 |       183,024 |        +3,200 |
+| `ota_constructed`              |              23,008 |        182,432 |             22,816 |       182,624 |          +400 |
+| `no_flag_boot`                 |              23,376 |        182,064 |             23,376 |       182,064 |          +560 |
+| `first_poll`                   |              27,600 |        177,840 |             25,440 |       180,000 |        +2,064 |
+| `idle_poll`                    |              25,488 |        179,952 |             25,440 |       180,000 |             0 |
+| `LS /`                         |              63,760 |        141,680 |             25,792 |       179,648 |     operation |
+| `CAT configota.py` (491 bytes) |              64,992 |        140,448 |             25,808 |       179,632 |     operation |
 
 The deltas are between adjacent post-GC boot-probe checkpoints. `LS` and `CAT`
 were measured independently after a normal reset, successful command, and
@@ -151,7 +151,7 @@ Every deployed file was captured:
 | File                               | Logical bytes | Minimum rounded bytes |
 | ---------------------------------- | ------------: | --------------------: |
 | `/boot.py`                         |           688 |                 4,096 |
-| `/ota-config.py`                   |           491 |                 4,096 |
+| `/configota.py`                    |           491 |                 4,096 |
 | `/main.py`                         |         2,568 |                 4,096 |
 | `/lib/Blink.py`                    |           346 |                 4,096 |
 | `/lib/log_to_file/__init__.py`     |         5,018 |                 8,192 |
@@ -299,7 +299,7 @@ configuration state. The lifecycle checkpoints where configuration is live
 show a small but real reduction. This confirms that a dedicated adapter would
 be over-engineering on this MicroPython build.
 
-The probe exercised the deployed module-style `ota-config.py` through no-flag boot
+The probe exercised the deployed module-style `configota.py` through no-flag boot
 and runtime polling. Production `/boot.py` was restored to its established
 SHA-256, all three changed modules matched their committed checksums, and the
 board was reset and verified responsive over USB.
@@ -335,7 +335,7 @@ fragment and prove exact logical payloads for both large cases; existing
 ordinary-response tests remain byte-for-byte unchanged.
 
 The physical OTA UART round trip was completed later on 2026-07-01. CLI
-`PING` returned `PONG`; fragmented `CAT ota-config.py` reassembled 491 bytes with
+`PING` returned `PONG`; fragmented `CAT configota.py` reassembled 491 bytes with
 SHA-256 `5acd4e06427a59b9afcd97655915fda057558525096de4e98ce24f3dca4930cf`,
 exactly matching the file on the Pico; and fragmented `LS /fp-stress-dir`
 reassembled a 255-byte payload containing exactly 64 expected filenames. The
@@ -455,7 +455,7 @@ profile deliberately emits bytecode rather than native code, so the `.mpy`
 minor/native-architecture compatibility rules do not apply.
 
 Only library and dependency modules are compiled. Root `boot.py`, `main.py`,
-and `ota-config.py` remain source files. The bytecode profile packages URST itself,
+and `configota.py` remain source files. The bytecode profile packages URST itself,
 does not run MIP, and rejects `--with-logger`; source plus optional
 `log-to-file` remains the development profile.
 
@@ -494,13 +494,13 @@ physical `PING`, `LS`, and `CAT` passed; and all 95 host regressions passed.
 
 These are host-side raw `.py` byte counts, not on-device allocation:
 
-| Deployed content                                           |  Files |  Raw bytes |
-| ---------------------------------------------------------- | -----: | ---------: |
-| `lib/otampy`                                               |      5 |     21,002 |
-| `lib/Blink.py`                                             |      1 |        346 |
-| deployed `boot.py`, `main.py`, and current `ota-config.py` |      3 |      3,874 |
-| locally installed URST package                             |      6 |     20,232 |
-| **Known subtotal**                                         | **15** | **45,454** |
+| Deployed content                                          |  Files |  Raw bytes |
+| --------------------------------------------------------- | -----: | ---------: |
+| `lib/otampy`                                              |      5 |     21,002 |
+| `lib/Blink.py`                                            |      1 |        346 |
+| deployed `boot.py`, `main.py`, and current `configota.py` |      3 |      3,874 |
+| locally installed URST package                            |      6 |     20,232 |
+| **Known subtotal**                                        | **15** | **45,454** |
 
 This subtotal excludes `log-to-file`, logs, orphaned `.ota` files, other
 application files, and filesystem overhead. Consequently, source minification

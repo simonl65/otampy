@@ -23,7 +23,9 @@ def _patch_sources(exist_flags: dict[str, bool]):
     patches = []
     for name, exists in exist_flags.items():
         real_path: Path = getattr(deploy, name)
-        mock_path = Path(real_path)  # keep the real value for relative_to checks
+        mock_path = Path(
+            real_path
+        )  # keep the real value for relative_to checks
         mock_path = type(  # create a subclass with a patched exists()
             "MockPath",
             (Path,),
@@ -208,7 +210,9 @@ class TestValidateDeploySourcesStderr:
         assert "configota.py" in captured.err
         assert "config.example.py" in captured.err
 
-    def test_no_config_hint_when_only_other_files_missing(self, tmp_path, capsys):
+    def test_no_config_hint_when_only_other_files_missing(
+        self, tmp_path, capsys
+    ):
         lib_dir = tmp_path / "lib"
         # lib_dir intentionally not created
         config = tmp_path / "configota.py"

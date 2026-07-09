@@ -17,7 +17,10 @@ try:
 except ImportError:
     logger = NullLogger()
 else:
-    logger = Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL) or NullLogger()
+    logger = (
+        Logger(config.LOG_FILE, "main.py", level=config.LOG_LEVEL)
+        or NullLogger()
+    )
 
 logger.debug("MAIN start-up...")
 

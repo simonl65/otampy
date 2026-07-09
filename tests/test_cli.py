@@ -1559,3 +1559,90 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         with open(config_file) as f:
             assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
+
+
+def test_device_dir_set_creates_missing_directory(tmp_path):
+    runner = CliRunner()
+    fake_ppid = 99997
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
+    session_file.write_text(json.dumps({"device_dir": str(project_root / "old")}))
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        result = runner.invoke(cli, ["device-dir", "--set", "/xyz"], input="y\n")
+
+    assert result.exit_code == 0
+    assert (project_root / "xyz").is_dir()
+    assert "Permanent device directory set to: /xyz" in result.output
+
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    saved = json.loads(config_file.read_text())
+    assert saved["projects"][str(project_root)]["device_dir"] == "xyz"
+    if session_file.exists():
+        assert "device_dir" not in json.loads(session_file.read_text())
+
+
+def test_device_dir_set_does_not_save_when_creation_declined(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=99996),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        result = runner.invoke(cli, ["device-dir", "--set", "/xyz"], input="n\n")
+
+    assert result.exit_code == 0
+    assert not (project_root / "xyz").exists()
+    assert "Cancelled." in result.output
+    assert not (tmp_path / ".config" / "otampy" / "config.json").exists()
+
+
+def test_device_dir_interactive_creates_missing_directory_and_saves_session(tmp_path):
+    runner = CliRunner()
+    fake_ppid = 99995
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=fake_ppid),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        result = runner.invoke(cli, ["device-dir"], input="/nested/device\ny\ns\n")
+
+    assert result.exit_code == 0
+    created = project_root / "nested" / "device"
+    assert created.is_dir()
+    assert "Session device directory set to: /nested/device" in result.output
+
+    session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
+    assert json.loads(session_file.read_text())["device_dir"] == str(created)
+
+
+def test_device_dir_set_rejects_existing_file(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "not-a-dir").write_text("content")
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=99994),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        result = runner.invoke(cli, ["device-dir", "--set", "/not-a-dir"])
+
+    assert result.exit_code != 0
+    assert "Device directory is not a directory" in result.output

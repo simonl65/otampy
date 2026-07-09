@@ -409,6 +409,24 @@ def set_default_device_dir(device_dir: str | None, session: bool = False) -> Non
         raise click.ClickException(f"Failed to save permanent device dir: {e}") from e
 
 
+def _ensure_device_dir_exists(path: Path) -> bool:
+    """Create a missing device directory when the user confirms."""
+    if path.is_dir():
+        return True
+    if path.exists():
+        raise click.ClickException(f"Device directory is not a directory: {path}")
+
+    if not click.confirm(f"Directory does not exist: {path}. Create it?", default=True):
+        _console().print("Cancelled.")
+        return False
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise click.ClickException(f"Failed to create device directory: {e}") from e
+    return True
+
+
 def _offer_to_save_log_level(level: str) -> None:
     choice = click.prompt(
         f"Keep {level} as the log level? (p=permanent, s=session, c=current command only)",
@@ -1616,8 +1634,8 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
 
     if set_dir:
         resolved = _resolve_device_dir_input(set_dir)
-        if not resolved.is_dir():
-            raise click.ClickException(f"Directory does not exist: {resolved}")
+        if not _ensure_device_dir_exists(resolved):
+            return
         abs_str = str(resolved)
         set_default_device_dir(abs_str)
         set_default_device_dir(None, session=True)
@@ -1642,8 +1660,8 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         return
 
     resolved = _resolve_device_dir_input(new_dir)
-    if not resolved.is_dir():
-        raise click.ClickException(f"Directory does not exist: {resolved}")
+    if not _ensure_device_dir_exists(resolved):
+        return
 
     display = _to_display_path(str(resolved))
     choice = (

@@ -11,7 +11,7 @@ wheels/
 .venv
 
 config.py
-ota-config.py
+configota.py
 .agents
 .antigravity*
 TODO.md

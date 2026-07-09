@@ -1,5 +1,5 @@
 """
-RENAME THIS FILE TO ota-config.py AND EDIT THE VALUES BELOW TO MATCH YOUR ENVIRONMENT
+RENAME THIS FILE TO configota.py AND EDIT THE VALUES BELOW TO MATCH YOUR ENVIRONMENT
 """
 
 # Used by the examples when optional log-to-file support is installed.

@@ -2,7 +2,7 @@
 Example boot.py
 """
 
-import config
+import configota as config  # type: ignore
 from machine import UART, Pin  # type: ignore
 
 from otampy import OTA, NullLogger  # type: ignore
@@ -12,10 +12,7 @@ try:
 except ImportError:
     logger = NullLogger()
 else:
-    logger = (
-        Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL)
-        or NullLogger()
-    )
+    logger = Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL) or NullLogger()
 
 uart = UART(
     config.OTA_PORT,

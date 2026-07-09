@@ -42,9 +42,7 @@ def _console() -> Console:
 class AliasedGroup(click.Group):
     """A Click Group that supports convenient aliases for its subcommands."""
 
-    def get_command(
-        self, ctx: click.Context, cmd_name: str
-    ) -> click.Command | None:
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         normalized_name = cmd_name.lower()
         # First try to get the command exactly, case-insensitive
         rv = click.Group.get_command(self, ctx, normalized_name)
@@ -78,10 +76,7 @@ def _detect_project_root() -> Path:
     """
     here = Path.cwd().resolve()
     for p in (here, *here.parents):
-        if any(
-            (p / marker).exists()
-            for marker in (".git", "pyproject.toml", "uv.lock", "setup.py")
-        ):
+        if any((p / marker).exists() for marker in (".git", "pyproject.toml", "uv.lock", "setup.py")):
             return p
     return here
 
@@ -139,9 +134,7 @@ def _migrate_flat_keys(data: dict) -> dict:
         if key in data and "projects" not in data:
             # Migrate under current project root
             project_root = str(_detect_project_root())
-            data.setdefault("projects", {}).setdefault(project_root, {})[
-                key
-            ] = data.pop(key)
+            data.setdefault("projects", {}).setdefault(project_root, {})[key] = data.pop(key)
     for key in flat_global_keys:
         if key in data and "global" not in data:
             data.setdefault("global", {})[key] = data.pop(key)
@@ -164,9 +157,7 @@ def _read_project_config(project_root: Path | None = None) -> dict:
     return data.get("projects", {}).get(root, {})
 
 
-def _write_project_config(
-    updates: dict, project_root: Path | None = None
-) -> None:
+def _write_project_config(updates: dict, project_root: Path | None = None) -> None:
     """Merge *updates* into the project-scoped section of the permanent config.
 
     Keys with a value of ``None`` are removed.
@@ -253,9 +244,7 @@ def set_default_port(port: str | None, session: bool = False) -> None:
                 data["default_port"] = port
             _write_json(path, data)
         except Exception as e:
-            raise click.ClickException(
-                f"Failed to save session port: {e}"
-            ) from e
+            raise click.ClickException(f"Failed to save session port: {e}") from e
         return
 
     try:
@@ -299,17 +288,13 @@ def set_default_log_level(level: str | None, session: bool = False) -> None:
                 data["log_level"] = level.upper()
             _write_json(path, data)
         except Exception as e:
-            raise click.ClickException(
-                f"Failed to save session log level: {e}"
-            ) from e
+            raise click.ClickException(f"Failed to save session log level: {e}") from e
         return
 
     try:
         _write_global_config({"log_level": level.upper() if level else None})
     except Exception as e:
-        raise click.ClickException(
-            f"Failed to save permanent log level: {e}"
-        ) from e
+        raise click.ClickException(f"Failed to save permanent log level: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +347,7 @@ def _resolve_device_dir_input(raw: str) -> Path:
         resolved.relative_to(project_root)
     except ValueError as ex:
         raise click.ClickException(
-            f"Device directory must be inside the project root "
-            f"({project_root}): {resolved}"
+            f"Device directory must be inside the project root ({project_root}): {resolved}"
         ) from ex
 
     return resolved
@@ -390,9 +374,7 @@ def get_default_device_dir() -> str | None:
     return None
 
 
-def set_default_device_dir(
-    device_dir: str | None, session: bool = False
-) -> None:
+def set_default_device_dir(device_dir: str | None, session: bool = False) -> None:
     if session:
         path = _session_config_path()
         try:
@@ -403,9 +385,7 @@ def set_default_device_dir(
                 data["device_dir"] = device_dir
             _write_json(path, data)
         except Exception as e:
-            raise click.ClickException(
-                f"Failed to save session device dir: {e}"
-            ) from e
+            raise click.ClickException(f"Failed to save session device dir: {e}") from e
         return
 
     try:
@@ -420,22 +400,18 @@ def set_default_device_dir(
                 relative = str(abs_dir.relative_to(project_root))
             except ValueError as ex:
                 raise click.ClickException(
-                    f"Device directory must be inside the project root "
-                    f"({project_root}): {abs_dir}"
+                    f"Device directory must be inside the project root ({project_root}): {abs_dir}"
                 ) from ex
             _write_project_config({"device_dir": relative})
     except click.ClickException:
         raise
     except Exception as e:
-        raise click.ClickException(
-            f"Failed to save permanent device dir: {e}"
-        ) from e
+        raise click.ClickException(f"Failed to save permanent device dir: {e}") from e
 
 
 def _offer_to_save_log_level(level: str) -> None:
     choice = click.prompt(
-        f"Keep {level} as the log level? "
-        "(p=permanent, s=session, c=current command only)",
+        f"Keep {level} as the log level? (p=permanent, s=session, c=current command only)",
         type=click.Choice(("p", "s", "c"), case_sensitive=False),
         default="c",
     ).lower()
@@ -499,11 +475,7 @@ def cli(
 def _friendly_error(err_msg: str, command: bytes) -> str:
     err_msg_lower = err_msg.lower()
     target = ""
-    is_directory_err = (
-        "eisdir" in err_msg_lower
-        or "errno 21" in err_msg_lower
-        or err_msg == "21"
-    )
+    is_directory_err = "eisdir" in err_msg_lower or "errno 21" in err_msg_lower or err_msg == "21"
     try:
         cmd_str = command.decode("utf-8", errors="replace")
         parts = cmd_str.split(":", 1)
@@ -515,41 +487,17 @@ def _friendly_error(err_msg: str, command: bytes) -> str:
     except Exception:
         pass
 
-    if (
-        "enoent" in err_msg_lower
-        or "errno 2" in err_msg_lower
-        or err_msg == "2"
-    ):
+    if "enoent" in err_msg_lower or "errno 2" in err_msg_lower or err_msg == "2":
         return f"No such file or directory{target}"
-    if (
-        "eacces" in err_msg_lower
-        or "errno 13" in err_msg_lower
-        or err_msg == "13"
-    ):
+    if "eacces" in err_msg_lower or "errno 13" in err_msg_lower or err_msg == "13":
         return f"Permission denied{target}"
-    if (
-        "enospc" in err_msg_lower
-        or "errno 28" in err_msg_lower
-        or err_msg == "28"
-    ):
+    if "enospc" in err_msg_lower or "errno 28" in err_msg_lower or err_msg == "28":
         return "No space left on device"
-    if (
-        "eexist" in err_msg_lower
-        or "errno 17" in err_msg_lower
-        or err_msg == "17"
-    ):
+    if "eexist" in err_msg_lower or "errno 17" in err_msg_lower or err_msg == "17":
         return f"File or directory already exists{target}"
-    if (
-        "eisdir" in err_msg_lower
-        or "errno 21" in err_msg_lower
-        or err_msg == "21"
-    ):
+    if "eisdir" in err_msg_lower or "errno 21" in err_msg_lower or err_msg == "21":
         return f"Is a directory{target}"
-    if (
-        "enotdir" in err_msg_lower
-        or "errno 20" in err_msg_lower
-        or err_msg == "20"
-    ):
+    if "enotdir" in err_msg_lower or "errno 20" in err_msg_lower or err_msg == "20":
         return f"Not a directory{target}"
     if (
         "enotempty" in err_msg_lower
@@ -576,9 +524,7 @@ def _query(
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
-        raise click.ClickException(
-            "Error: Missing serial port. Specify with --port or -p option."
-        )
+        raise click.ClickException("Error: Missing serial port. Specify with --port or -p option.")
 
     import time
 
@@ -592,9 +538,7 @@ def _query(
 
         response = transport.read()
         if not response:
-            raise click.ClickException(
-                f"Timeout waiting for response to command: {command.decode()}"
-            )
+            raise click.ClickException(f"Timeout waiting for response to command: {command.decode()}")
 
         # Check for device error response
         if response.startswith(b"ERROR:"):
@@ -602,11 +546,7 @@ def _query(
             raise DeviceError(err_msg, command)
 
         if not response.startswith(expected_prefix):
-            resp_str = (
-                response.decode("utf-8", errors="replace")
-                if isinstance(response, bytes)
-                else str(response)
-            )
+            resp_str = response.decode("utf-8", errors="replace") if isinstance(response, bytes) else str(response)
             raise click.ClickException(
                 f"Unexpected response to command '{command.decode()}'. "
                 f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
@@ -614,10 +554,7 @@ def _query(
 
         # Return payload after prefix and potential colon separator
         prefix_len = len(expected_prefix)
-        if (
-            len(response) > prefix_len
-            and response[prefix_len : prefix_len + 1] == b":"
-        ):
+        if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
             res = response[prefix_len + 1 :]
         else:
             res = response[prefix_len:]
@@ -648,15 +585,11 @@ def _query(
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not new_transport.send(command):
-                raise click.ClickException(
-                    "Failed to send command over transport."
-                )
+                raise click.ClickException("Failed to send command over transport.")
 
             response = new_transport.read()
             if not response:
-                raise click.ClickException(
-                    f"Timeout waiting for response to command: {command.decode()}"
-                )
+                raise click.ClickException(f"Timeout waiting for response to command: {command.decode()}")
 
             # Check for device error response
             if response.startswith(b"ERROR:"):
@@ -665,11 +598,7 @@ def _query(
                 raise DeviceError(err_msg, command)
 
             if not response.startswith(expected_prefix):
-                resp_str = (
-                    response.decode("utf-8", errors="replace")
-                    if isinstance(response, bytes)
-                    else str(response)
-                )
+                resp_str = response.decode("utf-8", errors="replace") if isinstance(response, bytes) else str(response)
                 ser.close()
                 raise click.ClickException(
                     f"Unexpected response to command '{command.decode()}'. "
@@ -678,10 +607,7 @@ def _query(
 
             # Return payload after prefix and potential colon separator
             prefix_len = len(expected_prefix)
-            if (
-                len(response) > prefix_len
-                and response[prefix_len : prefix_len + 1] == b":"
-            ):
+            if len(response) > prefix_len and response[prefix_len : prefix_len + 1] == b":":
                 res = response[prefix_len + 1 :]
             else:
                 res = response[prefix_len:]
@@ -712,9 +638,7 @@ def _handle_device_error(device_error: DeviceError) -> None:
     raise SystemExit(1)
 
 
-def _send_command(
-    ctx: click.Context, command: bytes, expected_response: bytes
-) -> None:
+def _send_command(ctx: click.Context, command: bytes, expected_response: bytes) -> None:
     """Send command and verify response (backward compatible)."""
     _query(ctx, command, expected_response)
 
@@ -736,9 +660,7 @@ def ping(ctx: click.Context) -> None:
 def reboot(ctx: click.Context) -> None:
     """Hard reboots the device."""
     if not click.confirm(
-        click.style(
-            "Are you sure you want to hard reboot the device?", fg="red"
-        ),
+        click.style("Are you sure you want to hard reboot the device?", fg="red"),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
@@ -755,9 +677,7 @@ def reboot(ctx: click.Context) -> None:
 def soft_reset(ctx: click.Context) -> None:
     """Soft resets the device."""
     if not click.confirm(
-        click.style(
-            "Are you sure you want to soft reset the device?", fg="red"
-        ),
+        click.style("Are you sure you want to soft reset the device?", fg="red"),
         default=False,
     ):
         _console().print("[yellow]Aborted.[/yellow]")
@@ -778,9 +698,7 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
         _console().print(f"[green]Listing content of {path}...[/green]")
         cmd = f"LS:{path}".encode()
     else:
-        _console().print(
-            "[green]Listing content of current directory...[/green]"
-        )
+        _console().print("[green]Listing content of current directory...[/green]")
         cmd = b"LS"
 
     try:
@@ -799,9 +717,7 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
 @click.pass_context
 def cat(ctx: click.Context, file: str) -> None:
     """Shows content of specified file on device."""
-    _console().print(
-        f"[green]Showing content of specified file: {file}[/green]"
-    )
+    _console().print(f"[green]Showing content of specified file: {file}[/green]")
     try:
         resp, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
     except DeviceError as e:
@@ -819,9 +735,7 @@ def _join_remote_path(parent: str, name: str) -> str:
     return f"{parent.rstrip('/')}/{name}"
 
 
-def _remote_directory_entries(
-    ctx: click.Context, path: str
-) -> list[tuple[str, bool, str]]:
+def _remote_directory_entries(ctx: click.Context, path: str) -> list[tuple[str, bool, str]]:
     command = b"LS" if path in ("", ".") else f"LS:{path}".encode()
     resp, _ = _query(ctx, command, b"LS_OK")
     entries = []
@@ -844,9 +758,7 @@ def _expand_remote_pattern(ctx: click.Context, pattern: str) -> list[str]:
     from fnmatch import fnmatchcase
 
     pattern = _canonical_remote_argument(pattern)
-    segments = [
-        segment for segment in pattern.split("/") if segment not in ("", ".")
-    ]
+    segments = [segment for segment in pattern.split("/") if segment not in ("", ".")]
     if not segments:
         return []
 
@@ -859,9 +771,7 @@ def _expand_remote_pattern(ctx: click.Context, pattern: str) -> list[str]:
 
         if segment == "**":
             if final_segment:
-                for path, is_dir, _name in _remote_directory_entries(
-                    ctx, parent
-                ):
+                for path, is_dir, _name in _remote_directory_entries(ctx, parent):
                     if is_dir:
                         walk(path, index)
                     matches.append(path)
@@ -894,9 +804,7 @@ def _expand_remote_pattern(ctx: click.Context, pattern: str) -> list[str]:
     return list(dict.fromkeys(matches))
 
 
-def _expand_remote_targets(
-    ctx: click.Context, patterns: tuple[str, ...]
-) -> list[str]:
+def _expand_remote_targets(ctx: click.Context, patterns: tuple[str, ...]) -> list[str]:
     targets = []
     unmatched = []
     for pattern in patterns:
@@ -905,9 +813,7 @@ def _expand_remote_targets(
             try:
                 matches = _expand_remote_pattern(ctx, pattern)
             except DeviceError as e:
-                raise click.ClickException(
-                    _friendly_error(e.error_msg, e.command)
-                ) from e
+                raise click.ClickException(_friendly_error(e.error_msg, e.command)) from e
             if not matches:
                 unmatched.append(pattern)
             targets.extend(matches)
@@ -915,16 +821,14 @@ def _expand_remote_targets(
             targets.append(pattern.rstrip("/") or "/")
 
     if unmatched:
-        raise click.ClickException(
-            "No remote paths matched: " + ", ".join(unmatched)
-        )
+        raise click.ClickException("No remote paths matched: " + ", ".join(unmatched))
     return list(dict.fromkeys(targets))
 
 
 _PROTECTED_RECOVERY_PATHS = (
     "boot.py",
     "main.py",
-    "ota-config.py",
+    "configota.py",
     "lib/otampy",
     "lib/urst",
 )
@@ -943,17 +847,13 @@ def _is_protected_recovery_path(path: str) -> bool:
     if not normalized:
         return True
     return any(
-        normalized == protected
-        or normalized.startswith(protected + "/")
-        or protected.startswith(normalized + "/")
+        normalized == protected or normalized.startswith(protected + "/") or protected.startswith(normalized + "/")
         for protected in _PROTECTED_RECOVERY_PATHS
     )
 
 
 def _validate_removal_targets(targets: list[str]) -> None:
-    protected = [
-        target for target in targets if _is_protected_recovery_path(target)
-    ]
+    protected = [target for target in targets if _is_protected_recovery_path(target)]
     if protected:
         raise click.ClickException(
             "Refusing to remove protected recovery path(s): "
@@ -962,16 +862,10 @@ def _validate_removal_targets(targets: list[str]) -> None:
         )
 
 
-def _validate_remote_only_arguments(
-    files: tuple[str, ...], literal_remote_paths: bool
-) -> None:
+def _validate_remote_only_arguments(files: tuple[str, ...], literal_remote_paths: bool) -> None:
     if literal_remote_paths:
         return
-    local_matches = [
-        file
-        for file in files
-        if not file.startswith(":") and Path(file).exists()
-    ]
+    local_matches = [file for file in files if not file.startswith(":") and Path(file).exists()]
     if local_matches:
         raise click.ClickException(
             "RM only deletes paths on the remote device, but these arguments "
@@ -991,9 +885,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
-        raise click.ClickException(
-            "Error: Missing serial port. Specify with --port or -p option."
-        )
+        raise click.ClickException("Error: Missing serial port. Specify with --port or -p option.")
 
     ser = None
     try:
@@ -1075,15 +967,10 @@ def remove(
     _validate_remote_only_arguments(files, literal_remote_paths)
     targets = _expand_remote_targets(ctx, files)
     _validate_removal_targets(targets)
-    target_summary = (
-        f"'{targets[0]}'"
-        if len(targets) == 1
-        else f"these {len(targets)} paths: {', '.join(targets)}"
-    )
+    target_summary = f"'{targets[0]}'" if len(targets) == 1 else f"these {len(targets)} paths: {', '.join(targets)}"
     if not click.confirm(
         click.style(
-            f"Are you sure you want to remove {target_summary} "
-            "from the remote device?",
+            f"Are you sure you want to remove {target_summary} from the remote device?",
             fg="red",
         ),
         default=False,
@@ -1100,18 +987,12 @@ def remove(
             if "directory not empty" in friendly.lower():
                 _console().print(f"[yellow]{friendly}[/yellow]")
                 if click.confirm(
-                    "Remote directory is not empty. "
-                    "Remove all contents recursively?",
+                    "Remote directory is not empty. Remove all contents recursively?",
                     default=False,
                 ):
-                    _console().print(
-                        "[yellow]Recursively removing directory on "
-                        "device...[/yellow]"
-                    )
+                    _console().print("[yellow]Recursively removing directory on device...[/yellow]")
                     _recursive_rm_with_connection(ctx, file)
-                    _console().print(
-                        "[green]Directory removed successfully.[/green]"
-                    )
+                    _console().print("[green]Directory removed successfully.[/green]")
                 else:
                     _console().print("[yellow]Skipped.[/yellow]")
             else:
@@ -1137,9 +1018,7 @@ def memory_info(ctx: click.Context) -> None:
         flash_free = int(parts[2])
         flash_total = int(parts[3])
     except (ValueError, IndexError) as e:
-        raise click.ClickException(
-            f"Invalid memory response from device: {payload}"
-        ) from e
+        raise click.ClickException(f"Invalid memory response from device: {payload}") from e
 
     ram_total = ram_free + ram_alloc
     ram_free_pct = (ram_free / ram_total * 100) if ram_total > 0 else 0
@@ -1158,45 +1037,29 @@ def memory_info(ctx: click.Context) -> None:
     _console().print("[bold cyan]Memory Information:[/bold cyan]")
     _console().print()
     _console().print("[bold]RAM (Random Access Memory):[/bold]")
-    _console().print(
-        f"  Free:      {ram_free_pct:.1f}% ({format_size(ram_free):<7} / {format_size(ram_total)})"
-    )
-    _console().print(
-        f"  Allocated: {ram_alloc_pct:.1f}% ({format_size(ram_alloc):<7})"
-    )
+    _console().print(f"  Free:      {ram_free_pct:.1f}% ({format_size(ram_free):<7} / {format_size(ram_total)})")
+    _console().print(f"  Allocated: {ram_alloc_pct:.1f}% ({format_size(ram_alloc):<7})")
     _console().print()
     _console().print("[bold]Flash (Storage):[/bold]")
-    _console().print(
-        f"  Free:      {flash_free_pct:.1f}% ({format_size(flash_free):<7} / {format_size(flash_total)})"
-    )
-    _console().print(
-        f"  Used:      {flash_used_pct:.1f}% ({format_size(flash_used):<7})"
-    )
+    _console().print(f"  Free:      {flash_free_pct:.1f}% ({format_size(flash_free):<7} / {format_size(flash_total)})")
+    _console().print(f"  Used:      {flash_used_pct:.1f}% ({format_size(flash_used):<7})")
 
 
 def _split_update_arg(arg: str) -> tuple[str, str | None]:
     separator = arg.find(":")
-    if (
-        separator == 1
-        and arg[0].isalpha()
-        and len(arg) > 2
-        and arg[2] in ("\\", "/")
-    ):
+    if separator == 1 and arg[0].isalpha() and len(arg) > 2 and arg[2] in ("\\", "/"):
         separator = arg.find(":", 3)
     if separator < 0:
         return arg, None
     return arg[:separator], arg[separator + 1 :]
 
 
-def _update_target_path(
-    source: Path, target: str | None, multiple_matches: bool
-) -> str:
+def _update_target_path(source: Path, target: str | None, multiple_matches: bool) -> str:
     if target is not None:
         target_is_dir = target.endswith(("/", "\\"))
         if multiple_matches and not target_is_dir:
             raise click.ClickException(
-                "A wildcard matching multiple files requires a destination "
-                f"directory ending in '/': {target}"
+                f"A wildcard matching multiple files requires a destination directory ending in '/': {target}"
             )
         if target_is_dir:
             return target.rstrip("/\\") + "/" + source.name
@@ -1208,9 +1071,7 @@ def _update_target_path(
         return str(source)
 
 
-def _get_files_to_send(
-    args: tuple[str, ...], *, python_only: bool = True
-) -> list[tuple[str, Path]]:
+def _get_files_to_send(args: tuple[str, ...], *, python_only: bool = True) -> list[tuple[str, Path]]:
     from glob import glob, has_magic
 
     res = []
@@ -1220,10 +1081,7 @@ def _get_files_to_send(
         for arg in args:
             src_str, target_str = _split_update_arg(arg)
             if has_magic(src_str):
-                sources = [
-                    Path(match)
-                    for match in sorted(glob(src_str, recursive=True))
-                ]
+                sources = [Path(match) for match in sorted(glob(src_str, recursive=True))]
             else:
                 source = Path(src_str)
                 sources = [source] if source.exists() else []
@@ -1235,9 +1093,7 @@ def _get_files_to_send(
                 elif source.is_dir():
                     pattern = "*.py" if python_only else "*"
                     matched_files.extend(
-                        (file, file.relative_to(source))
-                        for file in sorted(source.rglob(pattern))
-                        if file.is_file()
+                        (file, file.relative_to(source)) for file in sorted(source.rglob(pattern)) if file.is_file()
                     )
 
             if not matched_files:
@@ -1247,9 +1103,7 @@ def _get_files_to_send(
             multiple_matches = len(matched_files) > 1
             for source, relative in matched_files:
                 if relative is None:
-                    target_path = _update_target_path(
-                        source, target_str, multiple_matches
-                    )
+                    target_path = _update_target_path(source, target_str, multiple_matches)
                 elif target_str is not None:
                     target_path = target_str.rstrip("/\\") + "/" + str(relative)
                 else:
@@ -1260,9 +1114,7 @@ def _get_files_to_send(
                 res.append((target_path.replace("\\", "/"), source))
 
         if unmatched:
-            raise click.ClickException(
-                "No local files matched: " + ", ".join(unmatched)
-            )
+            raise click.ClickException("No local files matched: " + ", ".join(unmatched))
     else:
         p_main = Path("main.py")
         if p_main.is_file():
@@ -1282,13 +1134,10 @@ def _get_files_to_send(
         for j, t2 in enumerate(target_paths):
             if i != j:
                 if t1 == t2:
-                    raise click.ClickException(
-                        f"Conflict: Multiple files mapped to the same destination '{t1}'"
-                    )
+                    raise click.ClickException(f"Conflict: Multiple files mapped to the same destination '{t1}'")
                 if t2.startswith(t1 + "/"):
                     raise click.ClickException(
-                        f"Conflict: Destination '{t1}' is mapped as a file, "
-                        f"but also used as a directory for '{t2}'"
+                        f"Conflict: Destination '{t1}' is mapped as a file, but also used as a directory for '{t2}'"
                     )
 
     return res
@@ -1312,9 +1161,7 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
-        raise click.ClickException(
-            "Error: Missing serial port. Specify with --port or -p option."
-        )
+        raise click.ClickException("Error: Missing serial port. Specify with --port or -p option.")
 
     import binascii
     import hashlib
@@ -1353,14 +1200,10 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
                             hasher.update(block)
                             size += len(block)
                 except OSError as e:
-                    raise click.ClickException(
-                        f"Failed to read local file {local_path}: {e}"
-                    ) from e
+                    raise click.ClickException(f"Failed to read local file {local_path}: {e}") from e
 
                 digest = hasher.hexdigest()
-                _console().print(
-                    f"Copying {local_path} to {target_path} ({size} bytes)..."
-                )
+                _console().print(f"Copying {local_path} to {target_path} ({size} bytes)...")
                 transfer_active = True
                 _query(
                     ctx,
@@ -1378,17 +1221,13 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
                         encoded = binascii.b2a_base64(chunk).strip()
                         response, _ = _query(
                             ctx,
-                            b"CP_CHUNK:"
-                            + str(sequence).encode()
-                            + b":"
-                            + encoded,
+                            b"CP_CHUNK:" + str(sequence).encode() + b":" + encoded,
                             b"CP_ACK",
                             transport=transport,
                         )
                         if response != str(sequence).encode():
                             raise click.ClickException(
-                                "Unexpected copy acknowledgement for "
-                                f"{target_path}: {response!r}"
+                                f"Unexpected copy acknowledgement for {target_path}: {response!r}"
                             )
                         sequence += 1
 
@@ -1400,16 +1239,10 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
                 )
                 transfer_active = False
                 if _copy_requires_reboot(target_path):
-                    reboot_targets.append(
-                        "/" + target_path.replace("\\", "/").lstrip("/")
-                    )
-                _console().print(
-                    f"[green]Copied {target_path} successfully.[/green]"
-                )
+                    reboot_targets.append("/" + target_path.replace("\\", "/").lstrip("/"))
+                _console().print(f"[green]Copied {target_path} successfully.[/green]")
         except DeviceError as e:
-            raise click.ClickException(
-                _friendly_error(e.error_msg, e.command)
-            ) from e
+            raise click.ClickException(_friendly_error(e.error_msg, e.command)) from e
         except OSError as e:
             raise click.ClickException(f"Failed to read local file: {e}") from e
         finally:
@@ -1426,8 +1259,7 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
             if reboot_targets:
                 targets = ", ".join(dict.fromkeys(reboot_targets))
                 _console().print(
-                    f"[yellow]Reboot required: {targets} will not take effect "
-                    "until the device restarts.[/yellow]"
+                    f"[yellow]Reboot required: {targets} will not take effect until the device restarts.[/yellow]"
                 )
     finally:
         ser.close()
@@ -1458,25 +1290,19 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             total_bytes += size
             manifest.append((target_path, local_path, size, sha256, content))
         except OSError as e:
-            raise click.ClickException(
-                f"Failed to read local file {local_path}: {e}"
-            ) from e
+            raise click.ClickException(f"Failed to read local file {local_path}: {e}") from e
 
     _console().print("[yellow]Initiating update handshake...[/yellow]")
 
     # 1. Send UPDATE_REQUEST to device runtime (main.py)
     _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
-    _console().print(
-        "[yellow]Device acknowledged update request. Rebooting...[/yellow]"
-    )
+    _console().print("[yellow]Device acknowledged update request. Rebooting...[/yellow]")
 
     # 2. Wait for device to boot up and broadcast READY
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
     if not port:
-        raise click.ClickException(
-            "Error: Missing serial port. Specify with --port or -p option."
-        )
+        raise click.ClickException("Error: Missing serial port. Specify with --port or -p option.")
 
     import binascii
     import time
@@ -1515,16 +1341,12 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             time.sleep(0.2)
 
     if not transport or not ser:
-        raise click.ClickException(
-            "Timeout waiting for device READY broadcast."
-        )
+        raise click.ClickException("Timeout waiting for device READY broadcast.")
 
     _console().print("[green]Device is READY. Handshake complete.[/green]")
 
     # 4. Start update session: UPDATE_START
-    _console().print(
-        f"Sending manifest ({len(manifest)} files, {total_bytes} bytes)..."
-    )
+    _console().print(f"Sending manifest ({len(manifest)} files, {total_bytes} bytes)...")
     try:
         transport.send(f"UPDATE_START:{len(manifest)}:{total_bytes}".encode())
         resp = transport.read()
@@ -1551,9 +1373,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
             num_chunks = (size + chunk_size - 1) // chunk_size
             for i in range(num_chunks):
                 chunk_data = content[i * chunk_size : (i + 1) * chunk_size]
-                b64_chunk = (
-                    binascii.b2a_base64(chunk_data).strip().decode("utf-8")
-                )
+                b64_chunk = binascii.b2a_base64(chunk_data).strip().decode("utf-8")
 
                 transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
                 resp = transport.read()
@@ -1581,9 +1401,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
                 f"Device commit failed: {resp.decode('utf-8', errors='replace') if resp else 'None'}"
             )
 
-        _console().print(
-            "[green]Update completed successfully! Device is rebooting.[/green]"
-        )
+        _console().print("[green]Update completed successfully! Device is rebooting.[/green]")
     finally:
         ser.close()
 
@@ -1593,9 +1411,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 @click.option("--clear", is_flag=True, help="Clear the default port settings.")
 @click.option("--show", is_flag=True, help="Show the current default port.")
 @click.pass_context
-def ports_cmd(
-    ctx: click.Context, set_port: str | None, clear: bool, show: bool
-) -> None:
+def ports_cmd(ctx: click.Context, set_port: str | None, clear: bool, show: bool) -> None:
     """List available serial ports and manage the default port."""
     import serial.tools.list_ports
 
@@ -1616,9 +1432,7 @@ def ports_cmd(
     if set_port:
         set_default_port(set_port)
         set_default_port(None, session=True)
-        _console().print(
-            f"[green]Permanent default port set to: {set_port}[/green]"
-        )
+        _console().print(f"[green]Permanent default port set to: {set_port}[/green]")
         return
 
     # Interactive / Listing mode
@@ -1645,13 +1459,9 @@ def ports_cmd(
 
         port_summary = " ".join((port_info.device, *details))
         if port_info.device == selected_port:
-            _console().print(
-                f"  [bold green]* {idx}: {port_summary}[/bold green]"
-            )
+            _console().print(f"  [bold green]* {idx}: {port_summary}[/bold green]")
         else:
-            _console().print(
-                f"    [bold]{idx}[/bold]: [cyan]{port_summary}[/cyan]"
-            )
+            _console().print(f"    [bold]{idx}[/bold]: [cyan]{port_summary}[/cyan]")
 
     # Ask the user to select a port
     selection = click.prompt(
@@ -1681,31 +1491,23 @@ def ports_cmd(
     if choice == "p":
         set_default_port(selected_port)
         set_default_port(None, session=True)
-        _console().print(
-            f"[green]Permanent default port set to: {selected_port}[/green]"
-        )
+        _console().print(f"[green]Permanent default port set to: {selected_port}[/green]")
     elif choice == "s":
         set_default_port(selected_port, session=True)
-        _console().print(
-            f"[green]Session default port set to: {selected_port}[/green]"
-        )
+        _console().print(f"[green]Session default port set to: {selected_port}[/green]")
     else:
         _console().print("Cancelled.")
 
 
 @cli.command(name="log-level")
-@click.option(
-    "--show", is_flag=True, help="Show the current default log level."
-)
+@click.option("--show", is_flag=True, help="Show the current default log level.")
 @click.option(
     "--set",
     "set_level",
     type=click.Choice(LOG_LEVELS, case_sensitive=False),
     help="Set the default log level permanently.",
 )
-@click.option(
-    "--clear", is_flag=True, help="Clear the saved log level (resets to ERROR)."
-)
+@click.option("--clear", is_flag=True, help="Clear the saved log level (resets to ERROR).")
 def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     """Show or manage the saved CLI log level.
 
@@ -1721,17 +1523,13 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     if clear:
         set_default_log_level(None)
         set_default_log_level(None, session=True)
-        _console().print(
-            "[green]Saved log level cleared (will default to ERROR).[/green]"
-        )
+        _console().print("[green]Saved log level cleared (will default to ERROR).[/green]")
         return
 
     if set_level:
         set_default_log_level(set_level.upper())
         set_default_log_level(None, session=True)
-        _console().print(
-            f"[green]Permanent log level set to: {set_level.upper()}[/green]"
-        )
+        _console().print(f"[green]Permanent log level set to: {set_level.upper()}[/green]")
         return
 
     # Interactive mode — show current and prompt to change
@@ -1754,10 +1552,7 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
         return
 
     if selection not in LOG_LEVELS:
-        raise click.ClickException(
-            f"Invalid log level '{selection}'. "
-            f"Choose from: {', '.join(LOG_LEVELS)}"
-        )
+        raise click.ClickException(f"Invalid log level '{selection}'. Choose from: {', '.join(LOG_LEVELS)}")
 
     choice = (
         click.prompt(
@@ -1771,22 +1566,16 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
     if choice == "p":
         set_default_log_level(selection)
         set_default_log_level(None, session=True)
-        _console().print(
-            f"[green]Permanent log level set to: {selection}[/green]"
-        )
+        _console().print(f"[green]Permanent log level set to: {selection}[/green]")
     elif choice == "s":
         set_default_log_level(selection, session=True)
-        _console().print(
-            f"[green]Session log level set to: {selection}[/green]"
-        )
+        _console().print(f"[green]Session log level set to: {selection}[/green]")
     else:
         _console().print("Cancelled.")
 
 
 @cli.command(name="device-dir")
-@click.option(
-    "--show", is_flag=True, help="Show the current default device directory."
-)
+@click.option("--show", is_flag=True, help="Show the current default device directory.")
 @click.option(
     "--set",
     "set_dir",
@@ -1797,7 +1586,7 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
 def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     """Show or manage the saved project directory for deploy.
 
-    The project directory should contain boot.py, main.py, and ota-config.py as
+    The project directory should contain boot.py, main.py, and configota.py as
     created by 'otampy init'. The OTAmpy library (lib/) is always sourced
     from the installed package — you do not need lib/ in your project.
 
@@ -1814,13 +1603,9 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     if show:
         d = get_default_device_dir()
         if d:
-            _console().print(
-                f"Current device directory: [green]{_to_display_path(d)}[/green]"
-            )
+            _console().print(f"Current device directory: [green]{_to_display_path(d)}[/green]")
         else:
-            _console().print(
-                "No default device directory set (using auto-detected path)."
-            )
+            _console().print("No default device directory set (using auto-detected path).")
         return
 
     if clear:
@@ -1836,22 +1621,15 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         abs_str = str(resolved)
         set_default_device_dir(abs_str)
         set_default_device_dir(None, session=True)
-        _console().print(
-            f"[green]Permanent device directory set to: "
-            f"{_to_display_path(abs_str)}[/green]"
-        )
+        _console().print(f"[green]Permanent device directory set to: {_to_display_path(abs_str)}[/green]")
         return
 
     # Interactive mode
     current = get_default_device_dir()
     if current:
-        _console().print(
-            f"Current device directory: [bold]{_to_display_path(current)}[/bold]"
-        )
+        _console().print(f"Current device directory: [bold]{_to_display_path(current)}[/bold]")
     else:
-        _console().print(
-            "No default device directory set (using auto-detected path)."
-        )
+        _console().print("No default device directory set (using auto-detected path).")
 
     new_dir = click.prompt(
         "\nEnter path to device directory (or press Enter to cancel)",
@@ -1880,14 +1658,10 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     if choice == "p":
         set_default_device_dir(str(resolved))
         set_default_device_dir(None, session=True)
-        _console().print(
-            f"[green]Permanent device directory set to: {display}[/green]"
-        )
+        _console().print(f"[green]Permanent device directory set to: {display}[/green]")
     elif choice == "s":
         set_default_device_dir(str(resolved), session=True)
-        _console().print(
-            f"[green]Session device directory set to: {display}[/green]"
-        )
+        _console().print(f"[green]Session device directory set to: {display}[/green]")
     else:
         _console().print("Cancelled.")
 
@@ -1939,7 +1713,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     "--device-dir",
     default=get_default_device_dir,
     help=(
-        "Path to the project directory containing boot.py, main.py, and ota-config.py "
+        "Path to the project directory containing boot.py, main.py, and configota.py "
         "(created by 'otampy init'). "
         "The OTAmpy library (lib/) is always sourced from the installed package. "
         "Use 'otampy device-dir' to save this as the default."
@@ -2001,7 +1775,7 @@ def deploy_cmd(
 def init(ctx: click.Context, path: Path | None, force: bool) -> None:
     """Initialize a new project with example configuration files.
 
-    Creates boot.py, main.py, and ota-config.py in the specified directory.
+    Creates boot.py, main.py, and configota.py in the specified directory.
     If no directory is given, prompts for one (remembering the last used path).
     """
     console = _console()
@@ -2019,7 +1793,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy
-    examples = ["boot.py", "main.py", "ota-config.example.py"]
+    examples = ["boot.py", "main.py", "configota.example.py"]
 
     try:
         # Get the examples package resource
@@ -2029,8 +1803,8 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
 
         for example_file in examples:
             src = pkg_files.joinpath(example_file)
-            if example_file == "ota-config.example.py":
-                dst = path / "ota-config.py"
+            if example_file == "configota.example.py":
+                dst = path / "configota.py"
             else:
                 dst = path / example_file
 
@@ -2038,9 +1812,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
             if (
                 dst.exists()
                 and not force
-                and not click.confirm(
-                    f"{dst.name} already exists. Overwrite?", default=False
-                )
+                and not click.confirm(f"{dst.name} already exists. Overwrite?", default=False)
             ):
                 console.print(f"[yellow]Skipped[/yellow] {dst.name}")
                 continue

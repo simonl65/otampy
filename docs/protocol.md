@@ -49,7 +49,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `RM:path`   | `RM_OK`                  | Remove a file or directory from the device.                          |
 
 The official CLI refuses to send `RM` for `/boot.py`, `/main.py`,
-`/ota-config.py`, `/lib/otampy`, `/lib/urst`, their descendants, or ancestors
+`/configota.py`, `/lib/otampy`, `/lib/urst`, their descendants, or ancestors
 needed to contain them. Use the staged copy or update sequence to replace
 those paths. This is a host CLI safety policy; custom clients that issue raw
 protocol commands are responsible for applying an equivalent guard.

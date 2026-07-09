@@ -241,7 +241,9 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
         except ValueError:
             break
 
-    raise BytecodeDeployError("The target did not report a valid sys.implementation._mpy value.")
+    raise BytecodeDeployError(
+        "The target did not report a valid sys.implementation._mpy value."
+    )
 
 
 def wait_for_target(args: DeployArgs) -> None:
@@ -267,9 +269,14 @@ def wait_for_target(args: DeployArgs) -> None:
         if last_result.returncode == 0 and "OTAMPY_READY" in last_result.stdout:  # type: ignore
             return
 
-        output = ((last_result.stdout or "") + (last_result.stderr or "")).lower()
+        output = (
+            (last_result.stdout or "") + (last_result.stderr or "")
+        ).lower()
         retryable = (
-            "busy" in output or "could not open" in output or "no device" in output or "failed to access" in output
+            "busy" in output
+            or "could not open" in output
+            or "no device" in output
+            or "failed to access" in output
         )
         if not retryable:
             break
@@ -286,7 +293,9 @@ def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
     return prefix  # type: ignore
 
 
-def _run_mpy_cross(args: DeployArgs, arguments: list[str]) -> subprocess.CompletedProcess[str]:  # type: ignore
+def _run_mpy_cross(
+    args: DeployArgs, arguments: list[str]
+) -> subprocess.CompletedProcess[str]:  # type: ignore
     command = [*_mpy_cross_prefix(args), *arguments]
     try:
         return subprocess.run(
@@ -315,7 +324,9 @@ def _validate_mpy_header(path: Path, target: TargetMpy) -> None:
     feature_flags = header[2]
     native_arch = (feature_flags >> 2) & 0x0F
     if native_arch or feature_flags & 0x40:
-        raise BytecodeDeployError(f"{path.name} unexpectedly contains architecture-specific code.")
+        raise BytecodeDeployError(
+            f"{path.name} unexpectedly contains architecture-specific code."
+        )
     if header[3] > target.small_int_bits:
         raise BytecodeDeployError(
             f"{path.name} requires {header[3]} small-int bits, but the target supports {target.small_int_bits}."
@@ -341,7 +352,9 @@ def _compile_module(
     result = _run_mpy_cross(args, arguments)
     if result.returncode:
         output = (result.stdout or "") + (result.stderr or "")
-        raise BytecodeDeployError(f"mpy-cross failed for {source}: {output.strip()}")
+        raise BytecodeDeployError(
+            f"mpy-cross failed for {source}: {output.strip()}"
+        )
     _validate_mpy_header(destination, target)
 
 
@@ -379,10 +392,14 @@ def _urst_source_dir() -> Path:
     spec = importlib.util.find_spec("urst")
     locations = None if spec is None else spec.submodule_search_locations
     if not locations:
-        raise BytecodeDeployError("Could not locate the installed URST source package.")
+        raise BytecodeDeployError(
+            "Could not locate the installed URST source package."
+        )
     source_dir = Path(next(iter(locations)))
     if not source_dir.is_dir():
-        raise BytecodeDeployError(f"Installed URST source directory does not exist: {source_dir}")
+        raise BytecodeDeployError(
+            f"Installed URST source directory does not exist: {source_dir}"
+        )
     return source_dir
 
 
@@ -455,7 +472,9 @@ def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
     lib_dir = _find_package_lib_dir()
 
     if args.device_dir is not None:
-        config_file, boot_file, main_file = _resolve_user_files(args.device_dir.resolve())
+        config_file, boot_file, main_file = _resolve_user_files(
+            args.device_dir.resolve()
+        )
     else:
         # Repo / developer fallback: files live under examples/
         config_file = DEVICE_ROOT / "examples" / "configota.py"
@@ -496,7 +515,10 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
     if not missing:
         return
 
-    rel_paths = ", ".join(str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path) for path in missing)
+    rel_paths = ", ".join(
+        str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+        for path in missing
+    )
     print(f"Error: missing deploy source(s): {rel_paths}", file=sys.stderr)
     if paths.config_file in missing:
         if args is not None and args.device_dir is not None:
@@ -508,7 +530,11 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
             )
         else:
             example = paths.config_file.parent / "config.example.py"
-            example_str = str(example.relative_to(ROOT)) if example.is_relative_to(ROOT) else str(example)
+            example_str = (
+                str(example.relative_to(ROOT))
+                if example.is_relative_to(ROOT)
+                else str(example)
+            )
             print(
                 f"Create configota.py from {example_str} before deploying.",
                 file=sys.stderr,
@@ -614,7 +640,9 @@ def deploy(args: DeployArgs) -> None:
         return
 
     target = query_target_mpy(args)
-    print(f"Target reports .mpy version {target.version}, {target.small_int_bits} small-int bits.")
+    print(
+        f"Target reports .mpy version {target.version}, {target.small_int_bits} small-int bits."
+    )
     with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
         lib_dir = Path(temp_dir) / "lib"
         build_bytecode_lib(args, lib_dir, target)
@@ -624,7 +652,9 @@ def deploy(args: DeployArgs) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=("Erase and deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device.")
+        description=(
+            "Erase and deploy OTAmpy lib/, boot.py, and main.py to a MicroPython device."
+        )
     )
     parser.add_argument(
         "-p",

@@ -41,8 +41,7 @@ def test_manager_handles_reboot():
     assert core.transport.sent_messages == [b"RB_OK"]
     machine.reset.assert_called_once()
     assert any(
-        level == "info" and "RB" in msg
-        for level, msg in logger.messages
+        level == "info" and "RB" in msg for level, msg in logger.messages
     ), "Expected a shutdown reason log message before RB reset"
 
 
@@ -59,8 +58,7 @@ def test_manager_handles_soft_reset():
     assert core.transport.sent_messages == [b"SR_OK"]
     machine.soft_reset.assert_called_once()
     assert any(
-        level == "info" and "SR" in msg
-        for level, msg in logger.messages
+        level == "info" and "SR" in msg for level, msg in logger.messages
     ), "Expected a shutdown reason log message before SR reset"
 
 
@@ -405,15 +403,10 @@ def test_manager_streams_and_commits_copy(tmp_path):
     assert response == b"CP_READY"
 
     for sequence, offset in enumerate(range(0, len(content), 128)):
-        encoded = binascii.b2a_base64(
-            content[offset : offset + 128]
-        ).strip()
+        encoded = binascii.b2a_base64(content[offset : offset + 128]).strip()
         response = _poll_message(
             core,
-            b"CP_CHUNK:"
-            + str(sequence).encode()
-            + b":"
-            + encoded,
+            b"CP_CHUNK:" + str(sequence).encode() + b":" + encoded,
         )
         assert response == f"CP_ACK:{sequence}".encode()
 
@@ -439,10 +432,7 @@ def test_manager_copy_checksum_failure_preserves_target(tmp_path):
         == b"CP_READY"
     )
     encoded = binascii.b2a_base64(content).strip()
-    assert (
-        _poll_message(core, b"CP_CHUNK:0:" + encoded)
-        == b"CP_ACK:0"
-    )
+    assert _poll_message(core, b"CP_CHUNK:0:" + encoded) == b"CP_ACK:0"
 
     assert _poll_message(core, b"CP_END").startswith(b"ERROR:")
     assert target.read_bytes() == b"original"
@@ -468,9 +458,7 @@ def test_manager_copy_rejects_out_of_sequence_chunk(tmp_path):
     )
     encoded = binascii.b2a_base64(content).strip()
 
-    assert _poll_message(core, b"CP_CHUNK:1:" + encoded).startswith(
-        b"ERROR:"
-    )
+    assert _poll_message(core, b"CP_CHUNK:1:" + encoded).startswith(b"ERROR:")
     assert not target.exists()
     assert not target.with_name("copy.py.cp").exists()
     assert not hasattr(core, "_copy_state")

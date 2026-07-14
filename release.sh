@@ -44,6 +44,19 @@ stripped before publishing. Write your notes below that line, then save
 and exit the editor to continue.
 -->
 ---
+# What's changed
+
+## MAJOR (breaking changes)
+
+- None
+
+## MINOR (functionality added in a backward compatible manner)
+
+- None
+
+## PATCH (backward compatible bug fixes)
+
+- 
 
 EOF
 
@@ -111,10 +124,14 @@ usage() {
     cat <<'EOF'
 Usage:
   ./release.sh                        Run the full release process.
-  ./release.sh --preflight PATH       Preflight OTAmpy against a local URST
-                                       checkout at PATH, before URST itself
-                                       has been published. Produces artifacts
-                                       for inspection only — never publishes.
+  ./release.sh --no-publish           Run version bump, docs commit, and the
+                                       full release gate (lint, tests, build,
+                                       artifact checks), then stop. Does NOT
+                                       publish to PyPI, push to any remote,
+                                       tag, or create a GitHub release.
+                                       Verified artifacts are left in
+                                       release-dist/ and local commits stay
+                                       unpushed.
   ./release.sh -h | --help            Show this help.
 EOF
 }
@@ -143,59 +160,25 @@ wait_for_pypi_version() {
   return 1
 }
 
-run_preflight() {
-    local urst_path="$1"
-
-    [[ -n "$urst_path" ]] || abort "--preflight requires a path to a local urst-mpy checkout."
-    [[ -d "$urst_path" ]] || abort "no such directory: $urst_path"
-
-    echo "=== OTAmpy Preflight (against local URST checkout) ==="
-    echo
-    echo "URST source: $urst_path"
-    echo
-    echo "This mode is for preflight only. It resolves URST from your local"
-    echo "checkout instead of the registry, so it does NOT verify registry"
-    echo "dependency resolution. Artifacts produced here must never be published."
-    echo
-
-    echo "Current version:"
-    uv version
-
-    if confirm "Bump the version before preflighting? (skip if you just want to test the current tree)"; then
-        read -r -p "Enter the version to set: " PRE_VERSION
-        [[ -n "$PRE_VERSION" ]] || abort "version cannot be empty."
-        commit_version_bump "$PRE_VERSION"
-    fi
-
-    echo
-    echo "scripts/release_check.py requires a clean worktree unless you pass"
-    echo "--allow-dirty yourself directly (not recommended, dev-only)."
-    git status --short
-
-    if ! confirm "Proceed with: uv run python scripts/release_check.py --urst-source \"$urst_path\" ?"; then
-        abort "cancelled by user."
-    fi
-
-    uv run python scripts/release_check.py --urst-source "$urst_path"
-
-    echo
-    echo "=== Preflight complete ==="
-    echo "Artifacts are in release-dist/ for inspection only."
-    echo "Do NOT run 'uv publish' on them: the final, publishable release check"
-    echo "must be rerun without --urst-source once URST is on the registry."
-}
-
 # --- Argument parsing --------------------------------------------------------
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-elif [[ "${1:-}" == "--preflight" ]]; then
-    run_preflight "${2:-}"
-    exit 0
-elif [[ $# -gt 0 ]]; then
-    usage
-    abort "unrecognized argument: ${1}"
-fi
+NO_PUBLISH=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --no-publish)
+            NO_PUBLISH=true
+            shift
+            ;;
+        *)
+            usage
+            abort "unrecognized argument: ${1}"
+            ;;
+    esac
+done
 
 echo "=== OTAmpy Release ==="
 
@@ -263,6 +246,17 @@ uv run python scripts/release_check.py
 
 echo
 echo "Release gate passed. Verified artifacts are in release-dist/."
+
+if [[ "$NO_PUBLISH" == true ]]; then
+    echo
+    echo "=== --no-publish: stopping before PyPI publish ==="
+    echo "Verified artifacts are in release-dist/ for inspection only."
+    echo "The version-bump and docs commits made above exist locally on this"
+    echo "branch but have NOT been pushed. Nothing was published, tagged, or"
+    echo "released on GitHub. To discard this dry run and reset your branch:"
+    echo "  git reset --hard @{upstream}"
+    exit 0
+fi
 
 # --- 8. Inspect and publish --------------------------------------------------
 echo

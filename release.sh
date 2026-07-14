@@ -26,6 +26,7 @@ create_github_release() {
     local tag="v${version}"
     local notes_file
     local editor="${EDITOR:-vi}"
+    local -a editor_cmd
 
     command -v gh >/dev/null 2>&1 || abort "gh (GitHub CLI) not found; install/authenticate it, then run: gh release create ${tag} release-dist/* --title \"OTAmpy ${tag}\""
 
@@ -46,7 +47,10 @@ and exit the editor to continue.
 
 EOF
 
-    "$editor" "$notes_file"
+    # $EDITOR/$VISUAL conventionally may contain arguments (e.g. "code --wait"),
+    # so split on whitespace into an array rather than treating it as one token.
+    read -r -a editor_cmd <<< "$editor"
+    "${editor_cmd[@]}" "$notes_file"
 
     # Strip the instructional header (everything up to and including the first '---' line).
     sed -i '1,/^---$/d' "$notes_file"

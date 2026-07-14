@@ -69,6 +69,12 @@ def _project_version() -> str:
     return str(metadata["project"]["version"])
 
 
+def _project_name(project_root: Path) -> str:
+    with (project_root / "pyproject.toml").open("rb") as file:
+        metadata = tomllib.load(file)
+    return str(metadata["project"]["name"])
+
+
 def _require_clean_worktree() -> None:
     result = _run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -236,6 +242,12 @@ def smoke_test_install(
         if not (urst_source / "pyproject.toml").is_file():
             raise ReleaseCheckError(
                 f"URST source is not a Python project: {urst_source}"
+            )
+        project_name = _project_name(urst_source)
+        if project_name != "urst-mpy":
+            raise ReleaseCheckError(
+                "--urst-source must point to a local urst-mpy checkout; "
+                f"{urst_source} is project {project_name!r}."
             )
         install_command.append(str(urst_source))
         print(

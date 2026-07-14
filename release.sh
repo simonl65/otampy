@@ -132,10 +132,6 @@ Usage:
                                        Verified artifacts are left in
                                        release-dist/ and local commits stay
                                        unpushed.
-  ./release.sh --preflight PATH       Preflight OTAmpy against a local URST
-                                       checkout at PATH, before URST itself
-                                       has been published. Produces artifacts
-                                       for inspection only — never publishes.
   ./release.sh -h | --help            Show this help.
 EOF
 }
@@ -164,48 +160,6 @@ wait_for_pypi_version() {
   return 1
 }
 
-run_preflight() {
-    local urst_path="$1"
-
-    [[ -n "$urst_path" ]] || abort "--preflight requires a path to a local urst-mpy checkout."
-    [[ -d "$urst_path" ]] || abort "no such directory: $urst_path"
-
-    echo "=== OTAmpy Preflight (against local URST checkout) ==="
-    echo
-    echo "URST source: $urst_path"
-    echo
-    echo "This mode is for preflight only. It resolves URST from your local"
-    echo "checkout instead of the registry, so it does NOT verify registry"
-    echo "dependency resolution. Artifacts produced here must never be published."
-    echo
-
-    echo "Current version:"
-    uv version
-
-    if confirm "Bump the version before preflighting? (skip if you just want to test the current tree)"; then
-        read -r -p "Enter the version to set: " PRE_VERSION
-        [[ -n "$PRE_VERSION" ]] || abort "version cannot be empty."
-        commit_version_bump "$PRE_VERSION"
-    fi
-
-    echo
-    echo "scripts/release_check.py requires a clean worktree unless you pass"
-    echo "--allow-dirty yourself directly (not recommended, dev-only)."
-    git status --short
-
-    if ! confirm "Proceed with: uv run python scripts/release_check.py --urst-source \"$urst_path\" ?"; then
-        abort "cancelled by user."
-    fi
-
-    uv run python scripts/release_check.py --urst-source "$urst_path"
-
-    echo
-    echo "=== Preflight complete ==="
-    echo "Artifacts are in release-dist/ for inspection only."
-    echo "Do NOT run 'uv publish' on them: the final, publishable release check"
-    echo "must be rerun without --urst-source once URST is on the registry."
-}
-
 # --- Argument parsing --------------------------------------------------------
 NO_PUBLISH=false
 
@@ -213,10 +167,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help)
             usage
-            exit 0
-            ;;
-        --preflight)
-            run_preflight "${2:-}"
             exit 0
             ;;
         --no-publish)

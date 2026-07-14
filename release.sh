@@ -229,7 +229,7 @@ VERIFY_DIR=$(mktemp -d /tmp/otampy-release-verification.XXXXXX)
 echo "Verifying consumer workflow in ${VERIFY_DIR} ..."
 (
     cd "$VERIFY_DIR"
-    uv init
+    uv init new-project
     uv add "otampy==${NEW_VERSION}"
     uv run otampy init
     uv run otampy deploy --device-dir new-project --dry-run --no-mip
@@ -247,6 +247,11 @@ fi
 git tag -a "v${NEW_VERSION}" -m "OTAmpy ${NEW_VERSION}"
 git push origin develop
 git push origin "v${NEW_VERSION}"
+git checkout main
+git merge develop
+git push origin main
+git checkout develop
+git push --tags
 
 echo
 echo "=== Release v${NEW_VERSION} complete ==="

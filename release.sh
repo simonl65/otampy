@@ -68,20 +68,20 @@ wait_for_pypi_version() {
   local max_retries=30
   local sleep_interval=10
 
-  echo "Checking PyPI for $package==$version..."
+  echo "Checking PyPI index for $package==$version..."
 
   for ((i=1; i<=max_retries; i++)); do
-    # We use -s for silent curl and -e for jq exit status
-    if curl -s "https://pypi.org/pypi/$package/json" | jq -e ".releases[\"$version\"]" > /dev/null; then
-      echo "Confirmed: $package==$version is now live."
+    # 'uv pip index versions' queries the Simple API (the same one uvx uses)
+    if uv pip index versions "$package" | grep -q "$version"; then
+      echo "Confirmed: $package==$version is visible in the index."
       return 0
     fi
 
-    echo "Attempt $i/$max_retries: Not yet available. Retrying in ${sleep_interval}s..."
+    echo "Attempt $i/$max_retries: Not yet visible in index. Retrying in ${sleep_interval}s..."
     sleep $sleep_interval
   done
 
-  echo "Error: Timed out waiting for $package==$version"
+  echo "Error: Timed out waiting for $package==$version to appear in the index"
   return 1
 }
 

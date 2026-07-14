@@ -44,6 +44,19 @@ stripped before publishing. Write your notes below that line, then save
 and exit the editor to continue.
 -->
 ---
+# What's changed
+
+## MAJOR (breaking changes)
+
+- None
+
+## MINOR (functionality added in a backward compatible manner)
+
+- None
+
+## PATCH (backward compatible bug fixes)
+
+- 
 
 EOF
 
@@ -111,6 +124,14 @@ usage() {
     cat <<'EOF'
 Usage:
   ./release.sh                        Run the full release process.
+  ./release.sh --no-publish           Run version bump, docs commit, and the
+                                       full release gate (lint, tests, build,
+                                       artifact checks), then stop. Does NOT
+                                       publish to PyPI, push to any remote,
+                                       tag, or create a GitHub release.
+                                       Verified artifacts are left in
+                                       release-dist/ and local commits stay
+                                       unpushed.
   ./release.sh --preflight PATH       Preflight OTAmpy against a local URST
                                        checkout at PATH, before URST itself
                                        has been published. Produces artifacts
@@ -186,16 +207,28 @@ run_preflight() {
 }
 
 # --- Argument parsing --------------------------------------------------------
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-elif [[ "${1:-}" == "--preflight" ]]; then
-    run_preflight "${2:-}"
-    exit 0
-elif [[ $# -gt 0 ]]; then
-    usage
-    abort "unrecognized argument: ${1}"
-fi
+NO_PUBLISH=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --preflight)
+            run_preflight "${2:-}"
+            exit 0
+            ;;
+        --no-publish)
+            NO_PUBLISH=true
+            shift
+            ;;
+        *)
+            usage
+            abort "unrecognized argument: ${1}"
+            ;;
+    esac
+done
 
 echo "=== OTAmpy Release ==="
 
@@ -263,6 +296,17 @@ uv run python scripts/release_check.py
 
 echo
 echo "Release gate passed. Verified artifacts are in release-dist/."
+
+if [[ "$NO_PUBLISH" == true ]]; then
+    echo
+    echo "=== --no-publish: stopping before PyPI publish ==="
+    echo "Verified artifacts are in release-dist/ for inspection only."
+    echo "The version-bump and docs commits made above exist locally on this"
+    echo "branch but have NOT been pushed. Nothing was published, tagged, or"
+    echo "released on GitHub. To discard this dry run and reset your branch:"
+    echo "  git reset --hard @{upstream}"
+    exit 0
+fi
 
 # --- 8. Inspect and publish --------------------------------------------------
 echo

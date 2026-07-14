@@ -21,6 +21,35 @@ abort() {
     exit 1
 }
 
+commit_version_bump() {
+    local version="$1"
+    local bump_files=()
+    local file
+
+    if [[ -n "$(git status --porcelain=v1 -- pyproject.toml uv.lock)" ]]; then
+        abort "pyproject.toml or uv.lock already has uncommitted changes; commit or stash them before bumping the version."
+    fi
+
+    uv version "$version"
+
+    for file in pyproject.toml uv.lock; do
+        if [[ -n "$(git status --porcelain=v1 -- "$file")" ]]; then
+            bump_files+=("$file")
+        fi
+    done
+
+    if [[ ${#bump_files[@]} -eq 0 ]]; then
+        abort "version bump did not change pyproject.toml or uv.lock."
+    fi
+
+    echo
+    echo "Committing version-bump files before continuing:"
+    printf '  %s\n' "${bump_files[@]}"
+    git diff --check -- "${bump_files[@]}"
+    git add "${bump_files[@]}"
+    git commit -m "chore(release): bump version to v${version}"
+}
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -54,12 +83,12 @@ run_preflight() {
     if confirm "Bump the version before preflighting? (skip if you just want to test the current tree)"; then
         read -r -p "Enter the version to set: " PRE_VERSION
         [[ -n "$PRE_VERSION" ]] || abort "version cannot be empty."
-        uv version "$PRE_VERSION"
+        commit_version_bump "$PRE_VERSION"
     fi
 
     echo
-    echo "Note: scripts/release_check.py still requires a clean worktree unless"
-    echo "you pass --allow-dirty yourself directly (not recommended, dev-only)."
+    echo "scripts/release_check.py requires a clean worktree unless you pass"
+    echo "--allow-dirty yourself directly (not recommended, dev-only)."
     git status --short
 
     if ! confirm "Proceed with: uv run python scripts/release_check.py --urst-source \"$urst_path\" ?"; then
@@ -105,20 +134,32 @@ read -r -p "Enter the new OTAmpy version (e.g. 1.1.0): " NEW_VERSION
 if ! confirm "Set version to ${NEW_VERSION}?"; then
     abort "cancelled by user."
 fi
-uv version "$NEW_VERSION"
 
-# --- 2. Prepare the release commit ------------------------------------------
+commit_version_bump "$NEW_VERSION"
+
+# --- 2. Prepare release notes and docs --------------------------------------
 echo
-echo "Review docs/README/release notes and the diff before committing."
+echo "Review docs/README/release notes and the diff before continuing."
 git diff --check
 git status --short
 
-if ! confirm "Have docs/release notes been updated, and are you ready to commit pyproject.toml, uv.lock, docs, README.md?"; then
+if ! confirm "Have docs/release notes been updated, and are you ready to commit docs and README.md if changed?"; then
     abort "make your documentation changes, then rerun this script."
 fi
 
-git add pyproject.toml uv.lock docs README.md
-git commit -m "chore(release): prepare v${NEW_VERSION}"
+DOC_FILES=()
+for file in docs README.md; do
+    if [[ -n "$(git status --porcelain=v1 -- "$file")" ]]; then
+        DOC_FILES+=("$file")
+    fi
+done
+
+if [[ ${#DOC_FILES[@]} -gt 0 ]]; then
+    git add "${DOC_FILES[@]}"
+    git commit -m "docs(release): update notes for v${NEW_VERSION}"
+else
+    echo "No docs or README.md changes to commit."
+fi
 
 if [[ -n "$(git status --short)" ]]; then
     abort "worktree is not clean after commit; the release gate requires a clean worktree."

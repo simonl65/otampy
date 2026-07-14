@@ -71,6 +71,7 @@ wait_for_pypi_version() {
   echo "Checking PyPI index for $package==$version..."
 
   for ((i=1; i<=max_retries; i++)); do
+    sleep $sleep_interval
     # We use 'uv pip compile' to see if the version is resolvable.
     # --refresh forces uv to ignore its local cache and check the registry.
     if echo "$package==$version" | uv pip compile - --refresh > /dev/null 2>&1; then
@@ -79,7 +80,6 @@ wait_for_pypi_version() {
     fi
 
     echo "Attempt $i/$max_retries: Not yet visible in index. Retrying in ${sleep_interval}s..."
-    sleep $sleep_interval
   done
 
   echo "Error: Timed out waiting for $package==$version to be resolvable"

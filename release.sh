@@ -129,6 +129,12 @@ if ! confirm "Set version to ${NEW_VERSION}?"; then
     abort "cancelled by user."
 fi
 
+# This looks for 'status-stable_(' followed by digits/dots and ends with ')-green'
+FILE="README.md"
+sed -i "s/status-stable_([0-9.]*)-green/status-stable_($NEW_VERSION)-green/g" "$FILE"
+
+echo "Updated $FILE to version $NEW_VERSION"
+
 commit_version_bump "$NEW_VERSION"
 
 # --- 2. Prepare release notes and docs --------------------------------------
@@ -178,7 +184,8 @@ if ! confirm "Confirm release-dist/ contains exactly one wheel and one sdist for
 fi
 
 echo "Publishing..."
-uv publish release-dist/*
+source ~/.secrets
+uv publish release-dist/* --token $UV_PUBLISH_TOKEN
 echo "Published v${NEW_VERSION}."
 
 # --- 9. Verify the registry release -----------------------------------------

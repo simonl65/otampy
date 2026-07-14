@@ -229,10 +229,10 @@ VERIFY_DIR=$(mktemp -d /tmp/otampy-release-verification.XXXXXX)
 echo "Verifying consumer workflow in ${VERIFY_DIR} ..."
 (
     cd "$VERIFY_DIR"
-    uv init new-project
+    uv init
     uv add "otampy==${NEW_VERSION}"
-    uv run otampy init
-    uv run otampy deploy --device-dir new-project --dry-run --no-mip
+    uv run otampy init device
+    uv run otampy deploy --device-dir device --dry-run --no-mip
 )
 echo "Consumer workflow verification passed."
 

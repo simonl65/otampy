@@ -10,6 +10,8 @@ OTAmpy is a lightweight Over-The-Air (OTA) file and system management suite for 
 
 OTAmpy is built on top of the **Universal Reliable Serial Transport (URST)** protocol, which guarantees error-free framing, integrity checking, and automatic recovery even over noisy or high-latency wireless links.
 
+View the latest version at [https://otampy.codeability.co.uk/](https://otampy.codeability.co.uk/)
+
 **DISCLAIMER** This is not intended as professional grade OTA. Use at your own risk.
 
 ---

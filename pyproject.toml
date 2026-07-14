@@ -1,6 +1,6 @@
 [project]
 name = "otampy"
-version = "2.0.6"
+version = "2.0.7"
 description = "Serial OTA application firmware update solution for MicroPython"
 readme = "README.md"
 license = "SUL-1.0"

@@ -71,9 +71,10 @@ wait_for_pypi_version() {
   echo "Checking PyPI index for $package==$version..."
 
   for ((i=1; i<=max_retries; i++)); do
-    # 'uv pip index versions' queries the Simple API (the same one uvx uses)
-    if uv pip index versions "$package" | grep -q "$version"; then
-      echo "Confirmed: $package==$version is visible in the index."
+    # We use 'uv pip compile' to see if the version is resolvable.
+    # --refresh forces uv to ignore its local cache and check the registry.
+    if echo "$package==$version" | uv pip compile - --refresh > /dev/null 2>&1; then
+      echo "Confirmed: $package==$version is now resolvable via uv."
       return 0
     fi
 
@@ -81,7 +82,7 @@ wait_for_pypi_version() {
     sleep $sleep_interval
   done
 
-  echo "Error: Timed out waiting for $package==$version to appear in the index"
+  echo "Error: Timed out waiting for $package==$version to be resolvable"
   return 1
 }
 

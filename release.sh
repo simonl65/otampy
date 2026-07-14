@@ -62,6 +62,29 @@ Usage:
 EOF
 }
 
+wait_for_pypi_version() {
+  local package=$1
+  local version=$2
+  local max_retries=30
+  local sleep_interval=10
+
+  echo "Checking PyPI for $package==$version..."
+
+  for ((i=1; i<=max_retries; i++)); do
+    # We use -s for silent curl and -e for jq exit status
+    if curl -s "https://pypi.org/pypi/$package/json" | jq -e ".releases[\"$version\"]" > /dev/null; then
+      echo "Confirmed: $package==$version is now live."
+      return 0
+    fi
+
+    echo "Attempt $i/$max_retries: Not yet available. Retrying in ${sleep_interval}s..."
+    sleep $sleep_interval
+  done
+
+  echo "Error: Timed out waiting for $package==$version"
+  return 1
+}
+
 run_preflight() {
     local urst_path="$1"
 
@@ -187,8 +210,16 @@ echo "Publishing..."
 source ~/.secrets
 uv publish release-dist/* --token $UV_PUBLISH_TOKEN
 echo "Published v${NEW_VERSION}."
+git push
 
 # --- 9. Verify the registry release -----------------------------------------
+# Delay to allow time for publish to finish and propagate to the registry. This is a best-effort check; if it fails, you can retry later.
+if wait_for_pypi_version "otampy" "$NEW_VERSION"; then
+    echo "Registry is up to date. Proceeding to next steps..."
+else
+    echo "Registry update failed or timed out. Aborting."
+    exit 1
+fi
 echo
 echo "Verifying registry release in an isolated tool environment..."
 uvx --refresh --from "otampy==${NEW_VERSION}" otampy --help

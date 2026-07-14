@@ -118,7 +118,7 @@ In a temporary project, also verify the consumer workflow:
 ```bash
 mkdir /tmp/otampy-release-verification
 cd /tmp/otampy-release-verification
-uv init
+uv init new-project
 uv add "otampy==1.1.0"
 uv run otampy init
 uv run otampy deploy --device-dir new-project --dry-run --no-mip

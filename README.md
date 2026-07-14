@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-stable_(2.0.4)-green>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(2.0.9)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -9,6 +9,8 @@
 OTAmpy is a lightweight Over-The-Air (OTA) file and system management suite for MicroPython microcontrollers (Raspberry Pi Pico, ESP32, ESP8266, and compatible boards). It provides robust remote firmware updates and device control over wireless serial modules (such as XBee) or any transparent UART connection.
 
 OTAmpy is built on top of the **Universal Reliable Serial Transport (URST)** protocol, which guarantees error-free framing, integrity checking, and automatic recovery even over noisy or high-latency wireless links.
+
+View the latest version at [https://otampy.codeability.co.uk/](https://otampy.codeability.co.uk/)
 
 **DISCLAIMER** This is not intended as professional grade OTA. Use at your own risk.
 

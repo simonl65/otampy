@@ -62,6 +62,30 @@ Usage:
 EOF
 }
 
+wait_for_pypi_version() {
+  local package=$1
+  local version=$2
+  local max_retries=30
+  local sleep_interval=10
+
+  echo "Checking PyPI index for $package==$version..."
+
+  for ((i=1; i<=max_retries; i++)); do
+    sleep $sleep_interval
+    # We use 'uv pip compile' to see if the version is resolvable.
+    # --refresh forces uv to ignore its local cache and check the registry.
+    if echo "$package==$version" | uv pip compile - --refresh > /dev/null 2>&1; then
+      echo "Confirmed: $package==$version is now resolvable via uv."
+      return 0
+    fi
+
+    echo "Attempt $i/$max_retries: Not yet visible in index. Retrying in ${sleep_interval}s..."
+  done
+
+  echo "Error: Timed out waiting for $package==$version to be resolvable"
+  return 1
+}
+
 run_preflight() {
     local urst_path="$1"
 
@@ -187,8 +211,16 @@ echo "Publishing..."
 source ~/.secrets
 uv publish release-dist/* --token $UV_PUBLISH_TOKEN
 echo "Published v${NEW_VERSION}."
+git push
 
 # --- 9. Verify the registry release -----------------------------------------
+# Delay to allow time for publish to finish and propagate to the registry. This is a best-effort check; if it fails, you can retry later.
+if wait_for_pypi_version "otampy" "$NEW_VERSION"; then
+    echo "Registry is up to date. Proceeding to next steps..."
+else
+    echo "Registry update failed or timed out. Aborting."
+    exit 1
+fi
 echo
 echo "Verifying registry release in an isolated tool environment..."
 uvx --refresh --from "otampy==${NEW_VERSION}" otampy --help
@@ -199,8 +231,8 @@ echo "Verifying consumer workflow in ${VERIFY_DIR} ..."
     cd "$VERIFY_DIR"
     uv init
     uv add "otampy==${NEW_VERSION}"
-    uv run otampy init
-    uv run otampy deploy --device-dir new-project --dry-run --no-mip
+    uv run otampy init device
+    uv run otampy deploy --device-dir device --dry-run --no-mip
 )
 echo "Consumer workflow verification passed."
 
@@ -215,6 +247,11 @@ fi
 git tag -a "v${NEW_VERSION}" -m "OTAmpy ${NEW_VERSION}"
 git push origin develop
 git push origin "v${NEW_VERSION}"
+git checkout main
+git merge develop
+git push origin main
+git checkout develop
+git push --tags
 
 echo
 echo "=== Release v${NEW_VERSION} complete ==="

@@ -21,6 +21,59 @@ abort() {
     exit 1
 }
 
+create_github_release() {
+    local version="$1"
+    local tag="v${version}"
+    local notes_file
+    local editor="${EDITOR:-vi}"
+
+    command -v gh >/dev/null 2>&1 || abort "gh (GitHub CLI) not found; install/authenticate it, then run: gh release create ${tag} release-dist/* --title \"OTAmpy ${tag}\""
+
+    if [[ -z "$(find release-dist -maxdepth 1 -type f -print -quit 2>/dev/null)" ]]; then
+        abort "release-dist/ is empty or missing; nothing to attach to the GitHub release."
+    fi
+
+    notes_file=$(mktemp --suffix=.md /tmp/otampy-release-notes.XXXXXX)
+
+    cat > "$notes_file" <<EOF
+<!--
+Release notes for ${tag}.
+Everything up to and including the first line containing only '---' is
+stripped before publishing. Write your notes below that line, then save
+and exit the editor to continue.
+-->
+---
+
+EOF
+
+    "$editor" "$notes_file"
+
+    # Strip the instructional header (everything up to and including the first '---' line).
+    sed -i '1,/^---$/d' "$notes_file"
+
+    if [[ -z "$(sed '/^[[:space:]]*$/d' "$notes_file")" ]]; then
+        rm -f "$notes_file"
+        abort "release notes were empty; aborting before creating the GitHub release."
+    fi
+
+    echo
+    echo "--- Release notes preview (${tag}) ---"
+    cat "$notes_file"
+    echo "--- end preview ---"
+    echo
+    echo "This will create and publish a GitHub release for ${tag}, attaching:"
+    find release-dist -maxdepth 1 -type f -printf '  %f\n'
+
+    if ! confirm "Create and publish this GitHub release now?"; then
+        echo "Skipped. Your drafted notes are preserved at: $notes_file"
+        return 0
+    fi
+
+    gh release create "$tag" release-dist/* --title "OTAmpy ${tag}" --notes-file "$notes_file"
+    rm -f "$notes_file"
+    echo "GitHub release ${tag} published: $(gh release view "$tag" --json url -q .url 2>/dev/null || echo "$tag")"
+}
+
 commit_version_bump() {
     local version="$1"
     local bump_files=()
@@ -241,6 +294,8 @@ echo
 if ! confirm "Tag v${NEW_VERSION} at this commit and push it (and develop) now?"; then
     echo "Stopping before tagging. The package is already published; tag manually"
     echo "with: git tag -a v${NEW_VERSION} -m \"OTAmpy ${NEW_VERSION}\" && git push origin develop v${NEW_VERSION}"
+    echo "Afterwards, create the GitHub release yourself, e.g.:"
+    echo "  gh release create v${NEW_VERSION} release-dist/* --title \"OTAmpy v${NEW_VERSION}\""
     exit 0
 fi
 
@@ -254,6 +309,12 @@ git checkout develop
 git push --tags
 
 echo
+echo "Tag v${NEW_VERSION} pushed."
+
+# --- 11. Create the GitHub release -------------------------------------------
+echo
+echo "Creating the GitHub release for v${NEW_VERSION}..."
+create_github_release "$NEW_VERSION"
+
+echo
 echo "=== Release v${NEW_VERSION} complete ==="
-echo "Remember to create the corresponding hosting-platform release and attach/link"
-echo "the release notes. Do not attach any artifacts other than those from release-dist/."

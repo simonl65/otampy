@@ -117,12 +117,6 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 echo "=== OTAmpy Release ==="
-echo
-
-# --- Prerequisite check -----------------------------------------------------
-if ! confirm "Is a compatible urst release (>=1.0.0,<2.0.0) already published to the registry?"; then
-    abort "Publish the compatible URST release first, then rerun this script."
-fi
 
 # --- 1. Choose the version --------------------------------------------------
 echo

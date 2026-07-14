@@ -195,6 +195,15 @@ fi
 
 echo "=== OTAmpy Release ==="
 
+# --- 0. Check for a clean worktree ------------------------------------------
+if [ -z "$(git status --porcelain)" ]; then
+  echo "Worktree is clean"
+else
+  echo "Worktree is dirty"
+  exit 1
+fi
+
+
 # --- 1. Choose the version --------------------------------------------------
 echo
 echo "Current version:"

@@ -1,4 +1,4 @@
-# Used by the examples when optional log-to-file support is installed.
+# Used when optional --with-logger support is installed.
 LOG_LEVEL = "ERROR"  # NONE, DEBUG, INFO, WARNING, ERROR, CRITICAL, ALWAYS
 LOG_FILE = "/ota.log"
 

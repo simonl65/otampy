@@ -1539,6 +1539,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
     _console().print(
         f"Sending manifest ({len(manifest)} files, {total_bytes} bytes)..."
     )
+    commit_sent = False
     try:
         transport.send(f"UPDATE_START:{len(manifest)}:{total_bytes}".encode())
         resp = transport.read()
@@ -1588,6 +1589,7 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
 
         # 6. Commit transaction: UPDATE_COMMIT
         _console().print("Committing update transaction...")
+        commit_sent = True
         transport.send(b"UPDATE_COMMIT")
         resp = transport.read()
         if resp != b"COMMIT_OK":
@@ -1598,6 +1600,21 @@ def update(ctx: click.Context, args: tuple[str, ...]) -> None:
         _console().print(
             "[green]Update completed successfully! Device is rebooting.[/green]"
         )
+    except BaseException:
+        if not commit_sent:
+            try:
+                transport.send(b"UPDATE_ABORT")
+                if transport.read() != b"UPDATE_ABORTED":
+                    _console().print(
+                        "[yellow]Device did not acknowledge update abort; "
+                        "waiting for its inactivity timeout.[/yellow]"
+                    )
+            except Exception:
+                _console().print(
+                    "[yellow]Could not send update abort; waiting for the "
+                    "device inactivity timeout.[/yellow]"
+                )
+        raise
     finally:
         ser.close()
 

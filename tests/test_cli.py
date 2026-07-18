@@ -1394,6 +1394,47 @@ def test_cli_update_full_transfer():
         mock_device_instance.send.assert_any_call(b"UPDATE_COMMIT")
 
 
+def test_cli_update_aborts_before_commit_on_transfer_failure():
+    runner = CliRunner()
+    source = Path("/tmp/main.py")
+
+    class MockFile:
+        def read(self):
+            return b"print('replacement')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+        mock.patch("time.sleep"),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("main.py", source)],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        transport = urst.return_value
+        transport.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            None,
+            b"UPDATE_ABORTED",
+        ]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+    assert result.exit_code != 0
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    assert b"UPDATE_ABORT" in sent
+    assert b"UPDATE_COMMIT" not in sent
+
+
 def test_cli_query_connection_retry():
     """Test that _query connection handler retries opening Serial when busy."""
     runner = CliRunner()

@@ -16,7 +16,7 @@ _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
 def _do_callback(core, callback=None):
     if callback is not None:
         try:
-            core.logger.debug("Calling application callback.")
+            core.logger.debug("Calling application callback")
             callback()
         except Exception as e:
             core.logger.error(f"Error in application callback: {e}")
@@ -28,20 +28,14 @@ def _send_response(transport, total_size, parts):
         return
 
     protocol = getattr(transport, "protocol", None)
-    if (
-        total_size <= _MAX_FRAGMENT_DATA
-        or protocol is None
-        or not hasattr(transport, "_msg_id")
-    ):
+    if total_size <= _MAX_FRAGMENT_DATA or protocol is None or not hasattr(transport, "_msg_id"):
         response = bytearray()
         for part in parts:
             response.extend(part)
         transport.send(bytes(response))
         return
 
-    total_fragments = (
-        total_size + _MAX_FRAGMENT_DATA - 1
-    ) // _MAX_FRAGMENT_DATA
+    total_fragments = (total_size + _MAX_FRAGMENT_DATA - 1) // _MAX_FRAGMENT_DATA
     import gc
 
     collect = gc.collect
@@ -199,9 +193,7 @@ def poll(core, callback=None):
             except OSError as e:
                 core.logger.error(f"Failed to write flag file: {e}")
         core.transport.send(b"REBOOTING")
-        core.logger.info(
-            "Shutdown started: OTA update requested (rebooting into boot.py)"
-        )
+        core.logger.info("Shutdown started: OTA update requested (rebooting into boot.py)")
         machine.reset()
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."
@@ -287,8 +279,6 @@ def poll(core, callback=None):
             flash_free = 0
             flash_total = 0
 
-        core.transport.send(
-            f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode()
-        )
+        core.transport.send(f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode())
     else:
         core.logger.warning(f"Unknown command received: {cmd}")

@@ -85,6 +85,7 @@ These commands handle the transition from runtime (`main.py`) to bootloader (`bo
 | `FILE_START:path:size:sha256`         | Host   | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).                                      |
 | `CHUNK:seq:data`                      | Host   | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk of configurable size (e.g., 256/512 bytes).                                            |
 | `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                               |
+| `UPDATE_ABORT`                        | Host   | `UPDATE_ABORTED`               | Cancel before commit. Device closes the active file, removes session staging files and the update flag, then continues normal boot. |
 | `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`                    | Complete update. Device renames all `.ota` files, clears flag, and reboots to run the new application. |
 
 ---
@@ -160,4 +161,6 @@ Host CLI                           Device (main.py)              Device (boot.py
    │ <─ COMMIT_OK ───────────────────────────────────────────────────── │  clears flag, reboots)
 ```
 
-During reboot, `boot.py` detects the `update_requested.flag` file, renames the `.ota` files to their final names, removes the flag file, and boots into `main.py`.
+Before `UPDATE_COMMIT`, staged files never replace their targets. If the CLI detects a transfer error or is interrupted, it sends `UPDATE_ABORT`; the device discards the staged files and continues its normal boot. If the link is unavailable, `boot.py` performs the same recovery after `OTA_TIMEOUT_MS` without a packet (5 seconds by default).
+
+The commit operation is per-file rather than an all-filesystem atomic swap. An interruption during `UPDATE_COMMIT` can still leave a mixed-version deployment; applications requiring power-loss-safe commits need a dual-slot deployment layout or a persistent rollback journal.

@@ -280,11 +280,7 @@ def _run_default_update_loop(core):
                 except OSError:
                     pass
                 current_file = None
-            for index in range(1, len(files), 2):
-                try:
-                    _os.remove(files[index])
-                except OSError:
-                    pass
+            _cleanup_orphaned_ota(core)
             send(b"UPDATE_ABORTED")
             break
 

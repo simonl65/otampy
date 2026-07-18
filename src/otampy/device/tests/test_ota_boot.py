@@ -1,5 +1,7 @@
 import binascii
 import hashlib
+import os
+from unittest.mock import patch
 
 import shared
 from device_otampy import boot
@@ -156,6 +158,9 @@ def test_boot_aborts_active_update_and_cleans_staging(tmp_path):
     flag_file.touch()
     target = tmp_path / "main.py"
     staging = tmp_path / "main.py.ota"
+    orphaned_staging = tmp_path / "lib" / "stale.py.ota"
+    orphaned_staging.parent.mkdir()
+    orphaned_staging.touch()
     checksum = hashlib.sha256(b"replacement").hexdigest()
 
     config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
@@ -167,7 +172,23 @@ def test_boot_aborts_active_update_and_cleans_staging(tmp_path):
         ]
     )
 
-    boot.run(core)
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        if path == ".":
+            return str(tmp_path)
+        return str(tmp_path / path.lstrip("./"))
+
+    with (
+        patch(
+            "device_otampy.boot._resolve_path",
+            side_effect=mock_resolve_path,
+        ),
+        patch("device_otampy.boot._os.listdir", side_effect=os.listdir),
+        patch("device_otampy.boot._os.remove", side_effect=os.remove),
+        patch("device_otampy.boot._os.stat", side_effect=os.stat),
+    ):
+        boot.run(core)
 
     assert core.transport.sent_messages == [
         b"READY",
@@ -175,6 +196,7 @@ def test_boot_aborts_active_update_and_cleans_staging(tmp_path):
         b"UPDATE_ABORTED",
     ]
     assert not staging.exists()
+    assert not orphaned_staging.exists()
     assert not flag_file.exists()
 
 

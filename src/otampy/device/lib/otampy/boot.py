@@ -17,6 +17,26 @@ def _sleep_ms(ms):
         time.sleep(ms / 1000.0)
 
 
+def _ticks_ms():
+    try:
+        import utime
+
+        return utime.ticks_ms()
+    except ImportError:
+        import time
+
+        return int(time.monotonic() * 1000)
+
+
+def _ticks_diff(new, old):
+    try:
+        import utime
+
+        return utime.ticks_diff(new, old)
+    except ImportError:
+        return new - old
+
+
 def _resolve_path(path):
     if path.startswith("/"):
         return path
@@ -68,12 +88,37 @@ def _run_default_update_loop(core):
     current_file = None
     current_hash = None
     hasher = None
+    timeout_ms = _get_config(core.config, "OTA_TIMEOUT_MS", 5000)
+    try:
+        timeout_ms = int(timeout_ms)
+    except (TypeError, ValueError):
+        timeout_ms = 5000
+    if timeout_ms < 1:
+        timeout_ms = 5000
+    last_activity = _ticks_ms()
 
     while True:
         packet = read()
         if not packet:
+            if _ticks_diff(_ticks_ms(), last_activity) >= timeout_ms:
+                core.logger.warning("OTA update timed out; aborting session")
+                if current_file is not None:
+                    try:
+                        current_file.close()
+                    except OSError:
+                        pass
+                    current_file = None
+                for index in range(1, len(files), 2):
+                    try:
+                        _os.remove(files[index])
+                    except OSError:
+                        pass
+                send(b"UPDATE_ABORTED")
+                break
             _sleep_ms(10)
             continue
+
+        last_activity = _ticks_ms()
 
         if not isinstance(packet, bytes):
             packet = str(packet).strip().encode()
@@ -226,6 +271,22 @@ def _run_default_update_loop(core):
             hex_hash = None
             collect()
             send(response)
+
+        elif cmd == b"UPDATE_ABORT":
+            core.logger.debug("UPDATE ABORT")
+            if current_file is not None:
+                try:
+                    current_file.close()
+                except OSError:
+                    pass
+                current_file = None
+            for index in range(1, len(files), 2):
+                try:
+                    _os.remove(files[index])
+                except OSError:
+                    pass
+            send(b"UPDATE_ABORTED")
+            break
 
         elif cmd == b"UPDATE_COMMIT":
             core.logger.debug("UPDATE COMMIT")

@@ -117,6 +117,7 @@ OTA_PORT = 1
 OTA_TX_PIN = 4
 OTA_RX_PIN = 5
 OTA_BAUDRATE = 57600
+OTA_TIMEOUT_MS = 5000
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
 ```
 
@@ -140,6 +141,12 @@ uart = UART(
 # Run boot checker (non-blocking if no update requested)
 OTA(uart, config=config).boot()
 ```
+
+When an update is pending, boot mode accepts `UPDATE_ABORT` and automatically
+abandons an inactive transfer after `OTA_TIMEOUT_MS`. Both paths delete staged
+`.ota` files, clear the request flag, and continue into the current application.
+Staging prevents target replacement before commit, but the current commit is a
+per-file rename sequence, not a power-loss-atomic filesystem transaction.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

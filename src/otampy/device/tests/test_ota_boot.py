@@ -149,6 +149,69 @@ def test_boot_handles_full_update_session(tmp_path):
     assert not flag_file.exists()
 
 
+def test_boot_aborts_active_update_and_cleans_staging(tmp_path):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+    target = tmp_path / "main.py"
+    staging = tmp_path / "main.py.ota"
+    checksum = hashlib.sha256(b"replacement").hexdigest()
+
+    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    core = OTACore(uart, config=config, logger=logger)
+    core.transport.incoming_queue.extend(
+        [
+            f"FILE_START:{target}:11:{checksum}".encode(),
+            b"UPDATE_ABORT",
+        ]
+    )
+
+    boot.run(core)
+
+    assert core.transport.sent_messages == [
+        b"READY",
+        b"FILE_OK",
+        b"UPDATE_ABORTED",
+    ]
+    assert not staging.exists()
+    assert not flag_file.exists()
+
+
+def test_boot_times_out_interrupted_update_and_cleans_staging(
+    tmp_path, monkeypatch
+):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+    target = tmp_path / "main.py"
+    staging = tmp_path / "main.py.ota"
+    checksum = hashlib.sha256(b"replacement").hexdigest()
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_TIMEOUT_MS": 1,
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    core.transport.incoming_queue.append(
+        f"FILE_START:{target}:11:{checksum}".encode()
+    )
+    ticks = iter((0, 0, 2))
+    monkeypatch.setattr(boot, "_ticks_ms", lambda: next(ticks))
+
+    boot.run(core)
+
+    assert core.transport.sent_messages == [
+        b"READY",
+        b"FILE_OK",
+        b"UPDATE_ABORTED",
+    ]
+    assert not flag_file.exists()
+    assert not staging.exists()
+    assert ("warning", "OTA update timed out; aborting session") in logger.messages
+
+
 # =============================================================================
 # PHASE 5: FAULT-TOLERANCE & CLEANUP TESTS
 # =============================================================================

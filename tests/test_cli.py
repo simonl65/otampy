@@ -72,6 +72,31 @@ def test_deploy_device_dir_is_project_relative(tmp_path):
     assert deploy.call_args.args[0].device_dir == project_root / "device"
 
 
+def test_deploy_uses_saved_absolute_device_dir(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    device_dir = tmp_path / "saved-device"
+    project_root.mkdir()
+    deploy_command = cli.commands["deploy"]
+    device_dir_option = next(
+        param
+        for param in deploy_command.params
+        if param.name == "device_dir"
+    )
+
+    with (
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+        mock.patch.object(device_dir_option, "default", lambda: str(device_dir)),
+        mock.patch("otampy.cli.deploy.deploy") as deploy,
+    ):
+        result = runner.invoke(cli, ["deploy"])
+
+    assert result.exit_code == 0
+    assert deploy.call_args.args[0].device_dir == device_dir
+
+
 def test_cli_log_level_for_current_command():
     runner = CliRunner()
     previous_level = logging.getLogger().level

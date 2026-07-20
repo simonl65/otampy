@@ -1977,7 +1977,9 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         "Use 'otampy device-dir' to save this as the default."
     ),
 )
+@click.pass_context
 def deploy_cmd(
+    ctx: click.Context,
     port: str | None,
     mpremote: str,
     no_mip: bool,
@@ -1999,7 +2001,13 @@ def deploy_cmd(
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
         device_dir=(
-            _resolve_project_path_input(device_dir) if device_dir else None
+            Path(device_dir)
+            if device_dir
+            and ctx.get_parameter_source("device_dir")
+            is click.core.ParameterSource.DEFAULT
+            else _resolve_project_path_input(device_dir)
+            if device_dir
+            else None
         ),  # type: ignore
     )
     try:

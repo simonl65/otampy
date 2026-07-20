@@ -569,6 +569,39 @@ def test_cli_ls_default():
         mock_device_instance.send.assert_called_once_with(b"LS")
 
 
+def test_session_port_is_available_to_later_command(tmp_path):
+    runner = CliRunner()
+    port = mock.MagicMock()
+    port.device = "COM3"
+    port.description = "USB Serial Device"
+    port.serial_number = None
+    port.vid = None
+    port.pid = None
+    port.manufacturer = None
+    port.product = None
+    port.hwid = "USB"
+
+    with (
+        mock.patch("serial.tools.list_ports.comports", return_value=[port]),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("otampy.cli._session_id", return_value="win-42"),
+    ):
+        result = runner.invoke(cli, ["ports"], input="1\ns\n")
+        assert result.exit_code == 0
+        assert "Session default port set to: COM3" in result.output
+
+        with (
+            mock.patch("serial.Serial") as serial,
+            mock.patch("urst.Urst") as urst,
+        ):
+            urst.return_value.read.return_value = b"LS_OK:main.py"
+            result = runner.invoke(cli, ["ls"])
+
+    assert result.exit_code == 0
+    assert "main.py" in result.output
+    serial.assert_called_once_with("COM3", baudrate=57600, timeout=2.0)
+
+
 def test_cli_ls_path():
     """Test the 'ls' command with a specific path."""
     runner = CliRunner(env={"NO_COLOR": "1"})

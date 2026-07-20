@@ -90,11 +90,30 @@ def _config_path() -> Path:
     return Path.home() / ".config" / "otampy" / "config.json"
 
 
-def _session_config_path() -> Path:
+def _session_id() -> str:
+    """Return an identifier shared by commands in the current shell session."""
     import os
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            session_id = ctypes.c_ulong()
+            if ctypes.windll.kernel32.ProcessIdToSessionId(  # type: ignore[attr-defined]
+                os.getpid(), ctypes.byref(session_id)
+            ):
+                return f"win-{session_id.value}"
+        except (AttributeError, OSError):
+            pass
+
+    return str(os.getppid())
+
+
+def _session_config_path() -> Path:
     import tempfile
 
-    return Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.json"
+    return Path(tempfile.gettempdir()) / f"otampy_session_{_session_id()}.json"
 
 
 def _read_json(path: Path) -> dict:

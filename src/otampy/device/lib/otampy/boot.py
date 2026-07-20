@@ -113,6 +113,10 @@ def _run_default_update_loop(core):
                         _os.remove(files[index])
                     except OSError:
                         pass
+                # A power loss restarts this loader with an empty ``files``
+                # list, even though the interrupted session's .ota files
+                # still exist on disk. Clean those up too.
+                _cleanup_orphaned_ota(core)
                 send(b"UPDATE_ABORTED")
                 break
             _sleep_ms(10)

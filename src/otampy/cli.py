@@ -2016,7 +2016,7 @@ def deploy_cmd(
 @cli.command(name="init")
 @click.argument(
     "path",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    type=str,
     required=False,
     default=None,
 )
@@ -2027,7 +2027,7 @@ def deploy_cmd(
     help="Overwrite existing files without prompting.",
 )
 @click.pass_context
-def init(ctx: click.Context, path: Path | None, force: bool) -> None:
+def init(ctx: click.Context, path: str | None, force: bool) -> None:
     """Initialize a new project with example configuration files.
 
     Creates boot.py, main.py, and configota.py in the specified directory.
@@ -2044,7 +2044,7 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
         ).strip()
         path = _resolve_device_dir_input(raw)
     else:
-        path = _resolve_device_dir_input(str(path))
+        path = _resolve_device_dir_input(path)
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy

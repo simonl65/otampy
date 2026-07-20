@@ -36,6 +36,25 @@ def test_cli_help():
     )
 
 
+def test_init_slash_path_is_project_relative(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=12345),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+    ):
+        result = runner.invoke(cli, ["init", "/device"])
+
+    assert result.exit_code == 0
+    assert (project_root / "device" / "boot.py").is_file()
+
+
 def test_cli_log_level_for_current_command():
     runner = CliRunner()
     previous_level = logging.getLogger().level

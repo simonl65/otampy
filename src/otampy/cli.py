@@ -1285,16 +1285,14 @@ def _get_files_to_send(
             )
     else:
         project_root = _detect_project_root()
-        p_main = project_root / "main.py"
+        source_root = Path(get_default_device_dir() or project_root)
+        p_main = source_root / "main.py"
         if p_main.is_file():
             res.append(("main.py", p_main))
-        p_lib = project_root / "lib"
+        p_lib = source_root / "lib"
         if p_lib.is_dir():
             for f in p_lib.rglob("*.py"):
-                try:
-                    rel_path = str(f.relative_to(project_root))
-                except ValueError:
-                    rel_path = str(f)
+                rel_path = str(f.relative_to(source_root))
                 res.append((rel_path.replace("\\", "/"), f))
 
     # Validate for conflicts

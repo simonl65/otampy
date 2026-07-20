@@ -1109,6 +1109,32 @@ def test_get_files_to_send_resolves_slash_source_from_project_root(
     assert files == [("/main.py", device / "main.py")]
 
 
+def test_get_files_to_send_defaults_to_saved_device_dir(tmp_path, monkeypatch):
+    from otampy.cli import _get_files_to_send
+
+    project_root = tmp_path / "project"
+    device = project_root / "device"
+    (device / "lib" / "nested").mkdir(parents=True)
+    (project_root / "main.py").parent.mkdir(exist_ok=True)
+    (project_root / "main.py").write_text("# project main\n")
+    (device / "main.py").write_text("# device main\n")
+    helper = device / "lib" / "nested" / "helper.py"
+    helper.write_text("# helper\n")
+    monkeypatch.setattr(
+        "otampy.cli._detect_project_root", lambda: project_root
+    )
+    monkeypatch.setattr(
+        "otampy.cli.get_default_device_dir", lambda: str(device)
+    )
+
+    files = _get_files_to_send(())
+
+    assert files == [
+        ("main.py", device / "main.py"),
+        ("lib/nested/helper.py", helper),
+    ]
+
+
 def test_get_files_to_send_rejects_missing_explicit_sources(
     tmp_path, monkeypatch
 ):

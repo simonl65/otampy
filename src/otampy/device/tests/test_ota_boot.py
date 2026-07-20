@@ -209,6 +209,8 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
     flag_file.touch()
     target = tmp_path / "main.py"
     staging = tmp_path / "main.py.ota"
+    interrupted_staging = tmp_path / "boot.py.ota"
+    interrupted_staging.touch()
     checksum = hashlib.sha256(b"replacement").hexdigest()
 
     config = {
@@ -222,6 +224,13 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
     ticks = iter((0, 0, 2))
     monkeypatch.setattr(boot, "_ticks_ms", lambda: next(ticks))
 
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        return str(tmp_path / path.lstrip("./"))
+
+    monkeypatch.setattr(boot, "_resolve_path", mock_resolve_path)
+
     boot.run(core)
 
     assert core.transport.sent_messages == [
@@ -231,6 +240,7 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
     ]
     assert not flag_file.exists()
     assert not staging.exists()
+    assert not interrupted_staging.exists()
     assert ("warning", "OTA update timed out; aborting session") in logger.messages
 
 

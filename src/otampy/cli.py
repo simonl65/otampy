@@ -336,8 +336,8 @@ def _to_display_path(abs_path: str) -> str:
         return abs_path
 
 
-def _resolve_device_dir_input(raw: str) -> Path:
-    """Resolve a user-supplied device-dir input to an absolute Path.
+def _resolve_project_path_input(raw: str) -> Path:
+    """Resolve a user-supplied project-relative input to an absolute Path.
 
     Resolution rules:
       - Starts with "./" or "../"  → relative to CWD, then validated.
@@ -362,7 +362,7 @@ def _resolve_device_dir_input(raw: str) -> Path:
         resolved.relative_to(project_root)
     except ValueError as ex:
         raise click.ClickException(
-            f"Device directory must be inside the project root ({project_root}): {resolved}"
+            f"Path must be inside the project root ({project_root}): {resolved}"
         ) from ex
 
     return resolved
@@ -1220,7 +1220,7 @@ def _update_target_path(
         return target
 
     try:
-        return str(source.relative_to(Path.cwd()))
+        return str(source.relative_to(_detect_project_root()))
     except ValueError:
         return str(source)
 
@@ -1236,13 +1236,14 @@ def _get_files_to_send(
     if args:
         for arg in args:
             src_str, target_str = _split_update_arg(arg)
-            if has_magic(src_str):
+            source_pattern = str(_resolve_project_path_input(src_str))
+            if has_magic(source_pattern):
                 sources = [
                     Path(match)
-                    for match in sorted(glob(src_str, recursive=True))
+                    for match in sorted(glob(source_pattern, recursive=True))
                 ]
             else:
-                source = Path(src_str)
+                source = Path(source_pattern)
                 sources = [source] if source.exists() else []
 
             matched_files = []
@@ -1271,7 +1272,9 @@ def _get_files_to_send(
                     target_path = target_str.rstrip("/\\") + "/" + str(relative)
                 else:
                     try:
-                        target_path = str(source.relative_to(Path.cwd()))
+                        target_path = str(
+                            source.relative_to(_detect_project_root())
+                        )
                     except ValueError:
                         target_path = str(source)
                 res.append((target_path.replace("\\", "/"), source))
@@ -1281,14 +1284,15 @@ def _get_files_to_send(
                 "No local files matched: " + ", ".join(unmatched)
             )
     else:
-        p_main = Path("main.py")
+        project_root = _detect_project_root()
+        p_main = project_root / "main.py"
         if p_main.is_file():
-            res.append((str(p_main).replace("\\", "/"), p_main))
-        p_lib = Path("lib")
+            res.append(("main.py", p_main))
+        p_lib = project_root / "lib"
         if p_lib.is_dir():
             for f in p_lib.rglob("*.py"):
                 try:
-                    rel_path = str(f.relative_to(Path.cwd()))
+                    rel_path = str(f.relative_to(project_root))
                 except ValueError:
                     rel_path = str(f)
                 res.append((rel_path.replace("\\", "/"), f))
@@ -1860,7 +1864,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         return
 
     if set_dir:
-        resolved = _resolve_device_dir_input(set_dir)
+        resolved = _resolve_project_path_input(set_dir)
         if not _ensure_device_dir_exists(resolved):
             return
         abs_str = str(resolved)
@@ -1892,7 +1896,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         _console().print("Cancelled.")
         return
 
-    resolved = _resolve_device_dir_input(new_dir)
+    resolved = _resolve_project_path_input(new_dir)
     if not _ensure_device_dir_exists(resolved):
         return
 
@@ -1970,6 +1974,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     help=(
         "Path to the project directory containing boot.py, main.py, and configota.py "
         "(created by 'otampy init'). "
+        "Paths are relative to the project root; '/' means the project root. "
         "The OTAmpy library (lib/) is always sourced from the installed package. "
         "Use 'otampy device-dir' to save this as the default."
     ),
@@ -1986,8 +1991,6 @@ def deploy_cmd(
     device_dir: str | None,
 ) -> None:
     """Erase and deploy OTAmpy, examples, and device dependencies."""
-    from pathlib import Path
-
     args = deploy.DeployArgs(
         port=port,  # type: ignore
         mpremote=mpremote,  # type: ignore
@@ -1997,7 +2000,9 @@ def deploy_cmd(
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
-        device_dir=Path(device_dir) if device_dir else None,  # type: ignore
+        device_dir=(
+            _resolve_project_path_input(device_dir) if device_dir else None
+        ),  # type: ignore
     )
     try:
         deploy.deploy(args)
@@ -2016,7 +2021,7 @@ def deploy_cmd(
 @cli.command(name="init")
 @click.argument(
     "path",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    type=str,
     required=False,
     default=None,
 )
@@ -2027,7 +2032,7 @@ def deploy_cmd(
     help="Overwrite existing files without prompting.",
 )
 @click.pass_context
-def init(ctx: click.Context, path: Path | None, force: bool) -> None:
+def init(ctx: click.Context, path: str | None, force: bool) -> None:
     """Initialize a new project with example configuration files.
 
     Creates boot.py, main.py, and configota.py in the specified directory.
@@ -2042,9 +2047,9 @@ def init(ctx: click.Context, path: Path | None, force: bool) -> None:
             "Project directory",
             default=default_display,
         ).strip()
-        path = _resolve_device_dir_input(raw)
+        path = _resolve_project_path_input(raw)
     else:
-        path = _resolve_device_dir_input(str(path))
+        path = _resolve_project_path_input(path)
     path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy

@@ -36,6 +36,42 @@ def test_cli_help():
     )
 
 
+def test_init_slash_path_is_project_relative(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=12345),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+    ):
+        result = runner.invoke(cli, ["init", "/device"])
+
+    assert result.exit_code == 0
+    assert (project_root / "device" / "boot.py").is_file()
+
+
+def test_deploy_device_dir_is_project_relative(tmp_path):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+        mock.patch("otampy.cli.deploy.deploy") as deploy,
+    ):
+        result = runner.invoke(cli, ["deploy", "--device-dir", "/device"])
+
+    assert result.exit_code == 0
+    assert deploy.call_args.args[0].device_dir == project_root / "device"
+
+
 def test_cli_log_level_for_current_command():
     runner = CliRunner()
     previous_level = logging.getLogger().level
@@ -1052,6 +1088,25 @@ def test_get_files_to_send_expands_mapped_wildcard(tmp_path, monkeypatch):
         "lib/otampy/boot.py",
         "lib/otampy/main.py",
     ]
+
+
+def test_get_files_to_send_resolves_slash_source_from_project_root(
+    tmp_path, monkeypatch
+):
+    from otampy.cli import _get_files_to_send
+
+    project_root = tmp_path / "project"
+    device = project_root / "device"
+    device.mkdir(parents=True)
+    (device / "main.py").write_text("# main\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "otampy.cli._detect_project_root", lambda: project_root
+    )
+
+    files = _get_files_to_send(("/device/*.py:/",), python_only=False)
+
+    assert files == [("/main.py", device / "main.py")]
 
 
 def test_get_files_to_send_rejects_missing_explicit_sources(

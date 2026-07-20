@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-stable_(2.1.4)-green>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(2.1.5)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -210,6 +210,10 @@ otampy cp 'device/lib/*:lib/'
 ```
 
 `cp` accepts multiple sources, folders, and local wildcard patterns (`*`, `?`, `[]`, `**`). Folder contents are copied recursively; empty folders are not created. Files are streamed to checksum-verified staging files and committed individually while the device continues running. Copies targeting root `/boot.py` or `/main.py` produce a reminder that the replacement will take effect on the next restart.
+
+Local `cp` and `upd` source paths are resolved from the project root: `/device/*:/`
+copies `<project-root>/device/*` to the device filesystem root. The path after
+`:` is always a remote device path.
 
 Remove files or directories (recovery paths are protected):
 

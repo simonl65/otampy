@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-stable_(2.1.6)-green>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(2.2.0)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -126,16 +126,26 @@ otampy [global-options] <command> [command-options]
 
 The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers to retain the setting permanently (`p`), for the current shell session (`s`), or only for the current command (`c`).
 
-Permanent port and log-level settings are stored together in `~/.config/otampy/config.json`:
+Permanent port settings are stored per project and log-level settings globally
+in `~/.config/otampy/config.json`:
 
 ```json
 {
-  "default_port": "/dev/ttyUSB0",
-  "log_level": "DEBUG"
+  "projects": {
+    "/path/to/project": {
+      "default_port": "/dev/ttyUSB0"
+    }
+  },
+  "global": {
+    "log_level": "DEBUG"
+  }
 }
 ```
 
-Session-only selections use shell-specific files in the operating system's temporary directory (normally `/tmp` on Linux) and do not alter the permanent configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` environment variables override saved settings.
+Session-only selections use files in the operating system's temporary directory
+(normally `/tmp` on Linux) and do not alter the permanent configuration. On
+Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
+`OTAMPY_LOG_LEVEL` environment variables override saved settings.
 
 ### Commands
 
@@ -144,7 +154,7 @@ Session-only selections use shell-specific files in the operating system's tempo
 | `cat`        | `file`                | Print a file from the device.                                       |
 | `cp`         | `source[:dest] [...]` | Copy files or folders to the device without rebooting.              |
 | `deploy`     | _(see below)_         | Erase and deploy the full device library over USB.                  |
-| `device-dir` | —                     | Show or manage the saved project directory for deploy.              |
+| `device-dir` | —                     | Show or manage the saved project directory for deploy and updates.  |
 | `init`       | `[directory]`         | Scaffold `boot.py`, `main.py`, and `configota.py`.                  |
 | `log-level`  |                       | Show or manage the saved CLI log level.                             |
 | `ls`         | `[path]`              | List device directory contents.                                     |
@@ -154,16 +164,16 @@ Session-only selections use shell-specific files in the operating system's tempo
 | `rb`         | —                     | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
 | `sr`         | —                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `upd`        | `[--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
 
-<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `main.py` and all Python files under `lib/` in the current directory.
+<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
 ### Deployment Options
 
 | Option                | Effect                                                    |
 | --------------------- | --------------------------------------------------------- |
 | `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
-| `--device-dir`        | Select the directory containing device/ (`boot.py`, etc.) |
+| `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`       | Install the optional `log-to-file` package.               |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
@@ -226,10 +236,16 @@ Quote wildcards to prevent the host shell from expanding them locally (e.g., `ot
 
 To preserve remote recovery, `rm` cannot remove root `/boot.py`, `/main.py`, `/configota.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such as `/lib` or `/`.
 
-Trigger an OTA firmware update (defaults to `main.py` and all `lib/` Python files):
+Trigger an OTA firmware update (defaults to `boot.py`, `main.py`, `configota.py`, and all `lib/` Python files in the saved device directory):
 
 ```bash
 otampy upd
+```
+
+To update every file in that directory (including non-Python assets), use `--all-files`. OTAmpy lists the files and asks for confirmation before contacting the device:
+
+```bash
+otampy upd --all-files
 ```
 
 Update specific files or mapped paths:

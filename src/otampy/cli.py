@@ -90,11 +90,30 @@ def _config_path() -> Path:
     return Path.home() / ".config" / "otampy" / "config.json"
 
 
-def _session_config_path() -> Path:
+def _session_id() -> str:
+    """Return an identifier shared by commands in the current shell session."""
     import os
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            session_id = ctypes.c_ulong()
+            if ctypes.windll.kernel32.ProcessIdToSessionId(  # type: ignore[attr-defined]
+                os.getpid(), ctypes.byref(session_id)
+            ):
+                return f"win-{session_id.value}"
+        except (AttributeError, OSError):
+            pass
+
+    return str(os.getppid())
+
+
+def _session_config_path() -> Path:
     import tempfile
 
-    return Path(tempfile.gettempdir()) / f"otampy_session_{os.getppid()}.json"
+    return Path(tempfile.gettempdir()) / f"otampy_session_{_session_id()}.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -1226,7 +1245,7 @@ def _update_target_path(
 
 
 def _get_files_to_send(
-    args: tuple[str, ...], *, python_only: bool = True
+    args: tuple[str, ...], *, python_only: bool = True, all_files: bool = False
 ) -> list[tuple[str, Path]]:
     from glob import glob, has_magic
 
@@ -1286,14 +1305,22 @@ def _get_files_to_send(
     else:
         project_root = _detect_project_root()
         source_root = Path(get_default_device_dir() or project_root)
-        p_main = source_root / "main.py"
-        if p_main.is_file():
-            res.append(("main.py", p_main))
-        p_lib = source_root / "lib"
-        if p_lib.is_dir():
-            for f in p_lib.rglob("*.py"):
-                rel_path = str(f.relative_to(source_root))
-                res.append((rel_path.replace("\\", "/"), f))
+        if all_files:
+            res.extend(
+                (str(file.relative_to(source_root)).replace("\\", "/"), file)
+                for file in sorted(source_root.rglob("*"))
+                if file.is_file()
+            )
+        else:
+            for name in ("boot.py", "main.py", "configota.py"):
+                file = source_root / name
+                if file.is_file():
+                    res.append((name, file))
+            p_lib = source_root / "lib"
+            if p_lib.is_dir():
+                for f in p_lib.rglob("*.py"):
+                    rel_path = str(f.relative_to(source_root))
+                    res.append((rel_path.replace("\\", "/"), f))
 
     # Validate for conflicts
     target_paths = [t for t, _ in res]
@@ -1450,15 +1477,35 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
 
 
 @cli.command(name="upd")
+@click.option(
+    "--all-files",
+    is_flag=True,
+    help="Upload every file in the device directory after confirmation.",
+)
 @click.argument("args", nargs=-1)
 @click.pass_context
-def update(ctx: click.Context, args: tuple[str, ...]) -> None:
+def update(
+    ctx: click.Context, args: tuple[str, ...], all_files: bool
+) -> None:
     """Reboot & update files or directories on the device."""
+    if all_files and args:
+        raise click.UsageError(
+            "--all-files cannot be combined with explicit update sources."
+        )
+
     # 0. Scan and collect files to send locally before touching device
-    files_to_send = _get_files_to_send(args)
+    files_to_send = _get_files_to_send(args, all_files=all_files)
     if not files_to_send:
         _console().print("[yellow]No files found to transfer.[/yellow]")
         return
+
+    if all_files:
+        _console().print("[yellow]The following files will be uploaded:[/yellow]")
+        for target_path, _ in files_to_send:
+            _console().print(f"  {target_path}")
+        if not click.confirm("Continue with the update?", default=False):
+            _console().print("Cancelled.")
+            return
 
     import hashlib
 

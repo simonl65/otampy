@@ -126,16 +126,26 @@ otampy [global-options] <command> [command-options]
 
 The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers to retain the setting permanently (`p`), for the current shell session (`s`), or only for the current command (`c`).
 
-Permanent port and log-level settings are stored together in `~/.config/otampy/config.json`:
+Permanent port settings are stored per project and log-level settings globally
+in `~/.config/otampy/config.json`:
 
 ```json
 {
-  "default_port": "/dev/ttyUSB0",
-  "log_level": "DEBUG"
+  "projects": {
+    "/path/to/project": {
+      "default_port": "/dev/ttyUSB0"
+    }
+  },
+  "global": {
+    "log_level": "DEBUG"
+  }
 }
 ```
 
-Session-only selections use shell-specific files in the operating system's temporary directory (normally `/tmp` on Linux) and do not alter the permanent configuration. `OTAMPY_PORT` and `OTAMPY_LOG_LEVEL` environment variables override saved settings.
+Session-only selections use files in the operating system's temporary directory
+(normally `/tmp` on Linux) and do not alter the permanent configuration. On
+Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
+`OTAMPY_LOG_LEVEL` environment variables override saved settings.
 
 ### Commands
 
@@ -144,7 +154,7 @@ Session-only selections use shell-specific files in the operating system's tempo
 | `cat`        | `file`                | Print a file from the device.                                       |
 | `cp`         | `source[:dest] [...]` | Copy files or folders to the device without rebooting.              |
 | `deploy`     | _(see below)_         | Erase and deploy the full device library over USB.                  |
-| `device-dir` | —                     | Show or manage the saved project directory for deploy.              |
+| `device-dir` | —                     | Show or manage the saved project directory for deploy and updates.  |
 | `init`       | `[directory]`         | Scaffold `boot.py`, `main.py`, and `configota.py`.                  |
 | `log-level`  |                       | Show or manage the saved CLI log level.                             |
 | `ls`         | `[path]`              | List device directory contents.                                     |
@@ -163,7 +173,7 @@ Session-only selections use shell-specific files in the operating system's tempo
 | Option                | Effect                                                    |
 | --------------------- | --------------------------------------------------------- |
 | `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
-| `--device-dir`        | Select the directory containing device/ (`boot.py`, etc.) |
+| `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`       | Install the optional `log-to-file` package.               |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.             |

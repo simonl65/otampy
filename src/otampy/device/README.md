@@ -25,9 +25,9 @@ MicroPython code to be placed on the device to enable OTA functionality.
 
    This command erases the device filesystem before copying the new
    deployment. It uses the installed device-library bundle plus the current
-   project's files, or the canonical `packages/device` tree when run from
-   this repository. Use `--project` to select another project and `--dry-run`
-   to inspect the command first.
+   project's files, or the canonical `src/otampy/device` tree when run from
+   this repository. Use `--device-dir DIRECTORY` to select another project
+   directory and `--dry-run` to inspect the command first.
 
 4. To include file logging during development, add `--with-logger`:
 

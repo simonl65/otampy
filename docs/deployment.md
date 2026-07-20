@@ -14,19 +14,21 @@ and MicroPython dependencies over a direct USB/serial connection.
 - A configured OTAmpy project.
 
 For a project using an installed OTAmpy package, create the project-owned
-device files and edit the generated configuration:
+device files in a directory of your choice and edit the generated
+configuration:
 
 ```bash
 otampy init
 ```
 
-This creates `device/boot.py`, `device/main.py`, and `device/configota.py`.
-Set the UART port, pins, baud rate, and timeout in `device/configota.py`.
+This prompts for a device directory and creates `boot.py`, `main.py`, and
+`configota.py` there. Set the UART port, pins, baud rate, and timeout in its
+`configota.py`.
 `otampy init` refuses to overwrite any of these files unless `--force` is
 given.
 
 In an OTAmpy source checkout, deployment remains compatible with
-`packages/device`: create `packages/device/examples/configota.py` from
+`src/otampy/device`: create `src/otampy/device/examples/configota.py` from
 `config.example.py`.
 
 Use a dry run to inspect the operation without changing the device:
@@ -36,7 +38,8 @@ otampy deploy --port /dev/ttyACM0 --dry-run
 ```
 
 Run the command from the project root or pass a project-root-relative path such
-as `--device-dir /device`.
+as `--device-dir /device`. To make a directory the default for future deploys
+and updates, save it with `otampy device-dir --set /device`.
 
 ## Source profile
 
@@ -44,12 +47,12 @@ For an installed package, the default profile installs:
 
 - the versioned device library bundled with the installed OTAmpy package as
   `/lib`;
-- the project's `device/configota.py`, `device/boot.py`, and `device/main.py` at
-  the device root;
+- the saved device directory's `configota.py`, `boot.py`, and `main.py` at the
+  device root;
 - URST using MicroPython's `mip`.
 
 When run from this repository, it instead uses the canonical
-`packages/device/lib/` and `packages/device/examples/` files directly.
+`src/otampy/device/lib/` and `src/otampy/device/examples/` files directly.
 
 ```bash
 otampy deploy --port /dev/ttyACM0
@@ -57,6 +60,14 @@ otampy deploy --port /dev/ttyACM0
 
 No file logger is installed. OTAmpy and the examples use `NullLogger`, so the
 application runs silently without importing a file-logging implementation.
+
+## OTA updates
+
+After deployment, `otampy upd` uploads `boot.py`, `main.py`, `configota.py`,
+and all Python files under `lib/` from the saved device directory. Use
+`otampy upd --all-files` to upload every file in that directory, including
+non-Python assets. The CLI lists the files and requires confirmation before it
+contacts the device.
 
 This profile keeps OTAmpy and URST as editable `.py` files and is the
 recommended development profile.
@@ -129,7 +140,7 @@ profile for development file logging.
 | Option                   | Description                                                        |
 | ------------------------ | ------------------------------------------------------------------ |
 | `-p`, `--port PORT`      | Select the device port, such as `/dev/ttyACM0` or `COM3`.          |
-| `--device-dir DIRECTORY` | Select the directory containing `device/` templates.               |
+| `--device-dir DIRECTORY` | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`          | Install `log-to-file` for development logging.                     |
 | `--bytecode`, `--mpy`    | Compile and deploy target-matched `.mpy` libraries.                |
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |

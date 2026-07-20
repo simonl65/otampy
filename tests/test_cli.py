@@ -1175,7 +1175,9 @@ def test_get_files_to_send_defaults_to_saved_device_dir(tmp_path, monkeypatch):
     (device / "lib" / "nested").mkdir(parents=True)
     (project_root / "main.py").parent.mkdir(exist_ok=True)
     (project_root / "main.py").write_text("# project main\n")
+    (device / "boot.py").write_text("# device boot\n")
     (device / "main.py").write_text("# device main\n")
+    (device / "configota.py").write_text("# device config\n")
     helper = device / "lib" / "nested" / "helper.py"
     helper.write_text("# helper\n")
     monkeypatch.setattr(
@@ -1188,9 +1190,48 @@ def test_get_files_to_send_defaults_to_saved_device_dir(tmp_path, monkeypatch):
     files = _get_files_to_send(())
 
     assert files == [
+        ("boot.py", device / "boot.py"),
         ("main.py", device / "main.py"),
+        ("configota.py", device / "configota.py"),
         ("lib/nested/helper.py", helper),
     ]
+
+
+def test_get_files_to_send_all_files_uses_saved_device_dir(tmp_path, monkeypatch):
+    from otampy.cli import _get_files_to_send
+
+    device = tmp_path / "device"
+    (device / "assets").mkdir(parents=True)
+    (device / "main.py").write_text("# main\n")
+    asset = device / "assets" / "settings.json"
+    asset.write_text("{}\n")
+    monkeypatch.setattr("otampy.cli.get_default_device_dir", lambda: str(device))
+
+    files = _get_files_to_send((), all_files=True)
+
+    assert files == [
+        ("assets/settings.json", asset),
+        ("main.py", device / "main.py"),
+    ]
+
+
+def test_cli_update_all_files_lists_and_confirms_before_connecting():
+    runner = CliRunner()
+
+    with (
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("main.py", Path("/tmp/main.py"))],
+        ),
+        mock.patch("serial.Serial") as serial,
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--all-files"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "The following files will be uploaded:" in result.output
+    assert "main.py" in result.output
+    assert "Cancelled." in result.output
+    serial.assert_not_called()
 
 
 def test_get_files_to_send_rejects_missing_explicit_sources(

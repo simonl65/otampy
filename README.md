@@ -154,9 +154,9 @@ Session-only selections use shell-specific files in the operating system's tempo
 | `rb`         | —                     | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
 | `sr`         | —                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `upd`        | `[--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
 
-<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `main.py` and all Python files under `lib/` in the current directory.
+<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
 ### Deployment Options
 
@@ -226,10 +226,16 @@ Quote wildcards to prevent the host shell from expanding them locally (e.g., `ot
 
 To preserve remote recovery, `rm` cannot remove root `/boot.py`, `/main.py`, `/configota.py`, anything under `/lib/otampy` or `/lib/urst`, or an ancestor such as `/lib` or `/`.
 
-Trigger an OTA firmware update (defaults to `main.py` and all `lib/` Python files):
+Trigger an OTA firmware update (defaults to `boot.py`, `main.py`, `configota.py`, and all `lib/` Python files in the saved device directory):
 
 ```bash
 otampy upd
+```
+
+To update every file in that directory (including non-Python assets), use `--all-files`. OTAmpy lists the files and asks for confirmation before contacting the device:
+
+```bash
+otampy upd --all-files
 ```
 
 Update specific files or mapped paths:

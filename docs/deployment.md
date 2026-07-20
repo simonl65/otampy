@@ -35,7 +35,8 @@ Use a dry run to inspect the operation without changing the device:
 otampy deploy --port /dev/ttyACM0 --dry-run
 ```
 
-Run the command from the project root or pass `--device-dir /path/to/project/device`.
+Run the command from the project root or pass a project-root-relative path such
+as `--device-dir /device`.
 
 ## Source profile
 

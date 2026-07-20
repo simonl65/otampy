@@ -1285,16 +1285,14 @@ def _get_files_to_send(
             )
     else:
         project_root = _detect_project_root()
-        p_main = project_root / "main.py"
+        source_root = Path(get_default_device_dir() or project_root)
+        p_main = source_root / "main.py"
         if p_main.is_file():
             res.append(("main.py", p_main))
-        p_lib = project_root / "lib"
+        p_lib = source_root / "lib"
         if p_lib.is_dir():
             for f in p_lib.rglob("*.py"):
-                try:
-                    rel_path = str(f.relative_to(project_root))
-                except ValueError:
-                    rel_path = str(f)
+                rel_path = str(f.relative_to(source_root))
                 res.append((rel_path.replace("\\", "/"), f))
 
     # Validate for conflicts
@@ -1979,7 +1977,9 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         "Use 'otampy device-dir' to save this as the default."
     ),
 )
+@click.pass_context
 def deploy_cmd(
+    ctx: click.Context,
     port: str | None,
     mpremote: str,
     no_mip: bool,
@@ -2001,7 +2001,13 @@ def deploy_cmd(
         no_reset=no_reset,  # type: ignore
         dry_run=dry_run,  # type: ignore
         device_dir=(
-            _resolve_project_path_input(device_dir) if device_dir else None
+            Path(device_dir)
+            if device_dir
+            and ctx.get_parameter_source("device_dir")
+            is click.core.ParameterSource.DEFAULT
+            else _resolve_project_path_input(device_dir)
+            if device_dir
+            else None
         ),  # type: ignore
     )
     try:

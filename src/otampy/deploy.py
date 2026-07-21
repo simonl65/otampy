@@ -160,6 +160,7 @@ class DeployArgs:
     bytecode: bool = False
     mpy_cross: str = "mpy-cross"
     device_dir: Path | None = None
+    set_time: bool = False
 
 
 @dataclass(frozen=True)
@@ -262,10 +263,10 @@ def wait_for_target(args: DeployArgs) -> None:
         "exec",
         "print('OTAMPY_READY')",
     ]
-    print("$ " + shlex.join(command), flush=True)
+    print("Waiting for device to reconnect...", flush=True)
     last_result = None
 
-    for delay in (0, 1, 2):
+    for delay in (0, 1, 2, 3, 5):
         if delay:
             time.sleep(delay)
         last_result = subprocess.run(
@@ -285,6 +286,8 @@ def wait_for_target(args: DeployArgs) -> None:
             or "could not open" in output
             or "no device" in output
             or "failed to access" in output
+            or "input/output error" in output
+            or "errno 5" in output
         )
         if not retryable:
             break
@@ -292,6 +295,13 @@ def wait_for_target(args: DeployArgs) -> None:
     assert last_result is not None
     output = (last_result.stdout or "") + (last_result.stderr or "")
     raise DeployError(last_result.returncode or 1, output)
+
+
+def set_target_time(args: DeployArgs) -> None:
+    """Wait for a post-deploy reset, then set the target RTC from the host."""
+    if not args.dry_run:
+        wait_for_target(args)
+    run_mpremote(args, ["rtc", "--set"])
 
 
 def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
@@ -679,6 +689,8 @@ def deploy(args: DeployArgs) -> None:
     _remove_pycache_dirs()
     if not args.bytecode:
         run_mpremote(args, deploy_command(args))
+        if args.set_time:
+            set_target_time(args)
         return
 
     if args.with_logger:
@@ -726,6 +738,8 @@ def deploy(args: DeployArgs) -> None:
                 Path("<target-matched-mpy-lib>"),
             ),
         )
+        if args.set_time:
+            set_target_time(args)
         return
 
     target = query_target_mpy(args)
@@ -737,6 +751,8 @@ def deploy(args: DeployArgs) -> None:
         build_bytecode_lib(args, lib_dir, target)
         wait_for_target(args)
         run_mpremote(args, deploy_command(args, lib_dir))
+        if args.set_time:
+            set_target_time(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -781,6 +797,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-reset",
         action="store_true",
         help="Skip resetting the device after deployment.",
+    )
+    parser.add_argument(
+        "--set-time",
+        action="store_true",
+        help="Set the device RTC from the host after deployment.",
     )
     parser.add_argument(
         "--dry-run",

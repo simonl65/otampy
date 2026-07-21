@@ -150,10 +150,14 @@ profile for development file logging.
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
 | `--no-mip`               | Skip every MIP dependency, including URST and the optional logger. |
 | `--no-reset`             | Do not reset the device after deployment.                          |
+| `--set-time`             | Set the device RTC from the host after deployment.                 |
 | `--dry-run`              | Print the `mpremote` command without executing it.                 |
 | `--mpremote PATH`        | Select a different `mpremote` executable.                          |
 
 `--with-logger` has no effect when combined with `--no-mip`.
+`--set-time` waits for the device to reconnect after deployment, then runs
+`mpremote rtc --set`. This ensures the final running device receives the time
+even when its RTC does not survive a reset.
 Use `--no-mip` only when the required packages are frozen into the firmware or
 will be installed separately; after the filesystem erase, OTAmpy cannot poll
 without URST. `--no-mip` has no additional effect on the bytecode profile.

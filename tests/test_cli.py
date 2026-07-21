@@ -1412,6 +1412,7 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "--bytecode",
                 "--mpy-cross",
                 "uvx custom-cross",
+                "--set-time",
                 "--dry-run",
             ],
         )
@@ -1425,6 +1426,7 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.bytecode is True
     assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.no_reset is False
+    assert called_args.set_time is True
     assert called_args.dry_run is True
 
 

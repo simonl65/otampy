@@ -378,6 +378,34 @@ def test_deploy_installs_optional_logger():
     assert "github:simonl65/log-to-file" in command
 
 
+def test_deploy_sets_rtc_after_copying_files(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        set_time=True,
+    )
+    commands = []
+    monkeypatch.setattr(
+        deploy,
+        "run_mpremote",
+        lambda _args, command: commands.append(command),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "wait_for_target",
+        lambda _args: commands.append(["wait-for-target"]),
+    )
+
+    deploy.deploy(args)
+
+    assert commands[-2:] == [["wait-for-target"], ["rtc", "--set"]]
+    assert "cp" in commands[0]
+
+
 def test_no_mip_skips_optional_logger():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
@@ -638,7 +666,7 @@ def test_missing_mpy_cross_has_clear_error():
         deploy._run_mpy_cross(args, ["--version"])
 
 
-def test_wait_for_target_retries_transient_connection_error():
+def test_wait_for_target_retries_transient_connection_error(capsys):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -661,6 +689,38 @@ def test_wait_for_target_retries_transient_connection_error():
 
     with (
         mock.patch("subprocess.run", side_effect=(busy, ready)) as run,
+        mock.patch("time.sleep") as sleep,
+    ):
+        deploy.wait_for_target(args)
+
+    assert run.call_count == 2
+    sleep.assert_called_once_with(1)
+    assert "Waiting for device to reconnect..." in capsys.readouterr().out
+
+
+def test_wait_for_target_retries_post_reset_input_output_error():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    reconnecting = mock.Mock(
+        returncode=1,
+        stdout="",
+        stderr="OSError: [Errno 5] Input/output error",
+    )
+    ready = mock.Mock(
+        returncode=0,
+        stdout="OTAMPY_READY\n",
+        stderr="",
+    )
+
+    with (
+        mock.patch("subprocess.run", side_effect=(reconnecting, ready)) as run,
         mock.patch("time.sleep") as sleep,
     ):
         deploy.wait_for_target(args)

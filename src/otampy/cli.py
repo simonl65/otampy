@@ -2009,6 +2009,11 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     help="Skip resetting the device after deployment.",
 )
 @click.option(
+    "--set-time",
+    is_flag=True,
+    help="Set the device RTC from the host after deployment.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Print mpremote commands without running them.",
@@ -2034,6 +2039,7 @@ def deploy_cmd(
     bytecode: bool,
     mpy_cross: str,
     no_reset: bool,
+    set_time: bool,
     dry_run: bool,
     device_dir: str | None,
 ) -> None:
@@ -2046,6 +2052,7 @@ def deploy_cmd(
         bytecode=bytecode,  # type: ignore
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
+        set_time=set_time,  # type: ignore
         dry_run=dry_run,  # type: ignore
         device_dir=(
             Path(device_dir)

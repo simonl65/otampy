@@ -1,4 +1,5 @@
 import binascii
+import builtins
 import hashlib
 import os
 from unittest.mock import patch
@@ -6,6 +7,22 @@ from unittest.mock import patch
 import shared
 from device_otampy import boot
 from device_otampy.core import OTACore
+
+
+def test_boot_imports_staged_rtc_helper(monkeypatch):
+    imported = []
+
+    def fake_import(name, *args, **kwargs):
+        imported.append(name)
+        if name == "_otampy_set_rtc":
+            return object()
+        return builtins.__import__(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    boot._apply_staged_rtc_update()
+
+    assert imported == ["_otampy_set_rtc"]
 
 
 def test_boot_no_flag_file(tmp_path):

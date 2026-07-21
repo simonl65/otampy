@@ -28,6 +28,39 @@ def test_manager_handles_ping():
     assert core.transport.sent_messages == [b"PONG"]
 
 
+def test_manager_returns_rtc_without_reset():
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+    machine.RTC.return_value.datetime.return_value = (2026, 7, 21, 0, 12, 34, 56, 789)
+    machine.reset.reset_mock()
+    machine.soft_reset.reset_mock()
+    core.transport.incoming_queue.append(b"RTC")
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"RTC_OK:(2026, 7, 21, 0, 12, 34, 56, 789)"]
+    machine.reset.assert_not_called()
+    machine.soft_reset.assert_not_called()
+
+
+def test_manager_stages_rtc_update(tmp_path, monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+    monkeypatch.chdir(tmp_path)
+    core.transport.incoming_queue.append(
+        b"RTC_STAGE:2026:7:21:0:12:34:56:789"
+    )
+
+    manager.poll(core)
+
+    helper = tmp_path / "_otampy_set_rtc.py"
+    assert core.transport.sent_messages == [b"RTC_STAGE_OK"]
+    assert "machine.RTC().datetime" in helper.read_text()
+    assert "(2026, 7, 21, 0, 12, 34, 56, 789)" in helper.read_text()
+
+
 def test_manager_handles_reboot():
     uart = shared.FakeUART()
     logger = shared.FakeLogger()

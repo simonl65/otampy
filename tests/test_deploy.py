@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest.mock as mock
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -251,6 +252,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.no_mip = True
     mock_args.bytecode = False
     mock_args.no_reset = True
+    mock_args.set_time = False
     mock_args.dry_run = True
     mock_args.device_dir = None
 
@@ -266,6 +268,103 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
 
     assert not pycache.exists()
     assert called, "run_mpremote should be called after cleanup"
+
+
+def test_run_mpremote_streams_output_and_preserves_errors(monkeypatch, capsys):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+    )
+    process = mock.Mock(stdout=StringIO("copying...\n"), returncode=1)
+    process.wait.return_value = 1
+    monkeypatch.setattr(deploy.subprocess, "Popen", mock.Mock(return_value=process))
+
+    with pytest.raises(deploy.DeployError, match="copying"):
+        deploy.run_mpremote(args, ["cp", "file.py", ":"])
+
+    assert "copying..." in capsys.readouterr().out
+
+
+def test_deploy_preflights_mip_dependencies_before_device_changes(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=True,
+        no_reset=False,
+        dry_run=False,
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        deploy,
+        "_preflight_mip_package",
+        lambda package: calls.append(("preflight", package)),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "run_mpremote",
+        lambda _args, _command: calls.append(("deploy",)),
+    )
+
+    deploy.deploy(args)
+
+    assert calls == [
+        ("preflight", "github:simonl65/URST-mpy"),
+        ("preflight", "github:simonl65/log-to-file"),
+        ("deploy",),
+    ]
+
+
+def test_dependency_preflight_failure_prevents_device_changes(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+    )
+    monkeypatch.setattr(
+        deploy,
+        "_preflight_mip_package",
+        mock.Mock(side_effect=deploy.DependencyPreflightError("offline")),
+    )
+    run_mpremote = mock.Mock()
+    monkeypatch.setattr(deploy, "run_mpremote", run_mpremote)
+
+    with pytest.raises(deploy.DependencyPreflightError, match="offline"):
+        deploy.deploy(args)
+
+    run_mpremote.assert_not_called()
+
+
+def test_mip_preflight_checks_manifest_files_and_dependencies(monkeypatch):
+    responses = {
+        "https://raw.githubusercontent.com/example/root/HEAD/package.json": (
+            b'{"urls": [["root.py", "root.py"]], "deps": [["child", "1.2"]]}'
+        ),
+        "https://raw.githubusercontent.com/example/root/HEAD/root.py": b"root",
+        "https://micropython.org/pi/v2/package/py/child/1.2.json": (
+            b'{"hashes": [["child.py", "abc123"]]}'
+        ),
+        "https://micropython.org/pi/v2/file/ab/abc123": b"child",
+    }
+    checked = []
+
+    def fake_read(url):
+        checked.append(url)
+        return responses[url]
+
+    monkeypatch.setattr(deploy, "_read_mip_url", fake_read)
+
+    deploy._preflight_mip_package("github:example/root")
+
+    assert checked == list(responses)
 
 
 def test_deploy_installs_only_urst_mip_dependency_by_default():
@@ -298,6 +397,53 @@ def test_deploy_installs_optional_logger():
 
     assert "github:simonl65/URST-mpy" in command
     assert "github:simonl65/log-to-file" in command
+
+
+def test_deploy_stages_rtc_helper_before_reset(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        set_time=True,
+    )
+    commands = []
+    monkeypatch.setattr(
+        deploy,
+        "run_mpremote",
+        lambda _args, command: commands.append(command),
+    )
+    deploy.deploy(args)
+
+    command = commands[0]
+    assert any(path.endswith("/_otampy_set_rtc.py") for path in command)
+    assert ["rtc", "--set"] not in commands
+    assert "reset" in command
+
+
+def test_set_time_requires_final_reset():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=True,
+        dry_run=False,
+        set_time=True,
+    )
+
+    with pytest.raises(deploy.DeployOptionError, match="requires the final"):
+        deploy.deploy(args)
+
+
+def test_prepare_rtc_helper_is_one_shot(tmp_path):
+    rtc_helper = deploy.prepare_rtc_helper(tmp_path)
+
+    helper = rtc_helper.read_text()
+    assert "machine.RTC().datetime" in helper
+    assert "os.remove('_otampy_set_rtc.py')" in helper
 
 
 def test_no_mip_skips_optional_logger():
@@ -560,7 +706,7 @@ def test_missing_mpy_cross_has_clear_error():
         deploy._run_mpy_cross(args, ["--version"])
 
 
-def test_wait_for_target_retries_transient_connection_error():
+def test_wait_for_target_retries_transient_connection_error(capsys):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -583,6 +729,38 @@ def test_wait_for_target_retries_transient_connection_error():
 
     with (
         mock.patch("subprocess.run", side_effect=(busy, ready)) as run,
+        mock.patch("time.sleep") as sleep,
+    ):
+        deploy.wait_for_target(args)
+
+    assert run.call_count == 2
+    sleep.assert_called_once_with(1)
+    assert "Waiting for device to reconnect..." in capsys.readouterr().out
+
+
+def test_wait_for_target_retries_post_reset_input_output_error():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        bytecode=True,
+    )
+    reconnecting = mock.Mock(
+        returncode=1,
+        stdout="",
+        stderr="OSError: [Errno 5] Input/output error",
+    )
+    ready = mock.Mock(
+        returncode=0,
+        stdout="OTAMPY_READY\n",
+        stderr="",
+    )
+
+    with (
+        mock.patch("subprocess.run", side_effect=(reconnecting, ready)) as run,
         mock.patch("time.sleep") as sleep,
     ):
         deploy.wait_for_target(args)

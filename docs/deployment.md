@@ -51,6 +51,10 @@ For an installed package, the default profile installs:
   device root;
 - URST using MicroPython's `mip`.
 
+Before erasing the device, `deploy` checks that every MIP package manifest and
+referenced file is reachable. This prevents an unavailable network or GitHub
+repository from leaving the device empty after the filesystem erase.
+
 When run from this repository, it instead uses the canonical
 `src/otampy/device/lib/` and `src/otampy/device/examples/` files directly.
 
@@ -146,10 +150,19 @@ profile for development file logging.
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
 | `--no-mip`               | Skip every MIP dependency, including URST and the optional logger. |
 | `--no-reset`             | Do not reset the device after deployment.                          |
+| `--set-time`             | Set the device RTC from the host during final boot.                |
 | `--dry-run`              | Print the `mpremote` command without executing it.                 |
 | `--mpremote PATH`        | Select a different `mpremote` executable.                          |
 
 `--with-logger` has no effect when combined with `--no-mip`.
+`--set-time` stages a one-shot RTC helper before the deployment's final reset.
+During normal boot OTAmpy's device boot module runs it to set the RTC from the
+host timestamp, then it deletes itself; no second USB connection or follow-up
+reset is needed.
+It cannot be combined with `--no-reset`.
+The same option is available on `otampy rb`, `otampy sr`, and `otampy upd`.
+The reset commands stage the helper over OTA before rebooting; `upd` includes
+it in its transaction, so it runs only after the final update reboot.
 Use `--no-mip` only when the required packages are frozen into the firmware or
 will be installed separately; after the filesystem erase, OTAmpy cannot poll
 without URST. `--no-mip` has no additional effect on the bytecode profile.

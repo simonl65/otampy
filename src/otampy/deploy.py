@@ -12,7 +12,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -129,6 +132,9 @@ MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
 
 MIP_PACKAGES = ("github:simonl65/URST-mpy",)
 LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
+MIP_INDEX = "https://micropython.org/pi/v2"
+MIP_PREFLIGHT_TIMEOUT_SECONDS = 10
+RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
 class DeployError(Exception):
@@ -139,6 +145,14 @@ class DeployError(Exception):
 
 class BytecodeDeployError(Exception):
     """Raised when a target-matched bytecode deployment cannot be built."""
+
+
+class DependencyPreflightError(Exception):
+    """Raised when a MIP dependency cannot be fetched before deployment."""
+
+
+class DeployOptionError(Exception):
+    """Raised when deploy options cannot be used together."""
 
 
 @dataclass(frozen=True)
@@ -152,6 +166,7 @@ class DeployArgs:
     bytecode: bool = False
     mpy_cross: str = "mpy-cross"
     device_dir: Path | None = None
+    set_time: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,19 +193,20 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
     if args.dry_run:
         return
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
     )
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.returncode:
-        output = (result.stdout or "") + (result.stderr or "")
-        raise DeployError(result.returncode, output)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
+    assert process.stdout is not None
+    output = ""
+    for character in iter(lambda: process.stdout.read(1), ""):
+        print(character, end="", flush=True)
+        output += character
+    if process.wait():
+        raise DeployError(process.returncode or 1, output)
 
 
 def query_target_mpy(args: DeployArgs) -> TargetMpy:
@@ -254,10 +270,10 @@ def wait_for_target(args: DeployArgs) -> None:
         "exec",
         "print('OTAMPY_READY')",
     ]
-    print("$ " + shlex.join(command), flush=True)
+    print("Waiting for device to reconnect...", flush=True)
     last_result = None
 
-    for delay in (0, 1, 2):
+    for delay in (0, 1, 2, 3, 5):
         if delay:
             time.sleep(delay)
         last_result = subprocess.run(
@@ -277,6 +293,8 @@ def wait_for_target(args: DeployArgs) -> None:
             or "could not open" in output
             or "no device" in output
             or "failed to access" in output
+            or "input/output error" in output
+            or "errno 5" in output
         )
         if not retryable:
             break
@@ -545,6 +563,7 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
 def deploy_command(
     args: DeployArgs,
     lib_dir: Path | None = None,
+    rtc_helper: Path | None = None,
 ) -> list[str]:
     paths = _resolve_deploy_paths(args)
     effective_lib_dir = lib_dir if lib_dir is not None else paths.lib_dir
@@ -563,6 +582,8 @@ def deploy_command(
         str(paths.boot_file),
         ":",
     ]
+    if rtc_helper is not None:
+        command.insert(-1, str(rtc_helper))
 
     if not args.bytecode and not args.no_mip:
         command.extend(("+", "mip", "install", *MIP_PACKAGES))
@@ -575,6 +596,58 @@ def deploy_command(
     return command
 
 
+def rtc_helper_content(now: datetime | None = None) -> str:
+    """Return the one-shot MicroPython RTC helper source."""
+    now = datetime.now() if now is None else now
+    time_tuple = (
+        now.year,
+        now.month,
+        now.day,
+        now.weekday(),
+        now.hour,
+        now.minute,
+        now.second,
+        now.microsecond,
+    )
+    return (
+        "import machine\n"
+        "import os\n"
+        "try:\n"
+        f"    machine.RTC().datetime({time_tuple!r})\n"
+        "except Exception:\n"
+        "    pass\n"
+        "finally:\n"
+        "    try:\n"
+        f"        os.remove({RTC_HELPER_FILE!r})\n"
+        "    except OSError:\n"
+        "        pass\n"
+    )
+
+
+def prepare_rtc_helper(destination: Path) -> Path:
+    """Stage a one-shot RTC helper for OTAmpy's device boot module."""
+    rtc_helper = destination / RTC_HELPER_FILE
+    rtc_helper.write_text(rtc_helper_content())
+    return rtc_helper
+
+
+def deploy_with_optional_rtc(
+    args: DeployArgs, lib_dir: Path | None = None
+) -> None:
+    """Deploy files, staging a one-shot RTC update when requested."""
+    if not args.set_time:
+        run_mpremote(args, deploy_command(args, lib_dir))
+        return
+
+    with tempfile.TemporaryDirectory(prefix="otampy-rtc-") as temp_dir:
+        rtc_helper = prepare_rtc_helper(Path(temp_dir))
+        print("Staging device RTC update...", flush=True)
+        run_mpremote(
+            args,
+            deploy_command(args, lib_dir, rtc_helper),
+        )
+
+
 def _remove_pycache_dirs() -> None:
     """Remove local __pycache__ directories from the workspace before copying files."""
     if not ROOT.is_dir():
@@ -585,11 +658,97 @@ def _remove_pycache_dirs() -> None:
             shutil.rmtree(pycache_dir)
 
 
+def _rewrite_mip_url(url: str, branch: str | None = None) -> str:
+    """Return the HTTP URL MIP uses for a GitHub or GitLab package path."""
+    branch = branch or "HEAD"
+    if url.startswith("github:"):
+        owner, repository, *path = url[7:].split("/")
+        return "https://raw.githubusercontent.com/" + "/".join(
+            (owner, repository, branch, *path)
+        )
+    if url.startswith("gitlab:"):
+        owner, repository, *path = url[7:].split("/")
+        return "https://gitlab.com/" + "/".join(
+            (owner, repository, "-", "raw", branch, *path)
+        )
+    return url
+
+
+def _read_mip_url(url: str) -> bytes:
+    try:
+        with urllib.request.urlopen(
+            url, timeout=MIP_PREFLIGHT_TIMEOUT_SECONDS
+        ) as response:  # type: ignore
+            return response.read()
+    except urllib.error.HTTPError as error:
+        raise DependencyPreflightError(
+            f"Could not access deploy dependency {url}: HTTP {error.code}."
+        ) from error
+    except urllib.error.URLError as error:
+        raise DependencyPreflightError(
+            f"Could not access deploy dependency {url}: {error.reason}."
+        ) from error
+
+
+def _preflight_mip_package(
+    package: str,
+    version: str | None = None,
+) -> None:
+    """Download every MIP manifest and file needed by *package*."""
+    if "@" in package:
+        package, version = package.split("@", 1)
+    if package.startswith(("github:", "gitlab:")):
+        manifest_url = package.rstrip("/") + "/package.json"
+    else:
+        manifest_url = (
+            f"{MIP_INDEX}/package/py/{package}/{version or 'latest'}.json"
+        )
+
+    try:
+        import json
+
+        manifest = json.loads(
+            _read_mip_url(_rewrite_mip_url(manifest_url, version))
+        )
+    except json.JSONDecodeError as error:
+        raise DependencyPreflightError(
+            f"Invalid MIP package manifest for {package}."
+        ) from error
+
+    base_url = manifest_url.rpartition("/")[0]
+    for _target_path, short_hash in manifest.get("hashes", ()):
+        _read_mip_url(f"{MIP_INDEX}/file/{short_hash[:2]}/{short_hash}")
+    for _target_path, url in manifest.get("urls", ()):
+        if not url.startswith(("http://", "https://", "github:", "gitlab:")):
+            url = f"{base_url}/{url}"
+        _read_mip_url(_rewrite_mip_url(url, version))
+    for dependency, dependency_version in manifest.get("deps", ()):
+        _preflight_mip_package(dependency, dependency_version)
+
+
+def preflight_mip_dependencies(args: DeployArgs) -> None:
+    """Verify MIP dependencies are fully accessible before device changes."""
+    if args.bytecode or args.no_mip or args.dry_run:
+        return
+
+    packages = [*MIP_PACKAGES]
+    if args.with_logger:
+        packages.append(LOGGER_MIP_PACKAGE)
+    print("Checking deployment dependencies...", flush=True)
+    for package in packages:
+        print(f"  Checking {package}...", flush=True)
+        _preflight_mip_package(package)
+
+
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources(args)
+    if args.set_time and args.no_reset:
+        raise DeployOptionError("--set-time requires the final device reset.")
+    preflight_mip_dependencies(args)
     _remove_pycache_dirs()
     if not args.bytecode:
-        run_mpremote(args, deploy_command(args))
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(args)
         return
 
     if args.with_logger:
@@ -630,12 +789,10 @@ def deploy(args: DeployArgs) -> None:
                 ]
             )
         )
-        run_mpremote(
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(
             args,
-            deploy_command(
-                args,
-                Path("<target-matched-mpy-lib>"),
-            ),
+            Path("<target-matched-mpy-lib>"),
         )
         return
 
@@ -647,7 +804,8 @@ def deploy(args: DeployArgs) -> None:
         lib_dir = Path(temp_dir) / "lib"
         build_bytecode_lib(args, lib_dir, target)
         wait_for_target(args)
-        run_mpremote(args, deploy_command(args, lib_dir))
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(args, lib_dir)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -692,6 +850,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-reset",
         action="store_true",
         help="Skip resetting the device after deployment.",
+    )
+    parser.add_argument(
+        "--set-time",
+        action="store_true",
+        help="Set the device RTC from the host during the final boot.",
     )
     parser.add_argument(
         "--dry-run",
@@ -752,6 +915,12 @@ def main(argv: list[str] | None = None) -> int:
         print_deploy_error(error)
         return error.returncode or 1
     except BytecodeDeployError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    except DependencyPreflightError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    except DeployOptionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 

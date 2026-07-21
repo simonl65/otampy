@@ -11,6 +11,7 @@ from .core import _get_config
 
 _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
+_RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
 def _do_callback(core, callback=None):
@@ -20,6 +21,30 @@ def _do_callback(core, callback=None):
             callback()
         except Exception as e:
             core.logger.error(f"Error in application callback: {e}")
+
+
+def _stage_rtc_update(core, parts):
+    if len(parts) != 9:
+        core.transport.send(b"RTC_STAGE_ERR")
+        return
+    try:
+        time_tuple = tuple(int(value) for value in parts[1:])
+    except ValueError:
+        core.transport.send(b"RTC_STAGE_ERR")
+        return
+    try:
+        with open(_RTC_HELPER_FILE, "w") as helper:
+            helper.write("import machine\nimport os\ntry:\n")
+            helper.write(f" machine.RTC().datetime({time_tuple!r})\n")
+            helper.write("except Exception:\n pass\nfinally:\n")
+            helper.write(
+                f" try:\n  os.remove({_RTC_HELPER_FILE!r})\n except OSError:\n  pass\n"
+            )
+    except OSError as error:
+        core.logger.error(f"Failed to stage RTC update: {error}")
+        core.transport.send(b"RTC_STAGE_ERR")
+        return
+    core.transport.send(b"RTC_STAGE_OK")
 
 
 def _send_response(transport, total_size, parts):
@@ -173,6 +198,10 @@ def poll(core, callback=None):
 
     if cmd == "PING":
         core.transport.send(b"PONG")
+    elif cmd == "RTC":
+        core.transport.send(b"RTC_OK:" + repr(machine.RTC().datetime()).encode())
+    elif cmd == "RTC_STAGE":
+        _stage_rtc_update(core, parts)
     elif cmd == "RB":
         core.transport.send(b"RB_OK")
         core.logger.info("Reboot commanded (RB)")

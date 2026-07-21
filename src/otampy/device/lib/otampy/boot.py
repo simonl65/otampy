@@ -6,6 +6,14 @@ except ImportError:
 from .core import _get_config
 
 
+def _apply_staged_rtc_update():
+    """Run the one-shot RTC helper staged by ``otampy deploy --set-time``."""
+    try:
+        __import__("_otampy_set_rtc")
+    except ImportError:
+        pass
+
+
 def _sleep_ms(ms):
     try:
         import utime
@@ -352,6 +360,7 @@ def run(core, callback=None):
     Check if the update request flag file exists, execute the callback to
     perform the update, and remove the flag file.
     """
+    _apply_staged_rtc_update()
     core.logger.debug("Checking for update request flag file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 

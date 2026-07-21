@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-stable_(2.2.1)-green>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(2.3.1)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -161,10 +161,11 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 | `mem`        | —                     | Query device RAM and flash utilisation.                             |
 | `ping`       | —                     | Connection health check - should receive PONG.                      |
 | `ports`      | —                     | List available serial adapters; mark and store a selection.         |
-| `rb`         | —                     | Hard reboot the device (with confirmation).                         |
+| `rb`         | `[--set-time]`        | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
-| `sr`         | —                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
+| `rtc`        | —                     | Display the current device RTC timestamp without rebooting.         |
+| `sr`         | `[--set-time]`        | MicroPython soft reset (with confirmation).                         |
+| `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
@@ -179,6 +180,7 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
 | `--no-mip`            | Install neither URST nor the optional logger.             |
 | `--no-reset`          | Leave the board without a final reset.                    |
+| `--set-time`          | Set the device RTC from the host during final boot.       |
 | `--dry-run`           | Print the complete `mpremote` command without running it. |
 | `--mpremote`          | Use a specific `mpremote` executable.                     |
 

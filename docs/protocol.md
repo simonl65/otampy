@@ -37,6 +37,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | Request | Response | Description                                         |
 | ------- | -------- | --------------------------------------------------- |
 | `PING`  | `PONG`   | Connection health check.                            |
+| `RTC`   | `RTC_OK:(year, month, day, weekday, hour, minute, second, subsecond)` | Return the raw RTC tuple without resetting the device. The CLI formats it for display. |
 | `RB`    | `RB_OK`  | Trigger a hardware hard reboot (`machine.reset()`). |
 | `SR`    | `SR_OK`  | Trigger a soft reboot (`machine.soft_reset()`).     |
 

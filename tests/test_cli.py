@@ -423,6 +423,23 @@ def test_cli_ping():
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
+def test_cli_rtc_displays_device_timestamp():
+    """Test the read-only 'rtc' command."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"RTC_OK:(2026, 7, 21, 0, 12, 34, 56, 789)"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rtc"])
+
+    assert result.exit_code == 0
+    assert "Device RTC: 2026-07-21 12:34:56" in result.output
+    mock_device_instance.send.assert_called_once_with(b"RTC")
+
+
 def test_cli_ping_response_within_timeout():
     """Test delayed PONG reception within the transport timeout."""
     runner = CliRunner()
@@ -534,6 +551,19 @@ def test_cli_soft_reset_aborted():
         assert "Aborted." in result.output
         mock_serial.assert_not_called()
         mock_device.assert_not_called()
+
+
+def test_cli_reboot_set_time_stages_before_reboot():
+    runner = CliRunner()
+    with (
+        mock.patch("otampy.cli._stage_rtc_update") as stage_time,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(cli, ["rb", "--set-time"], input="y\n")
+
+    assert result.exit_code == 0
+    stage_time.assert_called_once()
+    send_command.assert_called_once_with(mock.ANY, b"RB", b"RB_OK")
 
 
 def test_cli_command_missing_port(tmp_path):
@@ -1412,6 +1442,7 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "--bytecode",
                 "--mpy-cross",
                 "uvx custom-cross",
+                "--set-time",
                 "--dry-run",
             ],
         )
@@ -1425,6 +1456,7 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.bytecode is True
     assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.no_reset is False
+    assert called_args.set_time is True
     assert called_args.dry_run is True
 
 
@@ -1474,10 +1506,16 @@ def test_cli_update_handshake():
             b"FILE_OK",
             b"CHUNK_ACK:0",
             b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
             b"COMMIT_OK",
         ]
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "upd", "--set-time"],
+        )
 
         assert result.exit_code == 0
         assert "Initiating update handshake" in result.output
@@ -1486,6 +1524,10 @@ def test_cli_update_handshake():
         )
         assert "Device is READY. Handshake complete." in result.output
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
+        assert any(
+            call.args[0].startswith(b"FILE_START:_otampy_set_rtc.py:")
+            for call in mock_device_instance.send.call_args_list
+        )
 
 
 def test_cli_update_full_transfer():

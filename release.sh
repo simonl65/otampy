@@ -44,19 +44,6 @@ stripped before publishing. Write your notes below that line, then save
 and exit the editor to continue.
 -->
 ---
-# What's changed
-
-## MAJOR (breaking changes)
-
-- None
-
-## MINOR (functionality added in a backward compatible manner)
-
-- None
-
-## PATCH (backward compatible bug fixes)
-
-- 
 
 EOF
 

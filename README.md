@@ -179,7 +179,7 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
 | `--no-mip`            | Install neither URST nor the optional logger.             |
 | `--no-reset`          | Leave the board without a final reset.                    |
-| `--set-time`          | Set the device RTC from the host after deployment.        |
+| `--set-time`          | Set the device RTC from the host during final boot.       |
 | `--dry-run`           | Print the complete `mpremote` command without running it. |
 | `--mpremote`          | Use a specific `mpremote` executable.                     |
 

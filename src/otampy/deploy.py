@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -133,6 +134,7 @@ MIP_PACKAGES = ("github:simonl65/URST-mpy",)
 LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
 MIP_INDEX = "https://micropython.org/pi/v2"
 MIP_PREFLIGHT_TIMEOUT_SECONDS = 10
+RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
 class DeployError(Exception):
@@ -147,6 +149,10 @@ class BytecodeDeployError(Exception):
 
 class DependencyPreflightError(Exception):
     """Raised when a MIP dependency cannot be fetched before deployment."""
+
+
+class DeployOptionError(Exception):
+    """Raised when deploy options cannot be used together."""
 
 
 @dataclass(frozen=True)
@@ -187,19 +193,20 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
     if args.dry_run:
         return
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
     )
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.returncode:
-        output = (result.stdout or "") + (result.stderr or "")
-        raise DeployError(result.returncode, output)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
+    assert process.stdout is not None
+    output = ""
+    for character in iter(lambda: process.stdout.read(1), ""):
+        print(character, end="", flush=True)
+        output += character
+    if process.wait():
+        raise DeployError(process.returncode or 1, output)
 
 
 def query_target_mpy(args: DeployArgs) -> TargetMpy:
@@ -295,13 +302,6 @@ def wait_for_target(args: DeployArgs) -> None:
     assert last_result is not None
     output = (last_result.stdout or "") + (last_result.stderr or "")
     raise DeployError(last_result.returncode or 1, output)
-
-
-def set_target_time(args: DeployArgs) -> None:
-    """Wait for a post-deploy reset, then set the target RTC from the host."""
-    if not args.dry_run:
-        wait_for_target(args)
-    run_mpremote(args, ["rtc", "--set"])
 
 
 def _mpy_cross_prefix(args: DeployArgs) -> list[str]:
@@ -563,6 +563,7 @@ def validate_deploy_sources(args: DeployArgs | None = None) -> None:
 def deploy_command(
     args: DeployArgs,
     lib_dir: Path | None = None,
+    rtc_helper: Path | None = None,
 ) -> list[str]:
     paths = _resolve_deploy_paths(args)
     effective_lib_dir = lib_dir if lib_dir is not None else paths.lib_dir
@@ -581,6 +582,8 @@ def deploy_command(
         str(paths.boot_file),
         ":",
     ]
+    if rtc_helper is not None:
+        command.insert(-1, str(rtc_helper))
 
     if not args.bytecode and not args.no_mip:
         command.extend(("+", "mip", "install", *MIP_PACKAGES))
@@ -591,6 +594,53 @@ def deploy_command(
         command.extend(("+", "reset"))
 
     return command
+
+
+def prepare_rtc_helper(destination: Path) -> Path:
+    """Stage a one-shot RTC helper for OTAmpy's device boot module."""
+    now = datetime.now()
+    time_tuple = (
+        now.year,
+        now.month,
+        now.day,
+        now.weekday(),
+        now.hour,
+        now.minute,
+        now.second,
+        now.microsecond,
+    )
+    rtc_helper = destination / RTC_HELPER_FILE
+    rtc_helper.write_text(
+        "import machine\n"
+        "import os\n"
+        "try:\n"
+        f"    machine.RTC().datetime({time_tuple!r})\n"
+        "except Exception:\n"
+        "    pass\n"
+        "finally:\n"
+        "    try:\n"
+        f"        os.remove({RTC_HELPER_FILE!r})\n"
+        "    except OSError:\n"
+        "        pass\n"
+    )
+    return rtc_helper
+
+
+def deploy_with_optional_rtc(
+    args: DeployArgs, lib_dir: Path | None = None
+) -> None:
+    """Deploy files, staging a one-shot RTC update when requested."""
+    if not args.set_time:
+        run_mpremote(args, deploy_command(args, lib_dir))
+        return
+
+    with tempfile.TemporaryDirectory(prefix="otampy-rtc-") as temp_dir:
+        rtc_helper = prepare_rtc_helper(Path(temp_dir))
+        print("Staging device RTC update...", flush=True)
+        run_mpremote(
+            args,
+            deploy_command(args, lib_dir, rtc_helper),
+        )
 
 
 def _remove_pycache_dirs() -> None:
@@ -679,18 +729,21 @@ def preflight_mip_dependencies(args: DeployArgs) -> None:
     packages = [*MIP_PACKAGES]
     if args.with_logger:
         packages.append(LOGGER_MIP_PACKAGE)
+    print("Checking deployment dependencies...", flush=True)
     for package in packages:
+        print(f"  Checking {package}...", flush=True)
         _preflight_mip_package(package)
 
 
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources(args)
+    if args.set_time and args.no_reset:
+        raise DeployOptionError("--set-time requires the final device reset.")
     preflight_mip_dependencies(args)
     _remove_pycache_dirs()
     if not args.bytecode:
-        run_mpremote(args, deploy_command(args))
-        if args.set_time:
-            set_target_time(args)
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(args)
         return
 
     if args.with_logger:
@@ -731,15 +784,11 @@ def deploy(args: DeployArgs) -> None:
                 ]
             )
         )
-        run_mpremote(
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(
             args,
-            deploy_command(
-                args,
-                Path("<target-matched-mpy-lib>"),
-            ),
+            Path("<target-matched-mpy-lib>"),
         )
-        if args.set_time:
-            set_target_time(args)
         return
 
     target = query_target_mpy(args)
@@ -750,9 +799,8 @@ def deploy(args: DeployArgs) -> None:
         lib_dir = Path(temp_dir) / "lib"
         build_bytecode_lib(args, lib_dir, target)
         wait_for_target(args)
-        run_mpremote(args, deploy_command(args, lib_dir))
-        if args.set_time:
-            set_target_time(args)
+        print("Deploying files and dependencies -  please wait...", flush=True)
+        deploy_with_optional_rtc(args, lib_dir)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -801,7 +849,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--set-time",
         action="store_true",
-        help="Set the device RTC from the host after deployment.",
+        help="Set the device RTC from the host during the final boot.",
     )
     parser.add_argument(
         "--dry-run",
@@ -865,6 +913,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     except DependencyPreflightError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    except DeployOptionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 

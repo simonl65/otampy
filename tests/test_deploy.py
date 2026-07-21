@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest.mock as mock
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -251,6 +252,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.no_mip = True
     mock_args.bytecode = False
     mock_args.no_reset = True
+    mock_args.set_time = False
     mock_args.dry_run = True
     mock_args.device_dir = None
 
@@ -266,6 +268,25 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
 
     assert not pycache.exists()
     assert called, "run_mpremote should be called after cleanup"
+
+
+def test_run_mpremote_streams_output_and_preserves_errors(monkeypatch, capsys):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+    )
+    process = mock.Mock(stdout=StringIO("copying...\n"), returncode=1)
+    process.wait.return_value = 1
+    monkeypatch.setattr(deploy.subprocess, "Popen", mock.Mock(return_value=process))
+
+    with pytest.raises(deploy.DeployError, match="copying"):
+        deploy.run_mpremote(args, ["cp", "file.py", ":"])
+
+    assert "copying..." in capsys.readouterr().out
 
 
 def test_deploy_preflights_mip_dependencies_before_device_changes(monkeypatch):
@@ -378,7 +399,7 @@ def test_deploy_installs_optional_logger():
     assert "github:simonl65/log-to-file" in command
 
 
-def test_deploy_sets_rtc_after_copying_files(monkeypatch):
+def test_deploy_stages_rtc_helper_before_reset(monkeypatch):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -394,16 +415,35 @@ def test_deploy_sets_rtc_after_copying_files(monkeypatch):
         "run_mpremote",
         lambda _args, command: commands.append(command),
     )
-    monkeypatch.setattr(
-        deploy,
-        "wait_for_target",
-        lambda _args: commands.append(["wait-for-target"]),
-    )
-
     deploy.deploy(args)
 
-    assert commands[-2:] == [["wait-for-target"], ["rtc", "--set"]]
-    assert "cp" in commands[0]
+    command = commands[0]
+    assert any(path.endswith("/_otampy_set_rtc.py") for path in command)
+    assert ["rtc", "--set"] not in commands
+    assert "reset" in command
+
+
+def test_set_time_requires_final_reset():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=True,
+        dry_run=False,
+        set_time=True,
+    )
+
+    with pytest.raises(deploy.DeployOptionError, match="requires the final"):
+        deploy.deploy(args)
+
+
+def test_prepare_rtc_helper_is_one_shot(tmp_path):
+    rtc_helper = deploy.prepare_rtc_helper(tmp_path)
+
+    helper = rtc_helper.read_text()
+    assert "machine.RTC().datetime" in helper
+    assert "os.remove('_otampy_set_rtc.py')" in helper
 
 
 def test_no_mip_skips_optional_logger():

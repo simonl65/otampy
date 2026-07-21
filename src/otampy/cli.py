@@ -2011,7 +2011,7 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
 @click.option(
     "--set-time",
     is_flag=True,
-    help="Set the device RTC from the host after deployment.",
+    help="Set the device RTC from the host during the final boot.",
 )
 @click.option(
     "--dry-run",
@@ -2077,6 +2077,8 @@ def deploy_cmd(
     except deploy.BytecodeDeployError as error:
         raise click.ClickException(str(error)) from error
     except deploy.DependencyPreflightError as error:
+        raise click.ClickException(str(error)) from error
+    except deploy.DeployOptionError as error:
         raise click.ClickException(str(error)) from error
 
 

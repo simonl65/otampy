@@ -136,27 +136,34 @@ Usage:
 EOF
 }
 
-wait_for_pypi_version() {
+wait_for_registry_tool() {
   local package=$1
   local version=$2
+  local tool=$3
   local max_retries=30
   local sleep_interval=10
+  local output_file
 
-  echo "Checking PyPI index for $package==$version..."
+  output_file=$(mktemp /tmp/otampy-release-registry.XXXXXX)
+  echo "Waiting for an isolated $tool==$version tool install from PyPI..."
 
   for ((i=1; i<=max_retries; i++)); do
     sleep $sleep_interval
-    # We use 'uv pip compile' to see if the version is resolvable.
-    # --refresh forces uv to ignore its local cache and check the registry.
-    if echo "$package==$version" | uv pip compile - --refresh > /dev/null 2>&1; then
-      echo "Confirmed: $package==$version is now resolvable via uv."
+    # This is the exact isolated tool verification used by the release, not
+    # merely a resolver preflight.  --refresh bypasses uv's local cache.
+    if uvx --refresh --from "$package==$version" "$tool" --help >"$output_file" 2>&1; then
+      cat "$output_file"
+      rm -f "$output_file"
+      echo "Confirmed: $package==$version is installable in an isolated tool environment."
       return 0
     fi
 
-    echo "Attempt $i/$max_retries: Not yet visible in index. Retrying in ${sleep_interval}s..."
+    echo "Attempt $i/$max_retries: Tool install is not ready. Retrying in ${sleep_interval}s..."
   done
 
-  echo "Error: Timed out waiting for $package==$version to be resolvable"
+  echo "Error: Timed out waiting for $package==$version to install as an isolated tool." >&2
+  cat "$output_file" >&2
+  rm -f "$output_file"
   return 1
 }
 
@@ -274,16 +281,14 @@ echo "Published v${NEW_VERSION}."
 git push
 
 # --- 9. Verify the registry release -----------------------------------------
-# Delay to allow time for publish to finish and propagate to the registry. This is a best-effort check; if it fails, you can retry later.
-if wait_for_pypi_version "otampy" "$NEW_VERSION"; then
-    echo "Registry is up to date. Proceeding to next steps..."
+# Retry the exact isolated verification because PyPI's resolver metadata can
+# become visible before a fresh tool environment can install the release.
+if wait_for_registry_tool "otampy" "$NEW_VERSION" "otampy"; then
+    echo "Registry tool verification passed. Proceeding to next steps..."
 else
     echo "Registry update failed or timed out. Aborting."
     exit 1
 fi
-echo
-echo "Verifying registry release in an isolated tool environment..."
-uvx --refresh --from "otampy==${NEW_VERSION}" otampy --help
 
 VERIFY_DIR=$(mktemp -d /tmp/otampy-release-verification.XXXXXX)
 echo "Verifying consumer workflow in ${VERIFY_DIR} ..."

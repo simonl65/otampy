@@ -67,6 +67,12 @@ def test_minified_deploy_uses_temporary_sources(tmp_path, monkeypatch):
     deploy.deploy(args)
 
     assert commands
+    copied_paths = [Path(item) for item in commands[0] if item.endswith(".py")]
+    assert [path.name for path in copied_paths] == [
+        "configota.py",
+        "main.py",
+        "boot.py",
+    ]
     assert b"comment" in module.read_bytes()
     assert b"comment" in (device / "main.py").read_bytes()
 

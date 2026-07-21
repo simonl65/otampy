@@ -768,7 +768,7 @@ def deploy(args: DeployArgs) -> None:
             staged_lib = staging_root / "lib"
             copy_minified_tree(paths.lib_dir, staged_lib)
             staged_files = []
-            for source in (paths.config_file, paths.main_file, paths.boot_file):
+            for source in (paths.config_file, paths.boot_file, paths.main_file):
                 destination = staging_root / source.name
                 minify_python_file(source, destination)
                 staged_files.append(destination)

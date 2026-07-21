@@ -51,6 +51,10 @@ For an installed package, the default profile installs:
   device root;
 - URST using MicroPython's `mip`.
 
+Before erasing the device, `deploy` checks that every MIP package manifest and
+referenced file is reachable. This prevents an unavailable network or GitHub
+repository from leaving the device empty after the filesystem erase.
+
 When run from this repository, it instead uses the canonical
 `src/otampy/device/lib/` and `src/otampy/device/examples/` files directly.
 

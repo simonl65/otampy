@@ -2069,6 +2069,8 @@ def deploy_cmd(
         ctx.exit(error.returncode or 1)
     except deploy.BytecodeDeployError as error:
         raise click.ClickException(str(error)) from error
+    except deploy.DependencyPreflightError as error:
+        raise click.ClickException(str(error)) from error
 
 
 @cli.command(name="init")

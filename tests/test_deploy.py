@@ -268,6 +268,84 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     assert called, "run_mpremote should be called after cleanup"
 
 
+def test_deploy_preflights_mip_dependencies_before_device_changes(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=True,
+        no_reset=False,
+        dry_run=False,
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        deploy,
+        "_preflight_mip_package",
+        lambda package: calls.append(("preflight", package)),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "run_mpremote",
+        lambda _args, _command: calls.append(("deploy",)),
+    )
+
+    deploy.deploy(args)
+
+    assert calls == [
+        ("preflight", "github:simonl65/URST-mpy"),
+        ("preflight", "github:simonl65/log-to-file"),
+        ("deploy",),
+    ]
+
+
+def test_dependency_preflight_failure_prevents_device_changes(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+    )
+    monkeypatch.setattr(
+        deploy,
+        "_preflight_mip_package",
+        mock.Mock(side_effect=deploy.DependencyPreflightError("offline")),
+    )
+    run_mpremote = mock.Mock()
+    monkeypatch.setattr(deploy, "run_mpremote", run_mpremote)
+
+    with pytest.raises(deploy.DependencyPreflightError, match="offline"):
+        deploy.deploy(args)
+
+    run_mpremote.assert_not_called()
+
+
+def test_mip_preflight_checks_manifest_files_and_dependencies(monkeypatch):
+    responses = {
+        "https://raw.githubusercontent.com/example/root/HEAD/package.json": (
+            b'{"urls": [["root.py", "root.py"]], "deps": [["child", "1.2"]]}'
+        ),
+        "https://raw.githubusercontent.com/example/root/HEAD/root.py": b"root",
+        "https://micropython.org/pi/v2/package/py/child/1.2.json": (
+            b'{"hashes": [["child.py", "abc123"]]}'
+        ),
+        "https://micropython.org/pi/v2/file/ab/abc123": b"child",
+    }
+    checked = []
+
+    def fake_read(url):
+        checked.append(url)
+        return responses[url]
+
+    monkeypatch.setattr(deploy, "_read_mip_url", fake_read)
+
+    deploy._preflight_mip_package("github:example/root")
+
+    assert checked == list(responses)
+
+
 def test_deploy_installs_only_urst_mip_dependency_by_default():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",

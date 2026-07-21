@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -129,6 +131,8 @@ MAIN_FILE = DEVICE_ROOT / "examples" / "main.py"
 
 MIP_PACKAGES = ("github:simonl65/URST-mpy",)
 LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
+MIP_INDEX = "https://micropython.org/pi/v2"
+MIP_PREFLIGHT_TIMEOUT_SECONDS = 10
 
 
 class DeployError(Exception):
@@ -139,6 +143,10 @@ class DeployError(Exception):
 
 class BytecodeDeployError(Exception):
     """Raised when a target-matched bytecode deployment cannot be built."""
+
+
+class DependencyPreflightError(Exception):
+    """Raised when a MIP dependency cannot be fetched before deployment."""
 
 
 @dataclass(frozen=True)
@@ -585,8 +593,89 @@ def _remove_pycache_dirs() -> None:
             shutil.rmtree(pycache_dir)
 
 
+def _rewrite_mip_url(url: str, branch: str | None = None) -> str:
+    """Return the HTTP URL MIP uses for a GitHub or GitLab package path."""
+    branch = branch or "HEAD"
+    if url.startswith("github:"):
+        owner, repository, *path = url[7:].split("/")
+        return "https://raw.githubusercontent.com/" + "/".join(
+            (owner, repository, branch, *path)
+        )
+    if url.startswith("gitlab:"):
+        owner, repository, *path = url[7:].split("/")
+        return "https://gitlab.com/" + "/".join(
+            (owner, repository, "-", "raw", branch, *path)
+        )
+    return url
+
+
+def _read_mip_url(url: str) -> bytes:
+    try:
+        with urllib.request.urlopen(
+            url, timeout=MIP_PREFLIGHT_TIMEOUT_SECONDS
+        ) as response:  # type: ignore
+            return response.read()
+    except urllib.error.HTTPError as error:
+        raise DependencyPreflightError(
+            f"Could not access deploy dependency {url}: HTTP {error.code}."
+        ) from error
+    except urllib.error.URLError as error:
+        raise DependencyPreflightError(
+            f"Could not access deploy dependency {url}: {error.reason}."
+        ) from error
+
+
+def _preflight_mip_package(
+    package: str,
+    version: str | None = None,
+) -> None:
+    """Download every MIP manifest and file needed by *package*."""
+    if "@" in package:
+        package, version = package.split("@", 1)
+    if package.startswith(("github:", "gitlab:")):
+        manifest_url = package.rstrip("/") + "/package.json"
+    else:
+        manifest_url = (
+            f"{MIP_INDEX}/package/py/{package}/{version or 'latest'}.json"
+        )
+
+    try:
+        import json
+
+        manifest = json.loads(
+            _read_mip_url(_rewrite_mip_url(manifest_url, version))
+        )
+    except json.JSONDecodeError as error:
+        raise DependencyPreflightError(
+            f"Invalid MIP package manifest for {package}."
+        ) from error
+
+    base_url = manifest_url.rpartition("/")[0]
+    for _target_path, short_hash in manifest.get("hashes", ()):
+        _read_mip_url(f"{MIP_INDEX}/file/{short_hash[:2]}/{short_hash}")
+    for _target_path, url in manifest.get("urls", ()):
+        if not url.startswith(("http://", "https://", "github:", "gitlab:")):
+            url = f"{base_url}/{url}"
+        _read_mip_url(_rewrite_mip_url(url, version))
+    for dependency, dependency_version in manifest.get("deps", ()):
+        _preflight_mip_package(dependency, dependency_version)
+
+
+def preflight_mip_dependencies(args: DeployArgs) -> None:
+    """Verify MIP dependencies are fully accessible before device changes."""
+    if args.bytecode or args.no_mip or args.dry_run:
+        return
+
+    packages = [*MIP_PACKAGES]
+    if args.with_logger:
+        packages.append(LOGGER_MIP_PACKAGE)
+    for package in packages:
+        _preflight_mip_package(package)
+
+
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources(args)
+    preflight_mip_dependencies(args)
     _remove_pycache_dirs()
     if not args.bytecode:
         run_mpremote(args, deploy_command(args))
@@ -752,6 +841,9 @@ def main(argv: list[str] | None = None) -> int:
         print_deploy_error(error)
         return error.returncode or 1
     except BytecodeDeployError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    except DependencyPreflightError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 

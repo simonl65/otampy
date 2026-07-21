@@ -198,6 +198,8 @@ def poll(core, callback=None):
 
     if cmd == "PING":
         core.transport.send(b"PONG")
+    elif cmd == "RTC":
+        core.transport.send(b"RTC_OK:" + repr(machine.RTC().datetime()).encode())
     elif cmd == "RTC_STAGE":
         _stage_rtc_update(core, parts)
     elif cmd == "RB":

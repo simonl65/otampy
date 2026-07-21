@@ -163,6 +163,7 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 | `ports`      | —                     | List available serial adapters; mark and store a selection.         |
 | `rb`         | `[--set-time]`        | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
+| `rtc`        | —                     | Display the current device RTC timestamp without rebooting.         |
 | `sr`         | `[--set-time]`        | MicroPython soft reset (with confirmation).                         |
 | `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
 

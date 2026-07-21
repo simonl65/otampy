@@ -423,6 +423,23 @@ def test_cli_ping():
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
+def test_cli_rtc_displays_device_timestamp():
+    """Test the read-only 'rtc' command."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.return_value = b"RTC_OK:(2026, 7, 21, 0, 12, 34, 56, 789)"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rtc"])
+
+    assert result.exit_code == 0
+    assert "Device RTC: 2026-07-21 12:34:56" in result.output
+    mock_device_instance.send.assert_called_once_with(b"RTC")
+
+
 def test_cli_ping_response_within_timeout():
     """Test delayed PONG reception within the transport timeout."""
     runner = CliRunner()

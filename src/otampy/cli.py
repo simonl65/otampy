@@ -783,6 +783,26 @@ def ping(ctx: click.Context) -> None:
     _console().print("[green]Success: Received PONG from device.[/green]")
 
 
+@cli.command(name="rtc")
+@click.pass_context
+def rtc(ctx: click.Context) -> None:
+    """Display the device RTC timestamp without resetting it."""
+    try:
+        rtc_tuple, _ = _query(ctx, b"RTC", b"RTC_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+        return
+    try:
+        year, month, day, _weekday, hour, minute, second, _subsecond = (
+            int(value.strip()) for value in rtc_tuple.strip(b"()").split(b",")
+        )
+    except ValueError as e:
+        raise click.ClickException("Invalid RTC response from device.") from e
+    _console().print(
+        f"Device RTC: {year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+    )
+
+
 @cli.command(name="rb")
 @click.option("--set-time", is_flag=True, help="Set the device RTC from the host during reboot.")
 @click.pass_context

@@ -161,10 +161,10 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 | `mem`        | —                     | Query device RAM and flash utilisation.                             |
 | `ping`       | —                     | Connection health check - should receive PONG.                      |
 | `ports`      | —                     | List available serial adapters; mark and store a selection.         |
-| `rb`         | —                     | Hard reboot the device (with confirmation).                         |
+| `rb`         | `[--set-time]`        | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
-| `sr`         | —                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
+| `sr`         | `[--set-time]`        | MicroPython soft reset (with confirmation).                         |
+| `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 

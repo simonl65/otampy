@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.resources
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -759,6 +760,17 @@ def _send_command(
     _query(ctx, command, expected_response)
 
 
+def _stage_rtc_update(ctx: click.Context) -> None:
+    """Stage a one-shot RTC helper for the next normal device boot."""
+    now = datetime.now()
+    command = (
+        f"RTC_STAGE:{now.year}:{now.month}:{now.day}:{now.weekday()}:"
+        f"{now.hour}:{now.minute}:{now.second}:{now.microsecond}"
+    ).encode()
+    _console().print("[yellow]Staging device RTC update...[/yellow]")
+    _send_command(ctx, command, b"RTC_STAGE_OK")
+
+
 @cli.command(name="ping")
 @click.pass_context
 def ping(ctx: click.Context) -> None:
@@ -772,8 +784,9 @@ def ping(ctx: click.Context) -> None:
 
 
 @cli.command(name="rb")
+@click.option("--set-time", is_flag=True, help="Set the device RTC from the host during reboot.")
 @click.pass_context
-def reboot(ctx: click.Context) -> None:
+def reboot(ctx: click.Context, set_time: bool) -> None:
     """Hard reboots the device."""
     if not click.confirm(
         click.style(
@@ -785,14 +798,17 @@ def reboot(ctx: click.Context) -> None:
         return
     _console().print("[yellow]Hard rebooting the device...[/yellow]")
     try:
+        if set_time:
+            _stage_rtc_update(ctx)
         _send_command(ctx, b"RB", b"RB_OK")
     except DeviceError as e:
         _handle_device_error(e)
 
 
 @cli.command(name="sr")
+@click.option("--set-time", is_flag=True, help="Set the device RTC from the host during reboot.")
 @click.pass_context
-def soft_reset(ctx: click.Context) -> None:
+def soft_reset(ctx: click.Context, set_time: bool) -> None:
     """Soft resets the device."""
     if not click.confirm(
         click.style(
@@ -804,6 +820,8 @@ def soft_reset(ctx: click.Context) -> None:
         return
     _console().print("[yellow]Soft resetting the device...[/yellow]")
     try:
+        if set_time:
+            _stage_rtc_update(ctx)
         _send_command(ctx, b"SR", b"SR_OK")
     except DeviceError as e:
         _handle_device_error(e)
@@ -1482,10 +1500,11 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
     is_flag=True,
     help="Upload every file in the device directory after confirmation.",
 )
+@click.option("--set-time", is_flag=True, help="Set the device RTC from the host during the final reboot.")
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
-    ctx: click.Context, args: tuple[str, ...], all_files: bool
+    ctx: click.Context, args: tuple[str, ...], all_files: bool, set_time: bool
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -1524,6 +1543,20 @@ def update(
             raise click.ClickException(
                 f"Failed to read local file {local_path}: {e}"
             ) from e
+
+    if set_time:
+        content = deploy.rtc_helper_content().encode()
+        size = len(content)
+        manifest.append(
+            (
+                deploy.RTC_HELPER_FILE,
+                Path(deploy.RTC_HELPER_FILE),
+                size,
+                hashlib.sha256(content).hexdigest(),
+                content,
+            )
+        )
+        total_bytes += size
 
     _console().print("[yellow]Initiating update handshake...[/yellow]")
 

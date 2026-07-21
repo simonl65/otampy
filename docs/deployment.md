@@ -160,6 +160,9 @@ During normal boot OTAmpy's device boot module runs it to set the RTC from the
 host timestamp, then it deletes itself; no second USB connection or follow-up
 reset is needed.
 It cannot be combined with `--no-reset`.
+The same option is available on `otampy rb`, `otampy sr`, and `otampy upd`.
+The reset commands stage the helper over OTA before rebooting; `upd` includes
+it in its transaction, so it runs only after the final update reboot.
 Use `--no-mip` only when the required packages are frozen into the firmware or
 will be installed separately; after the filesystem erase, OTAmpy cannot poll
 without URST. `--no-mip` has no additional effect on the bytecode profile.

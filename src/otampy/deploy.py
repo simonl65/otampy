@@ -596,9 +596,9 @@ def deploy_command(
     return command
 
 
-def prepare_rtc_helper(destination: Path) -> Path:
-    """Stage a one-shot RTC helper for OTAmpy's device boot module."""
-    now = datetime.now()
+def rtc_helper_content(now: datetime | None = None) -> str:
+    """Return the one-shot MicroPython RTC helper source."""
+    now = datetime.now() if now is None else now
     time_tuple = (
         now.year,
         now.month,
@@ -609,8 +609,7 @@ def prepare_rtc_helper(destination: Path) -> Path:
         now.second,
         now.microsecond,
     )
-    rtc_helper = destination / RTC_HELPER_FILE
-    rtc_helper.write_text(
+    return (
         "import machine\n"
         "import os\n"
         "try:\n"
@@ -623,6 +622,12 @@ def prepare_rtc_helper(destination: Path) -> Path:
         "    except OSError:\n"
         "        pass\n"
     )
+
+
+def prepare_rtc_helper(destination: Path) -> Path:
+    """Stage a one-shot RTC helper for OTAmpy's device boot module."""
+    rtc_helper = destination / RTC_HELPER_FILE
+    rtc_helper.write_text(rtc_helper_content())
     return rtc_helper
 
 

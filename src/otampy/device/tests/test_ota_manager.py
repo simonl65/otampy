@@ -28,6 +28,23 @@ def test_manager_handles_ping():
     assert core.transport.sent_messages == [b"PONG"]
 
 
+def test_manager_stages_rtc_update(tmp_path, monkeypatch):
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    core = OTACore(uart, logger=logger)
+    monkeypatch.chdir(tmp_path)
+    core.transport.incoming_queue.append(
+        b"RTC_STAGE:2026:7:21:0:12:34:56:789"
+    )
+
+    manager.poll(core)
+
+    helper = tmp_path / "_otampy_set_rtc.py"
+    assert core.transport.sent_messages == [b"RTC_STAGE_OK"]
+    assert "machine.RTC().datetime" in helper.read_text()
+    assert "(2026, 7, 21, 0, 12, 34, 56, 789)" in helper.read_text()
+
+
 def test_manager_handles_reboot():
     uart = shared.FakeUART()
     logger = shared.FakeLogger()

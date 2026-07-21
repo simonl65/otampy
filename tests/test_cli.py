@@ -1440,6 +1440,7 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "--port",
                 "/dev/ttyACM0",
                 "--bytecode",
+                "--minify",
                 "--mpy-cross",
                 "uvx custom-cross",
                 "--set-time",
@@ -1454,6 +1455,7 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.no_mip is False
     assert called_args.with_logger is False
     assert called_args.bytecode is True
+    assert called_args.minify is True
     assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.no_reset is False
     assert called_args.set_time is True

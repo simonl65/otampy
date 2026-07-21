@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.resources
 import logging
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,6 +12,7 @@ import click
 from rich.console import Console
 
 import otampy.deploy as deploy
+import otampy.minify as source_minify
 
 if TYPE_CHECKING:
     from urst import Urst
@@ -1385,10 +1388,27 @@ def _copy_requires_reboot(target: str) -> bool:
     return normalized in ("boot.py", "main.py")
 
 
+def _print_minification_report(
+    sources: list[tuple[str, Path]], staged: list[tuple[str, Path]]
+) -> None:
+    """Report each temporary Python artifact using its real source and target."""
+    for (target, source), (_, artifact) in zip(sources, staged, strict=True):
+        if source.suffix == ".py":
+            _console().print(
+                f"Minified {source} for {target}: {source.stat().st_size} -> "
+                f"{artifact.stat().st_size} bytes"
+            )
+
+
 @cli.command(name="cp")
+@click.option(
+    "--minify",
+    is_flag=True,
+    help="Remove Python comments and redundant blank lines before copying.",
+)
 @click.argument("args", nargs=-1, required=True)
 @click.pass_context
-def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
+def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     """Copy files or directories without rebooting the device."""
     files_to_send = _get_files_to_send(args, python_only=False)
 
@@ -1405,116 +1425,129 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
     import serial
     from urst import Urst
 
-    ser = serial.Serial(port, baudrate=baud, timeout=2.0)
-    try:
+    staging = (
+        source_minify.staged_minified_files(files_to_send)
+        if minify
+        else nullcontext(files_to_send)
+    )
+    with staging as files_to_copy:
+        if minify:
+            _print_minification_report(files_to_send, files_to_copy)
+        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
         try:
-            ser.dtr = False
-            ser.rts = False
-        except Exception:
-            pass
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        transport = Urst(ser)
+            try:
+                ser.dtr = False
+                ser.rts = False
+            except Exception:
+                pass
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+            transport = Urst(ser)
 
-        try:
-            transport.protocol._recv_queue.clear()
-        except Exception:
-            pass
+            try:
+                transport.protocol._recv_queue.clear()
+            except Exception:
+                pass
 
-        reboot_targets = []
-        transfer_active = False
-        try:
-            for target_path, local_path in files_to_send:
-                hasher = hashlib.sha256()
-                size = 0
-                try:
-                    with open(local_path, "rb") as source:
-                        while True:
-                            block = source.read(4096)
-                            if not block:
-                                break
-                            hasher.update(block)
-                            size += len(block)
-                except OSError as e:
-                    raise click.ClickException(
-                        f"Failed to read local file {local_path}: {e}"
-                    ) from e
+            reboot_targets = []
+            transfer_active = False
+            try:
+                for target_path, local_path in files_to_copy:
+                    hasher = hashlib.sha256()
+                    size = 0
+                    try:
+                        with open(local_path, "rb") as source:
+                            while True:
+                                block = source.read(4096)
+                                if not block:
+                                    break
+                                hasher.update(block)
+                                size += len(block)
+                    except OSError as e:
+                        raise click.ClickException(
+                            f"Failed to read local file {local_path}: {e}"
+                        ) from e
 
-                digest = hasher.hexdigest()
-                _console().print(
-                    f"Copying {local_path} to {target_path} ({size} bytes)..."
-                )
-                transfer_active = True
-                _query(
-                    ctx,
-                    f"CP_START:{target_path}:{size}:{digest}".encode(),
-                    b"CP_READY",
-                    transport=transport,
-                )
-
-                with open(local_path, "rb") as source:
-                    sequence = 0
-                    while True:
-                        chunk = source.read(256)
-                        if not chunk:
-                            break
-                        encoded = binascii.b2a_base64(chunk).strip()
-                        response, _ = _query(
-                            ctx,
-                            b"CP_CHUNK:"
-                            + str(sequence).encode()
-                            + b":"
-                            + encoded,
-                            b"CP_ACK",
-                            transport=transport,
-                        )
-                        if response != str(sequence).encode():
-                            raise click.ClickException(
-                                f"Unexpected copy acknowledgement for {target_path}: {response!r}"
-                            )
-                        sequence += 1
-
-                _query(
-                    ctx,
-                    b"CP_END",
-                    b"CP_OK",
-                    transport=transport,
-                )
-                transfer_active = False
-                if _copy_requires_reboot(target_path):
-                    reboot_targets.append(
-                        "/" + target_path.replace("\\", "/").lstrip("/")
+                    digest = hasher.hexdigest()
+                    _console().print(
+                        f"Copying {local_path} to {target_path} ({size} bytes)..."
                     )
-                _console().print(
-                    f"[green]Copied {target_path} successfully.[/green]"
-                )
-        except DeviceError as e:
-            raise click.ClickException(
-                _friendly_error(e.error_msg, e.command)
-            ) from e
-        except OSError as e:
-            raise click.ClickException(f"Failed to read local file: {e}") from e
-        finally:
-            if transfer_active:
-                try:
+                    transfer_active = True
                     _query(
                         ctx,
-                        b"CP_ABORT",
-                        b"CP_ABORTED",
+                        f"CP_START:{target_path}:{size}:{digest}".encode(),
+                        b"CP_READY",
                         transport=transport,
                     )
-                except Exception:
-                    pass
-            if reboot_targets:
-                targets = ", ".join(dict.fromkeys(reboot_targets))
-                _console().print(
-                    f"[yellow]Reboot required: {targets} will not take effect until the device restarts.[/yellow]"
-                )
-    finally:
-        ser.close()
+
+                    with open(local_path, "rb") as source:
+                        sequence = 0
+                        while True:
+                            chunk = source.read(256)
+                            if not chunk:
+                                break
+                            encoded = binascii.b2a_base64(chunk).strip()
+                            response, _ = _query(
+                                ctx,
+                                b"CP_CHUNK:"
+                                + str(sequence).encode()
+                                + b":"
+                                + encoded,
+                                b"CP_ACK",
+                                transport=transport,
+                            )
+                            if response != str(sequence).encode():
+                                raise click.ClickException(
+                                    f"Unexpected copy acknowledgement for {target_path}: {response!r}"
+                                )
+                            sequence += 1
+
+                    _query(
+                        ctx,
+                        b"CP_END",
+                        b"CP_OK",
+                        transport=transport,
+                    )
+                    transfer_active = False
+                    if _copy_requires_reboot(target_path):
+                        reboot_targets.append(
+                            "/" + target_path.replace("\\", "/").lstrip("/")
+                        )
+                    _console().print(
+                        f"[green]Copied {target_path} successfully.[/green]"
+                    )
+            except DeviceError as e:
+                raise click.ClickException(
+                    _friendly_error(e.error_msg, e.command)
+                ) from e
+            except OSError as e:
+                raise click.ClickException(f"Failed to read local file: {e}") from e
+            finally:
+                if transfer_active:
+                    try:
+                        _query(
+                            ctx,
+                            b"CP_ABORT",
+                            b"CP_ABORTED",
+                            transport=transport,
+                        )
+                    except Exception:
+                        pass
+                if reboot_targets:
+                    targets = ", ".join(dict.fromkeys(reboot_targets))
+                    _console().print(
+                        f"[yellow]Reboot required: {targets} will not take effect until the device restarts.[/yellow]"
+                    )
+        finally:
+            ser.close()
 
 
 @cli.command(name="upd")
+@click.option(
+    "--minify",
+    is_flag=True,
+    help="Remove Python comments and redundant blank lines before updating.",
+)
 @click.option(
     "--all-files",
     is_flag=True,
@@ -1524,7 +1557,11 @@ def copy_files(ctx: click.Context, args: tuple[str, ...]) -> None:
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
-    ctx: click.Context, args: tuple[str, ...], all_files: bool, set_time: bool
+    ctx: click.Context,
+    args: tuple[str, ...],
+    minify: bool,
+    all_files: bool,
+    set_time: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -1546,8 +1583,21 @@ def update(
             _console().print("Cancelled.")
             return
 
-    import hashlib
+    staging = (
+        source_minify.staged_minified_files(files_to_send)
+        if minify
+        else nullcontext(files_to_send)
+    )
+    with staging as files_to_update:
+        if minify:
+            _print_minification_report(files_to_send, files_to_update)
+        _update_files(ctx, files_to_update, set_time)
 
+
+def _update_files(
+    ctx: click.Context, files_to_send: list[tuple[str, Path]], set_time: bool
+) -> None:
+    """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
     total_bytes = 0
     manifest = []
@@ -2052,6 +2102,11 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
     help="Deploy target-matched .mpy libraries.",
 )
 @click.option(
+    "--minify",
+    is_flag=True,
+    help="Remove Python comments and redundant blank lines before deploying.",
+)
+@click.option(
     "--mpy-cross",
     default="mpy-cross",
     help="mpy-cross executable or command to use.",
@@ -2090,6 +2145,7 @@ def deploy_cmd(
     no_mip: bool,
     with_logger: bool,
     bytecode: bool,
+    minify: bool,
     mpy_cross: str,
     no_reset: bool,
     set_time: bool,
@@ -2103,6 +2159,7 @@ def deploy_cmd(
         no_mip=no_mip,  # type: ignore
         with_logger=with_logger,  # type: ignore
         bytecode=bytecode,  # type: ignore
+        minify=minify,  # type: ignore
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
         set_time=set_time,  # type: ignore

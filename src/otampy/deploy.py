@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from otampy.minify import copy_minified_tree, minify_python_file
+
 
 def _find_repo_root() -> Path:
     """Find the repository root by scanning parents for project files.
@@ -164,6 +166,7 @@ class DeployArgs:
     no_reset: bool
     dry_run: bool
     bytecode: bool = False
+    minify: bool = False
     mpy_cross: str = "mpy-cross"
     device_dir: Path | None = None
     set_time: bool = False
@@ -564,8 +567,9 @@ def deploy_command(
     args: DeployArgs,
     lib_dir: Path | None = None,
     rtc_helper: Path | None = None,
+    paths: DeployPaths | None = None,
 ) -> list[str]:
-    paths = _resolve_deploy_paths(args)
+    paths = _resolve_deploy_paths(args) if paths is None else paths
     effective_lib_dir = lib_dir if lib_dir is not None else paths.lib_dir
 
     command = [
@@ -632,11 +636,13 @@ def prepare_rtc_helper(destination: Path) -> Path:
 
 
 def deploy_with_optional_rtc(
-    args: DeployArgs, lib_dir: Path | None = None
+    args: DeployArgs,
+    lib_dir: Path | None = None,
+    paths: DeployPaths | None = None,
 ) -> None:
     """Deploy files, staging a one-shot RTC update when requested."""
     if not args.set_time:
-        run_mpremote(args, deploy_command(args, lib_dir))
+        run_mpremote(args, deploy_command(args, lib_dir, paths=paths))
         return
 
     with tempfile.TemporaryDirectory(prefix="otampy-rtc-") as temp_dir:
@@ -644,7 +650,7 @@ def deploy_with_optional_rtc(
         print("Staging device RTC update...", flush=True)
         run_mpremote(
             args,
-            deploy_command(args, lib_dir, rtc_helper),
+            deploy_command(args, lib_dir, rtc_helper, paths),
         )
 
 
@@ -744,11 +750,30 @@ def deploy(args: DeployArgs) -> None:
     validate_deploy_sources(args)
     if args.set_time and args.no_reset:
         raise DeployOptionError("--set-time requires the final device reset.")
+    if args.minify and args.bytecode:
+        raise DeployOptionError(
+            "--minify cannot be combined with --bytecode; bytecode deployment is already a separate production profile."
+        )
     preflight_mip_dependencies(args)
     _remove_pycache_dirs()
     if not args.bytecode:
         print("Deploying files and dependencies -  please wait...", flush=True)
-        deploy_with_optional_rtc(args)
+        if not args.minify:
+            deploy_with_optional_rtc(args)
+            return
+
+        paths = _resolve_deploy_paths(args)
+        with tempfile.TemporaryDirectory(prefix="otampy-minify-") as temp_dir:
+            staging_root = Path(temp_dir)
+            staged_lib = staging_root / "lib"
+            copy_minified_tree(paths.lib_dir, staged_lib)
+            staged_files = []
+            for source in (paths.config_file, paths.main_file, paths.boot_file):
+                destination = staging_root / source.name
+                minify_python_file(source, destination)
+                staged_files.append(destination)
+            staged_paths = DeployPaths(staged_lib, *staged_files)
+            deploy_with_optional_rtc(args, staged_lib, staged_paths)
         return
 
     if args.with_logger:

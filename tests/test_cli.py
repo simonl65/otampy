@@ -9,7 +9,13 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from otampy.cli import DeviceError, cli, get_default_log_level, set_default_port
+from otampy.cli import (
+    DeviceError,
+    cli,
+    get_config_value,
+    get_default_log_level,
+    set_default_port,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -403,6 +409,131 @@ def test_clearing_port_preserves_permanent_log_level(tmp_path):
     assert "default_port" not in saved.get("projects", {}).get(fake_root, {})
 
 
+# =============================================================================
+# config command tests
+# =============================================================================
+
+
+def test_config_cmd_show_lists_advanced_defaults(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "serial-timeout" in result.output
+    assert "query-retries" in result.output
+    assert "update-ready-timeout" in result.output
+    assert "transfer-chunk-size" in result.output
+    assert "default" in result.output
+
+
+def test_config_cmd_set_saves_project_value_and_clears_session_shadow(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    session_file = tmp_path / "otampy_session_42.json"
+    session_file.write_text(json.dumps({"serial_timeout_seconds": 9.0}))
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=42),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+    ):
+        result = CliRunner().invoke(
+            cli, ["config", "--set", "serial-timeout", "3.5"]
+        )
+
+    assert result.exit_code == 0
+    assert "Permanent config set: serial-timeout=3.5" in result.output
+
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    data = json.loads(config_file.read_text())
+    assert (
+        data["projects"][str(project_root)]["serial_timeout_seconds"] == 3.5
+    )
+    if session_file.exists():
+        assert "serial_timeout_seconds" not in json.loads(
+            session_file.read_text()
+        )
+
+
+def test_config_cmd_session_value_takes_precedence(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=77),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+    ):
+        permanent = CliRunner().invoke(
+            cli, ["config", "--set", "query-retries", "2"]
+        )
+        session = CliRunner().invoke(
+            cli, ["config", "--session", "--set", "query-retries", "4"]
+        )
+        assert permanent.exit_code == 0
+        assert session.exit_code == 0
+        assert get_config_value("query-retries") == 4
+
+        with mock.patch.dict("os.environ", {"OTAMPY_QUERY_RETRIES": "5"}):
+            assert get_config_value("query-retries") == 5
+
+
+def test_config_cmd_clear_removes_saved_and_session_values(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=88),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+    ):
+        CliRunner().invoke(cli, ["config", "--set", "query-retries", "2"])
+        CliRunner().invoke(
+            cli, ["config", "--session", "--set", "query-retries", "4"]
+        )
+        result = CliRunner().invoke(cli, ["config", "--clear", "query-retries"])
+
+    assert result.exit_code == 0
+    assert "Saved config cleared: query-retries" in result.output
+
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    if config_file.exists():
+        data = json.loads(config_file.read_text())
+        project = data.get("projects", {}).get(str(project_root), {})
+        assert "query_retries" not in project
+
+    session_file = tmp_path / "otampy_session_88.json"
+    if session_file.exists():
+        assert "query_retries" not in json.loads(session_file.read_text())
+
+
+def test_config_cmd_rejects_invalid_values(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(
+            cli, ["config", "--set", "transfer-chunk-size", "512"]
+        )
+
+    assert result.exit_code != 0
+    assert "between 1 and 256" in result.output
+
+
 def test_cli_ping():
     """Test the 'ping' command."""
     runner = CliRunner()
@@ -484,7 +615,7 @@ def test_cli_ping_response_timeout():
     assert mock_serial.call_count == 3
     mock_serial.assert_any_call("/dev/ttyFake", baudrate=57600, timeout=2.0)
     assert mock_device_instance.send.call_count == 3
-    assert mock_sleep.call_count == 1
+    assert mock_sleep.call_count == 2
 
 
 def test_cli_hard_reboot():
@@ -1692,7 +1823,7 @@ def test_cli_query_connection_retry():
         # Serial should have been called 3 times
         assert call_count == 3
         # Should have slept twice (exponential backoff)
-        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_count == 2
 
 
 def test_cli_port_interactive(tmp_path):

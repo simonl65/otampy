@@ -127,13 +127,19 @@ otampy [global-options] <command> [command-options]
 The default log level is `ERROR`. When `--log-level` is supplied, the CLI offers to retain the setting permanently (`p`), for the current shell session (`s`), or only for the current command (`c`).
 
 Permanent port settings are stored per project and log-level settings globally
-in `~/.config/otampy/config.json`:
+in `~/.config/otampy/config.json`. Advanced host settings managed by
+`otampy config` are also stored per project:
 
 ```json
 {
   "projects": {
     "/path/to/project": {
-      "default_port": "/dev/ttyUSB0"
+      "default_port": "/dev/ttyUSB0",
+      "serial_timeout_seconds": 2.0,
+      "query_retries": 3,
+      "query_retry_backoff_seconds": 0.25,
+      "update_ready_timeout_seconds": 10.0,
+      "transfer_chunk_size": 256
     }
   },
   "global": {
@@ -145,44 +151,48 @@ in `~/.config/otampy/config.json`:
 Session-only selections use files in the operating system's temporary directory
 (normally `/tmp` on Linux) and do not alter the permanent configuration. On
 Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
-`OTAMPY_LOG_LEVEL` environment variables override saved settings.
+`OTAMPY_LOG_LEVEL` environment variables override saved settings. Advanced
+settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
+`OTAMPY_QUERY_RETRIES`, `OTAMPY_QUERY_RETRY_BACKOFF`,
+`OTAMPY_UPDATE_READY_TIMEOUT`, and `OTAMPY_TRANSFER_CHUNK_SIZE`.
 
 ### Commands
 
-| Command      | Arguments             | Description                                                         |
-| ------------ | --------------------- | ------------------------------------------------------------------- |
-| `cat`        | `file`                | Print a file from the device.                                       |
-| `cp`         | `source[:dest] [...]` | Copy files or folders to the device without rebooting.              |
-| `deploy`     | _(see below)_         | Erase and deploy the full device library over USB.                  |
-| `device-dir` | —                     | Show or manage the saved project directory for deploy and updates.  |
-| `init`       | `[directory]`         | Scaffold `boot.py`, `main.py`, and `configota.py`.                  |
-| `log-level`  |                       | Show or manage the saved CLI log level.                             |
-| `ls`         | `[path]`              | List device directory contents.                                     |
-| `mem`        | —                     | Query device RAM and flash utilisation.                             |
-| `ping`       | —                     | Connection health check - should receive PONG.                      |
-| `ports`      | —                     | List available serial adapters; mark and store a selection.         |
-| `rb`         | `[--set-time]`        | Hard reboot the device (with confirmation).                         |
-| `rm`         | `path [...]`          | Remove paths from the device (with confirmation - not recoverable). |
-| `rtc`        | —                     | Display the current device RTC timestamp without rebooting.         |
-| `sr`         | `[--set-time]`        | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>          |
+| Command      | Arguments                                        | Description                                                         |
+| ------------ | ------------------------------------------------ | ------------------------------------------------------------------- |
+| `cat`        | `file`                                           | Print a file from the device.                                       |
+| `config`     | —                                                | Show or manage advanced host configuration.                         |
+| `cp`         | `source[:dest] [...]`                            | Copy files or folders to the device without rebooting.              |
+| `deploy`     | _(see below)_                                    | Erase and deploy the full device library over USB.                  |
+| `device-dir` | —                                                | Show or manage the saved project directory for deploy and updates.  |
+| `init`       | `[directory]`                                    | Scaffold `boot.py`, `main.py`, and `configota.py`.                  |
+| `log-level`  |                                                  | Show or manage the saved CLI log level.                             |
+| `ls`         | `[path]`                                         | List device directory contents.                                     |
+| `mem`        | —                                                | Query device RAM and flash utilisation.                             |
+| `ping`       | —                                                | Connection health check - should receive PONG.                      |
+| `ports`      | —                                                | List available serial adapters; mark and store a selection.         |
+| `rb`         | `[--set-time]`                                   | Hard reboot the device (with confirmation).                         |
+| `rm`         | `path [...]`                                     | Remove paths from the device (with confirmation - not recoverable). |
+| `rtc`        | —                                                | Display the current device RTC timestamp without rebooting.         |
+| `sr`         | `[--set-time]`                                   | MicroPython soft reset (with confirmation).                         |
+| `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
 ### Deployment Options
 
-| Option                | Effect                                                    |
-| --------------------- | --------------------------------------------------------- |
-| `-p`, `--port`        | Select the USB/serial device used by `mpremote`.          |
+| Option                | Effect                                                                    |
+| --------------------- | ------------------------------------------------------------------------- |
+| `-p`, `--port`        | Select the USB/serial device used by `mpremote`.                          |
 | `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
-| `--with-logger`       | Install the optional `log-to-file` package.               |
-| `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files. |
-| `--mpy-cross`         | Select the `mpy-cross` executable or command.             |
-| `--no-mip`            | Install neither URST nor the optional logger.             |
-| `--no-reset`          | Leave the board without a final reset.                    |
-| `--set-time`          | Set the device RTC from the host during final boot.       |
-| `--dry-run`           | Print the complete `mpremote` command without running it. |
-| `--mpremote`          | Use a specific `mpremote` executable.                     |
+| `--with-logger`       | Install the optional `log-to-file` package.                               |
+| `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files.                 |
+| `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
+| `--no-mip`            | Install neither URST nor the optional logger.                             |
+| `--no-reset`          | Leave the board without a final reset.                                    |
+| `--set-time`          | Set the device RTC from the host during final boot.                       |
+| `--dry-run`           | Print the complete `mpremote` command without running it.                 |
+| `--mpremote`          | Use a specific `mpremote` executable.                                     |
 
 ### Common examples
 
@@ -190,6 +200,15 @@ Select a port for subsequent commands (avoids repeating `--port`):
 
 ```bash
 otampy ports
+```
+
+Show or tune advanced host communication settings:
+
+```bash
+otampy config --show
+otampy config --set serial-timeout 3.5
+otampy config --session --set query-retries 5
+otampy config --clear update-ready-timeout
 ```
 
 NOTE: The following commands assume you've set the port.

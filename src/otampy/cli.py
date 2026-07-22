@@ -21,6 +21,48 @@ logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+CONFIG_SETTINGS = {
+    "serial_timeout_seconds": {
+        "display": "serial-timeout",
+        "env": "OTAMPY_SERIAL_TIMEOUT",
+        "default": 2.0,
+        "type": float,
+        "description": "Serial read timeout in seconds.",
+    },
+    "query_retries": {
+        "display": "query-retries",
+        "env": "OTAMPY_QUERY_RETRIES",
+        "default": 3,
+        "type": int,
+        "description": "Connection attempts for one-shot CLI queries.",
+    },
+    "query_retry_backoff_seconds": {
+        "display": "query-retry-backoff",
+        "env": "OTAMPY_QUERY_RETRY_BACKOFF",
+        "default": 0.25,
+        "type": float,
+        "description": "Initial retry backoff in seconds for one-shot CLI queries.",
+    },
+    "update_ready_timeout_seconds": {
+        "display": "update-ready-timeout",
+        "env": "OTAMPY_UPDATE_READY_TIMEOUT",
+        "default": 10.0,
+        "type": float,
+        "description": "Seconds to wait for the boot-time READY broadcast during upd.",
+    },
+    "transfer_chunk_size": {
+        "display": "transfer-chunk-size",
+        "env": "OTAMPY_TRANSFER_CHUNK_SIZE",
+        "default": 256,
+        "type": int,
+        "description": "Bytes per host transfer chunk.",
+    },
+}
+
+_CONFIG_DISPLAY_TO_KEY = {
+    setting["display"]: key for key, setting in CONFIG_SETTINGS.items()
+}
+
 
 class DeviceError(Exception):
     """Exception raised for device errors."""
@@ -236,6 +278,146 @@ def _write_global_config(updates: dict) -> None:
         data.pop("global", None)
 
     _write_json(config_path, data)
+
+
+# ---------------------------------------------------------------------------
+# Advanced host configuration
+# ---------------------------------------------------------------------------
+
+
+def _normalize_config_key(key: str) -> str:
+    normalized = key.strip().replace("-", "_")
+    if normalized in CONFIG_SETTINGS:
+        return normalized
+    display_key = key.strip().replace("_", "-")
+    if display_key in _CONFIG_DISPLAY_TO_KEY:
+        return _CONFIG_DISPLAY_TO_KEY[display_key]
+    raise click.ClickException(
+        "Unknown config setting. Choose from: "
+        + ", ".join(setting["display"] for setting in CONFIG_SETTINGS.values())
+    )
+
+
+def _coerce_config_value(key: str, raw_value) -> int | float:
+    setting = CONFIG_SETTINGS[key]
+    value_type = setting["type"]
+    try:
+        if value_type is int:
+            if isinstance(raw_value, str):
+                stripped = raw_value.strip()
+                if not stripped or "." in stripped:
+                    raise ValueError()
+            value = int(raw_value)
+        else:
+            value = float(raw_value)
+    except (TypeError, ValueError) as ex:
+        raise click.ClickException(
+            f"{setting['display']} must be a {value_type.__name__}."
+        ) from ex
+
+    if key == "query_retries":
+        if value < 1:
+            raise click.ClickException("query-retries must be at least 1.")
+    elif key == "transfer_chunk_size":
+        if value < 1 or value > 256:
+            raise click.ClickException(
+                "transfer-chunk-size must be between 1 and 256 bytes."
+            )
+    elif value <= 0:
+        raise click.ClickException(
+            f"{setting['display']} must be greater than 0."
+        )
+
+    return value
+
+
+def _read_session_config_value(key: str) -> int | float | None:
+    value = _read_json(_session_config_path()).get(key)
+    if value is None:
+        return None
+    try:
+        return _coerce_config_value(key, value)
+    except click.ClickException:
+        return None
+
+
+def _read_project_config_value(key: str) -> int | float | None:
+    value = _read_project_config().get(key)
+    if value is None:
+        return None
+    try:
+        return _coerce_config_value(key, value)
+    except click.ClickException:
+        return None
+
+
+def get_config_value(key: str) -> int | float:
+    import os
+
+    key = _normalize_config_key(key)
+    setting = CONFIG_SETTINGS[key]
+
+    env_value = os.environ.get(setting["env"])
+    if env_value is not None:
+        return _coerce_config_value(key, env_value)
+
+    session_value = _read_session_config_value(key)
+    if session_value is not None:
+        return session_value
+
+    project_value = _read_project_config_value(key)
+    if project_value is not None:
+        return project_value
+
+    return setting["default"]  # type: ignore[return-value]
+
+
+def _config_value_source(key: str) -> tuple[int | float, str]:
+    import os
+
+    key = _normalize_config_key(key)
+    setting = CONFIG_SETTINGS[key]
+
+    env_value = os.environ.get(setting["env"])
+    if env_value is not None:
+        return _coerce_config_value(key, env_value), f"env:{setting['env']}"
+
+    session_value = _read_session_config_value(key)
+    if session_value is not None:
+        return session_value, "session"
+
+    project_value = _read_project_config_value(key)
+    if project_value is not None:
+        return project_value, "project"
+
+    return setting["default"], "default"  # type: ignore[return-value]
+
+
+def set_config_value(
+    key: str, value: int | float | None, session: bool = False
+) -> None:
+    key = _normalize_config_key(key)
+    coerced = None if value is None else _coerce_config_value(key, value)
+
+    if session:
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if coerced is None:
+                data.pop(key, None)
+            else:
+                data[key] = coerced
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session config: {e}"
+            ) from e
+        return
+
+    try:
+        _write_project_config({key: coerced})
+    except Exception as e:
+        raise click.ClickException(f"Failed to save config: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +811,8 @@ def _query(
     import serial
     from urst import Urst
 
+    serial_timeout = float(get_config_value("serial_timeout_seconds"))
+
     # If transport provided, use it directly (single attempt)
     if transport is not None:
         if not transport.send(command):
@@ -670,11 +854,13 @@ def _query(
 
     # Create new transport with retry logic
     last_err = None
+    query_retries = int(get_config_value("query_retries"))
+    retry_backoff = float(get_config_value("query_retry_backoff_seconds"))
 
-    for attempt in range(3):
+    for attempt in range(query_retries):
         ser = None
         try:
-            ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+            ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
             try:
                 ser.dtr = False
                 ser.rts = False
@@ -743,8 +929,8 @@ def _query(
                 except Exception:
                     pass
             last_err = e
-            if attempt < 1:
-                time.sleep(0.25 * (2**attempt))
+            if attempt < query_retries - 1:
+                time.sleep(retry_backoff * (2**attempt))
 
     raise click.ClickException(str(last_err))
 
@@ -1079,7 +1265,8 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     ser = None
     try:
         # Establish persistent connection
-        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+        serial_timeout = float(get_config_value("serial_timeout_seconds"))
+        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
         try:
             ser.dtr = False
             ser.rts = False
@@ -1433,7 +1620,8 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     with staging as files_to_copy:
         if minify:
             _print_minification_report(files_to_send, files_to_copy)
-        ser = serial.Serial(port, baudrate=baud, timeout=2.0)
+        serial_timeout = float(get_config_value("serial_timeout_seconds"))
+        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
         try:
             try:
                 ser.dtr = False
@@ -1653,14 +1841,15 @@ def _update_files(
     time.sleep(0.5)
 
     start_time = time.time()
-    timeout = 10.0
+    timeout = float(get_config_value("update_ready_timeout_seconds"))
     transport = None
     ser = None
 
     while time.time() - start_time < timeout:
         try:
             if ser is None:
-                ser = serial.Serial(port, baudrate=baud, timeout=1.0)
+                serial_timeout = float(get_config_value("serial_timeout_seconds"))
+                ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
                 try:
                     ser.dtr = False
                     ser.rts = False
@@ -1701,7 +1890,7 @@ def _update_files(
             )
 
         # 5. Send files sequentially
-        chunk_size = 256
+        chunk_size = int(get_config_value("transfer_chunk_size"))
         for target_path, _local_path, size, sha256, content in manifest:
             _console().print(f"Transferring {target_path} ({size} bytes)...")
 
@@ -2071,6 +2260,78 @@ def device_dir_cmd(show: bool, set_dir: str | None, clear: bool) -> None:
         )
     else:
         _console().print("Cancelled.")
+
+
+@cli.command(name="config")
+@click.option(
+    "--show",
+    is_flag=True,
+    help="Show advanced host configuration and effective values.",
+)
+@click.option(
+    "--set",
+    "set_item",
+    nargs=2,
+    metavar="KEY VALUE",
+    help="Set an advanced host configuration value permanently.",
+)
+@click.option(
+    "--clear",
+    "clear_key",
+    metavar="KEY",
+    help="Clear a saved advanced host configuration value.",
+)
+@click.option(
+    "--session",
+    is_flag=True,
+    help="Apply --set or --clear to the current shell session only.",
+)
+def config_cmd(
+    show: bool,
+    set_item: tuple[str, str] | None,
+    clear_key: str | None,
+    session: bool,
+) -> None:
+    """Show or manage advanced host configuration.
+
+    Values are project-scoped when saved permanently. Session values shadow
+    permanent config for commands in the current shell. Environment variables
+    shown in --show output shadow both saved sources.
+    """
+    if sum(bool(value) for value in (show, set_item, clear_key)) > 1:
+        raise click.UsageError(
+            "Choose only one of --show, --set, or --clear."
+        )
+
+    if set_item is not None:
+        key, raw_value = set_item
+        normalized = _normalize_config_key(key)
+        value = _coerce_config_value(normalized, raw_value)
+        set_config_value(normalized, value, session=session)
+        if not session:
+            set_config_value(normalized, None, session=True)
+        scope = "Session" if session else "Permanent"
+        display = CONFIG_SETTINGS[normalized]["display"]
+        _console().print(f"[green]{scope} config set: {display}={value}[/green]")
+        return
+
+    if clear_key is not None:
+        normalized = _normalize_config_key(clear_key)
+        set_config_value(normalized, None, session=session)
+        if not session:
+            set_config_value(normalized, None, session=True)
+        scope = "Session" if session else "Saved"
+        display = CONFIG_SETTINGS[normalized]["display"]
+        _console().print(f"[green]{scope} config cleared: {display}[/green]")
+        return
+
+    _console().print("[bold]Advanced host configuration:[/bold]")
+    for key, setting in CONFIG_SETTINGS.items():
+        value, source = _config_value_source(key)
+        _console().print(
+            f"  {setting['display']}: [green]{value}[/green] "
+            f"({source}; env {setting['env']})"
+        )
 
 
 @cli.command(name="deploy")

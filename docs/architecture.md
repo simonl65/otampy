@@ -107,12 +107,15 @@ Integrating OTAmpy into a MicroPython device requires simple configuration and i
 ### 1. Device Configuration (`configota.py`)
 
 Place a `configota.py` in the root of the device directory containing UART
-connection settings. `LOG_LEVEL` and `LOG_FILE` are used by the deployed
-examples only when the optional `log-to-file` package is installed:
+connection settings. The logger settings are used by the deployed examples
+only when the optional `log-to-file` package is installed:
 
 ```python
 LOG_LEVEL = "DEBUG"
 LOG_FILE = "/ota.log"
+LOG_MAX_BYTES = 10240
+LOG_BACKUP_COUNT = 1
+LOG_USE_TICKS = False
 OTA_PORT = 1
 OTA_TX_PIN = 4
 OTA_RX_PIN = 5

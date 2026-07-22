@@ -13,7 +13,14 @@ except ImportError:
     logger = NullLogger()
 else:
     logger = (
-        Logger(config.LOG_FILE, "boot.py", level=config.LOG_LEVEL)
+        Logger(
+            config.LOG_FILE,
+            "boot.py",
+            level=config.LOG_LEVEL,
+            max_bytes=getattr(config, "LOG_MAX_BYTES", 10240),
+            backup_count=getattr(config, "LOG_BACKUP_COUNT", 1),
+            use_ticks=getattr(config, "LOG_USE_TICKS", False),
+        )
         or NullLogger()
     )
 

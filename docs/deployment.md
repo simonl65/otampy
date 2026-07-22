@@ -85,9 +85,10 @@ otampy deploy --port /dev/ttyACM0 --with-logger
 ```
 
 The example `boot.py` and `main.py` detect that package and construct
-`log_to_file.Logger` using `LOG_FILE` and `LOG_LEVEL` from `configota.py`. If the
-package is later absent, the same scripts fall back to `NullLogger`; no source
-change is required.
+`log_to_file.Logger` using `LOG_FILE`, `LOG_LEVEL`, `LOG_MAX_BYTES`,
+`LOG_BACKUP_COUNT`, and `LOG_USE_TICKS` from `configota.py`. If the package is
+later absent, the same scripts fall back to `NullLogger`; no source change is
+required.
 
 Applications may instead inject any logger implementing `debug`, `info`,
 `warning`, `error`, and `critical`:

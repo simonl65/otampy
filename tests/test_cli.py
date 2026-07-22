@@ -9,7 +9,13 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from otampy.cli import DeviceError, cli, get_default_log_level, set_default_port
+from otampy.cli import (
+    DeviceError,
+    cli,
+    get_config_value,
+    get_default_log_level,
+    set_default_port,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -45,9 +51,7 @@ def test_init_slash_path_is_project_relative(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=12345),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
     ):
         result = runner.invoke(cli, ["init", "/device"])
 
@@ -61,9 +65,7 @@ def test_deploy_device_dir_is_project_relative(tmp_path):
     project_root.mkdir()
 
     with (
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
         mock.patch("otampy.cli.deploy.deploy") as deploy,
     ):
         result = runner.invoke(cli, ["deploy", "--device-dir", "/device"])
@@ -78,16 +80,10 @@ def test_deploy_uses_saved_absolute_device_dir(tmp_path):
     device_dir = tmp_path / "saved-device"
     project_root.mkdir()
     deploy_command = cli.commands["deploy"]
-    device_dir_option = next(
-        param
-        for param in deploy_command.params
-        if param.name == "device_dir"
-    )
+    device_dir_option = next(param for param in deploy_command.params if param.name == "device_dir")
 
     with (
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
         mock.patch.object(device_dir_option, "default", lambda: str(device_dir)),
         mock.patch("otampy.cli.deploy.deploy") as deploy,
     ):
@@ -130,11 +126,7 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
             config_file.parent.mkdir(parents=True)
             # Write pre-existing port in new project-scoped format
             fake_root = "/fake/project"
-            config_file.write_text(
-                json.dumps(
-                    {"projects": {fake_root: {"default_port": "/dev/ttySaved"}}}
-                )
-            )
+            config_file.write_text(json.dumps({"projects": {fake_root: {"default_port": "/dev/ttySaved"}}}))
 
             # Use the log-level command to save permanently.
             result = runner.invoke(cli, ["log-level", "--set", "DEBUG"])
@@ -144,9 +136,7 @@ def test_cli_log_level_can_be_saved_permanently(tmp_path):
             saved = json.loads(config_file.read_text())
             assert saved.get("global", {}).get("log_level") == "DEBUG"
             # Pre-existing project port must be preserved
-            assert (
-                saved["projects"][fake_root]["default_port"] == "/dev/ttySaved"
-            )
+            assert saved["projects"][fake_root]["default_port"] == "/dev/ttySaved"
 
             # Next plain invocation uses the saved level with no prompt.
             result = runner.invoke(cli, ["ports", "--show"])
@@ -191,9 +181,7 @@ def test_cli_log_level_can_be_saved_for_session(tmp_path):
 
 
 def test_cli_rejects_invalid_log_level():
-    result = CliRunner().invoke(
-        cli, ["--log-level", "VERBOSE", "ports", "--show"]
-    )
+    result = CliRunner().invoke(cli, ["--log-level", "VERBOSE", "ports", "--show"])
 
     assert result.exit_code == 2
     assert "Invalid value for '--log-level'" in result.output
@@ -241,9 +229,7 @@ def test_log_level_cmd_set_saves_permanently(tmp_path):
         assert "Permanent log level set to: INFO" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert (
-            json.loads(config_file.read_text())["global"]["log_level"] == "INFO"
-        )
+        assert json.loads(config_file.read_text())["global"]["log_level"] == "INFO"
 
 
 def test_log_level_cmd_set_clears_session_shadow(tmp_path):
@@ -299,10 +285,7 @@ def test_log_level_cmd_interactive_permanent(tmp_path):
         assert "Permanent log level set to: DEBUG" in result.output
 
         config_file = tmp_path / ".config" / "otampy" / "config.json"
-        assert (
-            json.loads(config_file.read_text())["global"]["log_level"]
-            == "DEBUG"
-        )
+        assert json.loads(config_file.read_text())["global"]["log_level"] == "DEBUG"
 
 
 def test_log_level_cmd_interactive_session(tmp_path):
@@ -363,9 +346,7 @@ def test_log_level_precedence_is_environment_session_permanent(tmp_path):
     config_file = tmp_path / ".config" / "otampy" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text(json.dumps({"global": {"log_level": "DEBUG"}}))
-    (tmp_path / "otampy_session_789.json").write_text(
-        json.dumps({"log_level": "INFO"})
-    )
+    (tmp_path / "otampy_session_789.json").write_text(json.dumps({"log_level": "INFO"}))
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
@@ -392,15 +373,118 @@ def test_clearing_port_preserves_permanent_log_level(tmp_path):
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=Path(fake_root)
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
     ):
         set_default_port(None)
 
     saved = json.loads(config_file.read_text())
     assert saved.get("global", {}).get("log_level") == "DEBUG"
     assert "default_port" not in saved.get("projects", {}).get(fake_root, {})
+
+
+# =============================================================================
+# config command tests
+# =============================================================================
+
+
+def test_config_cmd_show_lists_advanced_defaults(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "serial-timeout" in result.output
+    assert "query-retries" in result.output
+    assert "update-ready-timeout" in result.output
+    assert "transfer-chunk-size" in result.output
+    assert "default" in result.output
+
+
+def test_config_cmd_set_saves_project_value_and_clears_session_shadow(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    session_file = tmp_path / "otampy_session_42.json"
+    session_file.write_text(json.dumps({"serial_timeout_seconds": 9.0}))
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=42),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--set", "serial-timeout", "3.5"])
+
+    assert result.exit_code == 0
+    assert "Permanent config set: serial-timeout=3.5" in result.output
+
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    data = json.loads(config_file.read_text())
+    assert data["projects"][str(project_root)]["serial_timeout_seconds"] == 3.5
+    if session_file.exists():
+        assert "serial_timeout_seconds" not in json.loads(session_file.read_text())
+
+
+def test_config_cmd_session_value_takes_precedence(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=77),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        permanent = CliRunner().invoke(cli, ["config", "--set", "query-retries", "2"])
+        session = CliRunner().invoke(cli, ["config", "--session", "--set", "query-retries", "4"])
+        assert permanent.exit_code == 0
+        assert session.exit_code == 0
+        assert get_config_value("query-retries") == 4
+
+        with mock.patch.dict("os.environ", {"OTAMPY_QUERY_RETRIES": "5"}):
+            assert get_config_value("query-retries") == 5
+
+
+def test_config_cmd_clear_removes_saved_and_session_values(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=88),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
+    ):
+        CliRunner().invoke(cli, ["config", "--set", "query-retries", "2"])
+        CliRunner().invoke(cli, ["config", "--session", "--set", "query-retries", "4"])
+        result = CliRunner().invoke(cli, ["config", "--clear", "query-retries"])
+
+    assert result.exit_code == 0
+    assert "Saved config cleared: query-retries" in result.output
+
+    config_file = tmp_path / ".config" / "otampy" / "config.json"
+    if config_file.exists():
+        data = json.loads(config_file.read_text())
+        project = data.get("projects", {}).get(str(project_root), {})
+        assert "query_retries" not in project
+
+    session_file = tmp_path / "otampy_session_88.json"
+    if session_file.exists():
+        assert "query_retries" not in json.loads(session_file.read_text())
+
+
+def test_config_cmd_rejects_invalid_values(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--set", "transfer-chunk-size", "0"])
+
+    assert result.exit_code != 0
+    assert "between 1 and " in result.output
 
 
 def test_cli_ping():
@@ -417,9 +501,7 @@ def test_cli_ping():
         assert result.exit_code == 0
         assert "Sending PING to device" in result.output
         assert "Success: Received PONG from device" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
@@ -459,9 +541,7 @@ def test_cli_ping_response_within_timeout():
 
     assert result.exit_code == 0
     assert "Success: Received PONG from device" in result.output
-    mock_serial.assert_called_once_with(
-        "/dev/ttyFake", baudrate=57600, timeout=2.0
-    )
+    mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
     mock_device_instance.send.assert_called_once_with(b"PING")
 
 
@@ -484,7 +564,7 @@ def test_cli_ping_response_timeout():
     assert mock_serial.call_count == 3
     mock_serial.assert_any_call("/dev/ttyFake", baudrate=57600, timeout=2.0)
     assert mock_device_instance.send.call_count == 3
-    assert mock_sleep.call_count == 1
+    assert mock_sleep.call_count == 2
 
 
 def test_cli_hard_reboot():
@@ -500,9 +580,7 @@ def test_cli_hard_reboot():
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"], input="y\n")
         assert result.exit_code == 0
         assert "Hard rebooting the device" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"RB")
 
 
@@ -533,9 +611,7 @@ def test_cli_soft_reset():
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"], input="y\n")
         assert result.exit_code == 0
         assert "Soft resetting the device" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"SR")
 
 
@@ -593,9 +669,7 @@ def test_cli_ls_default():
         assert result.exit_code == 0
         assert "boot.py" in result.output
         assert "main.py" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"LS")
 
 
@@ -645,9 +719,7 @@ def test_cli_ls_path():
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ls", "/lib"])
         assert result.exit_code == 0
         assert "sensor.py" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"LS:/lib")
 
 
@@ -672,9 +744,7 @@ def test_cli_cat_file():
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
         assert result.exit_code == 0
         assert "import config" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"CAT:boot.py")
 
 
@@ -715,9 +785,7 @@ def test_cli_rm_rejects_arguments_matching_local_paths(tmp_path, monkeypatch):
     send_command.assert_not_called()
 
 
-def test_cli_rm_literal_remote_paths_never_delete_local_matches(
-    tmp_path, monkeypatch
-):
+def test_cli_rm_literal_remote_paths_never_delete_local_matches(tmp_path, monkeypatch):
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
     first = tmp_path / "alpha.txt"
@@ -749,9 +817,7 @@ def test_cli_rm_literal_remote_paths_never_delete_local_matches(
     ]
 
 
-def test_cli_rm_colon_prefix_marks_matching_local_name_as_remote(
-    tmp_path, monkeypatch
-):
+def test_cli_rm_colon_prefix_marks_matching_local_name_as_remote(tmp_path, monkeypatch):
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
     local_file = tmp_path / "notes.txt"
@@ -868,14 +934,10 @@ def test_cli_rm_file():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"RM_OK"
 
-        result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="y\n"
-        )
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="y\n")
         assert result.exit_code == 0
         assert "Removing remote path: temp.py" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"RM:temp.py")
 
 
@@ -1013,9 +1075,7 @@ def test_cli_rm_file_aborted():
         mock.patch("serial.Serial") as mock_serial,
         mock.patch("urst.Urst") as mock_device,
     ):
-        result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="\n"
-        )
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "temp.py"], input="\n")
         assert result.exit_code == 0
         assert "Aborted." in result.output
         mock_serial.assert_not_called()
@@ -1031,9 +1091,7 @@ def test_cli_mem():
     ):
         mock_device_instance = mock_device.return_value
         # ram_free, ram_alloc, flash_free, flash_total
-        mock_device_instance.read.return_value = (
-            b"MEM_OK:50000,30000,524288,1048576"
-        )
+        mock_device_instance.read.return_value = b"MEM_OK:50000,30000,524288,1048576"
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "mem"])
         assert result.exit_code == 0
@@ -1045,9 +1103,7 @@ def test_cli_mem():
         assert "Flash (Storage)" in result.output
         assert "512.0 KB" in result.output
         assert "1.0 MB" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
+        mock_serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
         mock_device_instance.send.assert_called_once_with(b"MEM")
 
 
@@ -1064,14 +1120,9 @@ def test_cli_friendly_errors():
             mock_device_instance = mock_device.return_value
             mock_device_instance.read.return_value = b"ERROR:[Errno 2] ENOENT"
 
-            result = runner.invoke(
-                cli, ["-p", "/dev/ttyFake", "ls", "lib/Boot.py"]
-            )
+            result = runner.invoke(cli, ["-p", "/dev/ttyFake", "ls", "lib/Boot.py"])
             assert result.exit_code == 1
-            assert (
-                "Error: No such file or directory: 'lib/Boot.py'"
-                in result.output
-            )
+            assert "Error: No such file or directory: 'lib/Boot.py'" in result.output
 
         # 2. CAT command with ENOENT error
         with (
@@ -1081,14 +1132,9 @@ def test_cli_friendly_errors():
             mock_device_instance = mock_device.return_value
             mock_device_instance.read.return_value = b"ERROR:ENOENT"
 
-            result = runner.invoke(
-                cli, ["-p", "/dev/ttyFake", "cat", "missing.py"]
-            )
+            result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "missing.py"])
             assert result.exit_code == 1
-            assert (
-                "Error: No such file or directory: 'missing.py'"
-                in result.output
-            )
+            assert "Error: No such file or directory: 'missing.py'" in result.output
 
         # 3. RM command with EACCES error
         with (
@@ -1098,9 +1144,7 @@ def test_cli_friendly_errors():
             mock_device_instance = mock_device.return_value
             mock_device_instance.read.return_value = b"ERROR:[Errno 13] EACCES"
 
-            result = runner.invoke(
-                cli, ["-p", "/dev/ttyFake", "rm", "system.py"], input="y\n"
-            )
+            result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rm", "system.py"], input="y\n")
             assert result.exit_code == 1
             assert "Error: Permission denied: 'system.py'" in result.output
 
@@ -1129,9 +1173,7 @@ def test_cli_update_with_files():
     """Test 'upd' command with no matching files exits early without touching device."""
     runner = CliRunner(env={"NO_COLOR": "1"})
     with mock.patch("otampy.cli._get_files_to_send", return_value=[]):
-        result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "upd", ".", "main.py", "lib/lib2.py"]
-        )
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", ".", "main.py", "lib/lib2.py"])
         assert result.exit_code == 0
         assert "No files found to transfer" in result.output
 
@@ -1178,9 +1220,7 @@ def test_get_files_to_send_expands_mapped_wildcard(tmp_path, monkeypatch):
     ]
 
 
-def test_get_files_to_send_resolves_slash_source_from_project_root(
-    tmp_path, monkeypatch
-):
+def test_get_files_to_send_resolves_slash_source_from_project_root(tmp_path, monkeypatch):
     from otampy.cli import _get_files_to_send
 
     project_root = tmp_path / "project"
@@ -1188,9 +1228,7 @@ def test_get_files_to_send_resolves_slash_source_from_project_root(
     device.mkdir(parents=True)
     (device / "main.py").write_text("# main\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "otampy.cli._detect_project_root", lambda: project_root
-    )
+    monkeypatch.setattr("otampy.cli._detect_project_root", lambda: project_root)
 
     files = _get_files_to_send(("/device/*.py:/",), python_only=False)
 
@@ -1210,12 +1248,8 @@ def test_get_files_to_send_defaults_to_saved_device_dir(tmp_path, monkeypatch):
     (device / "configota.py").write_text("# device config\n")
     helper = device / "lib" / "nested" / "helper.py"
     helper.write_text("# helper\n")
-    monkeypatch.setattr(
-        "otampy.cli._detect_project_root", lambda: project_root
-    )
-    monkeypatch.setattr(
-        "otampy.cli.get_default_device_dir", lambda: str(device)
-    )
+    monkeypatch.setattr("otampy.cli._detect_project_root", lambda: project_root)
+    monkeypatch.setattr("otampy.cli.get_default_device_dir", lambda: str(device))
 
     files = _get_files_to_send(())
 
@@ -1264,9 +1298,7 @@ def test_cli_update_all_files_lists_and_confirms_before_connecting():
     serial.assert_not_called()
 
 
-def test_get_files_to_send_rejects_missing_explicit_sources(
-    tmp_path, monkeypatch
-):
+def test_get_files_to_send_rejects_missing_explicit_sources(tmp_path, monkeypatch):
     from otampy.cli import _get_files_to_send
 
     monkeypatch.chdir(tmp_path)
@@ -1421,9 +1453,7 @@ def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
     runner = CliRunner(env={"NO_COLOR": "1"})
     with mock.patch("otampy.cli._get_files_to_send", return_value=[]):
-        result = runner.invoke(
-            cli, ["-p", "/dev/ttyFake", "update", ".", "main.py"]
-        )
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "update", ".", "main.py"])
         assert result.exit_code == 0
         # Alias 'update' resolves to 'upd' command
         assert "No files found to transfer" in result.output
@@ -1521,9 +1551,7 @@ def test_cli_update_handshake():
 
         assert result.exit_code == 0
         assert "Initiating update handshake" in result.output
-        assert (
-            "Device acknowledged update request. Rebooting..." in result.output
-        )
+        assert "Device acknowledged update request. Rebooting..." in result.output
         assert "Device is READY. Handshake complete." in result.output
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
         assert any(
@@ -1692,7 +1720,7 @@ def test_cli_query_connection_retry():
         # Serial should have been called 3 times
         assert call_count == 3
         # Should have slept twice (exponential backoff)
-        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_count == 2
 
 
 def test_cli_port_interactive(tmp_path):
@@ -1735,9 +1763,7 @@ def test_cli_port_interactive(tmp_path):
         plain = _ANSI_ESCAPE.sub("", result.output)
         assert result.exit_code == 0
         assert "Available serial ports:" in plain
-        assert (
-            "1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode"
-        ) in plain
+        assert ("1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode") in plain
         assert "Permanent default port set to: /dev/ttyFake1" in plain
 
         # Verify file config.json exists and has correct default_port value
@@ -1745,10 +1771,7 @@ def test_cli_port_interactive(tmp_path):
         assert config_file.is_file()
 
         with open(config_file) as f:
-            assert (
-                json.load(f)["projects"][fake_root]["default_port"]
-                == "/dev/ttyFake1"
-            )
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
 
         # The effective selected port is marked, including a --port override.
         result = runner.invoke(
@@ -1758,12 +1781,8 @@ def test_cli_port_interactive(tmp_path):
         )
         plain = _ANSI_ESCAPE.sub("", result.output)
         assert result.exit_code == 0
-        assert (
-            "    1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode"
-        ) in plain
-        assert (
-            "  * 2: /dev/ttyFake2 SERIAL2 0403:6001 FTDI FT232R USB UART"
-        ) in plain
+        assert ("    1: /dev/ttyFake1 SERIAL1 2e8a:0005 MicroPython Board in FS mode") in plain
+        assert ("  * 2: /dev/ttyFake2 SERIAL2 0403:6001 FTDI FT232R USB UART") in plain
 
         # 2. Interactive choice: select 2, select session 's'
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
@@ -1782,14 +1801,9 @@ def test_cli_port_interactive(tmp_path):
 
         result_set = runner.invoke(cli, ["ports", "--set", "/dev/ttyFakeX"])
         assert result_set.exit_code == 0
-        assert (
-            "Permanent default port set to: /dev/ttyFakeX" in result_set.output
-        )
+        assert "Permanent default port set to: /dev/ttyFakeX" in result_set.output
         with open(config_file) as f:
-            assert (
-                json.load(f)["projects"][fake_root]["default_port"]
-                == "/dev/ttyFakeX"
-            )
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFakeX"
 
 
 def test_permanent_port_clears_session_shadow(tmp_path):
@@ -1829,19 +1843,14 @@ def test_permanent_port_clears_session_shadow(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=Path(fake_root)
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
     ):
         # Step 1: Save ttyFake2 as the session port.
         result = runner.invoke(cli, ["ports"], input="2\ns\n")
         assert result.exit_code == 0
         assert "Session default port set to: /dev/ttyFake2" in result.output
         assert session_file.is_file()
-        assert (
-            json.loads(session_file.read_text()).get("default_port")
-            == "/dev/ttyFake2"
-        )
+        assert json.loads(session_file.read_text()).get("default_port") == "/dev/ttyFake2"
 
         # Step 2: Save ttyFake1 permanently — must also clear the session shadow.
         result = runner.invoke(cli, ["ports"], input="1\np\n")
@@ -1858,10 +1867,7 @@ def test_permanent_port_clears_session_shadow(tmp_path):
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         assert config_file.is_file()
         with open(config_file) as f:
-            assert (
-                json.load(f)["projects"][fake_root]["default_port"]
-                == "/dev/ttyFake1"
-            )
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
 
         # Step 3: get_default_port() must return ttyFake1, not ttyFake2.
         result = runner.invoke(cli, ["ports"], input="\n")
@@ -1890,9 +1896,7 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=Path(fake_root)
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=Path(fake_root)),
     ):
         # Plant a session JSON file with ttyFake2 as the port.
         session_file.write_text(json.dumps({"default_port": "/dev/ttyFake2"}))
@@ -1912,10 +1916,7 @@ def test_ports_set_flag_clears_session_shadow(tmp_path):
         # Permanent config must have ttyFake1 under the project key.
         config_file = tmp_path / ".config" / "otampy" / "config.json"
         with open(config_file) as f:
-            assert (
-                json.load(f)["projects"][fake_root]["default_port"]
-                == "/dev/ttyFake1"
-            )
+            assert json.load(f)["projects"][fake_root]["default_port"] == "/dev/ttyFake1"
 
 
 def test_device_dir_set_creates_missing_directory(tmp_path):
@@ -1924,21 +1925,15 @@ def test_device_dir_set_creates_missing_directory(tmp_path):
     project_root = tmp_path / "project"
     project_root.mkdir()
     session_file = tmp_path / f"otampy_session_{fake_ppid}.json"
-    session_file.write_text(
-        json.dumps({"device_dir": str(project_root / "old")})
-    )
+    session_file.write_text(json.dumps({"device_dir": str(project_root / "old")}))
 
     with (
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
     ):
-        result = runner.invoke(
-            cli, ["device-dir", "--set", "/xyz"], input="y\n"
-        )
+        result = runner.invoke(cli, ["device-dir", "--set", "/xyz"], input="y\n")
 
     assert result.exit_code == 0
     assert (project_root / "xyz").is_dir()
@@ -1960,13 +1955,9 @@ def test_device_dir_set_does_not_save_when_creation_declined(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=99996),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
     ):
-        result = runner.invoke(
-            cli, ["device-dir", "--set", "/xyz"], input="n\n"
-        )
+        result = runner.invoke(cli, ["device-dir", "--set", "/xyz"], input="n\n")
 
     assert result.exit_code == 0
     assert not (project_root / "xyz").exists()
@@ -1986,13 +1977,9 @@ def test_device_dir_interactive_creates_missing_directory_and_saves_session(
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=fake_ppid),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
     ):
-        result = runner.invoke(
-            cli, ["device-dir"], input="/nested/device\ny\ns\n"
-        )
+        result = runner.invoke(cli, ["device-dir"], input="/nested/device\ny\ns\n")
 
     assert result.exit_code == 0
     created = project_root / "nested" / "device"
@@ -2013,9 +2000,7 @@ def test_device_dir_set_rejects_existing_file(tmp_path):
         mock.patch("pathlib.Path.home", return_value=tmp_path),
         mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
         mock.patch("os.getppid", return_value=99994),
-        mock.patch(
-            "otampy.cli._detect_project_root", return_value=project_root
-        ),
+        mock.patch("otampy.cli._detect_project_root", return_value=project_root),
     ):
         result = runner.invoke(cli, ["device-dir", "--set", "/not-a-dir"])
 

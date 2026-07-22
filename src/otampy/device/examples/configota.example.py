@@ -1,6 +1,9 @@
 # Used when optional --with-logger support is installed.
 LOG_LEVEL = "ERROR"  # NONE, DEBUG, INFO, WARNING, ERROR, CRITICAL, ALWAYS
-LOG_FILE = "/ota.log"
+LOG_FILE = "/ota.log"  # Path and filename of log file
+LOG_MAX_BYTES = 10240  # Max bytes in a log file
+LOG_BACKUP_COUNT = 1  # Max log backup files
+LOG_USE_TICKS = False  # False = use time epoch, True = use ticks since boot
 
 OTA_PORT = 1
 OTA_TX_PIN = 4

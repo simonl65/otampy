@@ -87,6 +87,12 @@ logger = Logger("/logs/ota.log", "main.py", level="DEBUG")
 ota = OTA(uart, config=config, logger=logger)
 ```
 
+The shipped `boot.py` and `main.py` examples read `LOG_FILE`, `LOG_LEVEL`,
+`LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`, and `LOG_USE_TICKS` from `configota.py`
+when `log-to-file` is installed. Existing projects that only define
+`LOG_FILE` and `LOG_LEVEL` keep the logger defaults for rotation and timestamp
+mode.
+
 A compatible logger provides `debug`, `info`, `warning`, `error`, and
 `critical` methods. The methods should accept a message followed by optional
 `%`-formatting arguments. A `min_level` integer is optional; OTAmpy only uses
@@ -102,5 +108,5 @@ logger = NullLogger()
 logger.debug("This is intentionally discarded")
 ```
 
-`LOG_FILE` and `LOG_LEVEL` in the example configuration are consumed by the
-example scripts only when `log-to-file` is installed.
+Logger settings in the example configuration are consumed by the example
+scripts only when `log-to-file` is installed.

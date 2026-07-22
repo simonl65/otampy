@@ -258,7 +258,10 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
     assert not flag_file.exists()
     assert not staging.exists()
     assert not interrupted_staging.exists()
-    assert ("warning", "OTA update timed out; aborting session") in logger.messages
+    assert (
+        "warning",
+        "OTA update timed out; aborting session",
+    ) in logger.messages
 
 
 # =============================================================================

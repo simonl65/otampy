@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+MAX_TX_BUFFER_BYTES = 2048
+
 CONFIG_SETTINGS = {
     "serial_timeout_seconds": {
         "display": "serial-timeout",
@@ -55,7 +57,7 @@ CONFIG_SETTINGS = {
         "env": "OTAMPY_TRANSFER_CHUNK_SIZE",
         "default": 256,
         "type": int,
-        "description": "Bytes per host transfer chunk.",
+        "description": "Bytes per host transfer chunk. Must not exceed your serial module's (e.g. XBee) transmit buffer size.",
     },
 }
 
@@ -319,10 +321,8 @@ def _coerce_config_value(key: str, raw_value) -> int | float:
         if value < 1:
             raise click.ClickException("query-retries must be at least 1.")
     elif key == "transfer_chunk_size":
-        if value < 1 or value > 256:
-            raise click.ClickException(
-                "transfer-chunk-size must be between 1 and 256 bytes."
-            )
+        if value < 1 or value > MAX_TX_BUFFER_BYTES:
+            raise click.ClickException(f"transfer-chunk-size must be between 1 and {MAX_TX_BUFFER_BYTES} bytes.")
     elif value <= 0:
         raise click.ClickException(
             f"{setting['display']} must be greater than 0."

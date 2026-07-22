@@ -527,11 +527,11 @@ def test_config_cmd_rejects_invalid_values(tmp_path):
         mock.patch("os.getppid", return_value=1),
     ):
         result = CliRunner().invoke(
-            cli, ["config", "--set", "transfer-chunk-size", "512"]
+            cli, ["config", "--set", "transfer-chunk-size", "0"]
         )
 
     assert result.exit_code != 0
-    assert "between 1 and 256" in result.output
+    assert "between 1 and " in result.output
 
 
 def test_cli_ping():

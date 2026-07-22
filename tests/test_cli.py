@@ -484,7 +484,7 @@ def test_config_cmd_rejects_invalid_values(tmp_path):
         result = CliRunner().invoke(cli, ["config", "--set", "transfer-chunk-size", "0"])
 
     assert result.exit_code != 0
-    assert "between 1 and " in result.output
+    assert "transfer-chunk-size must be between 1 and " in result.output
 
 
 def test_cli_ping():

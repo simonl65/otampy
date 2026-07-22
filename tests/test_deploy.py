@@ -281,7 +281,9 @@ def test_run_mpremote_streams_output_and_preserves_errors(monkeypatch, capsys):
     )
     process = mock.Mock(stdout=StringIO("copying...\n"), returncode=1)
     process.wait.return_value = 1
-    monkeypatch.setattr(deploy.subprocess, "Popen", mock.Mock(return_value=process))
+    monkeypatch.setattr(
+        deploy.subprocess, "Popen", mock.Mock(return_value=process)
+    )
 
     with pytest.raises(deploy.DeployError, match="copying"):
         deploy.run_mpremote(args, ["cp", "file.py", ":"])

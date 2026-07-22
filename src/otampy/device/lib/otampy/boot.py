@@ -132,7 +132,11 @@ def _run_default_update_loop(core):
 
         last_activity = _ticks_ms()
 
-        packet = str(packet).strip().encode() if not isinstance(packet, bytes) else packet.strip()
+        packet = (
+            str(packet).strip().encode()
+            if not isinstance(packet, bytes)
+            else packet.strip()
+        )
 
         if not packet:
             continue
@@ -169,7 +173,11 @@ def _run_default_update_loop(core):
                 continue
 
             free_bytes = _get_free_space()
-            response = b"SPACE_ERR" if free_bytes * 2 < total_bytes * 3 else b"SPACE_OK"
+            response = (
+                b"SPACE_ERR"
+                if free_bytes * 2 < total_bytes * 3
+                else b"SPACE_OK"
+            )
             packet = None
             parts = None
             collect()
@@ -347,7 +355,9 @@ def _cleanup_orphaned_ota(core, path="."):
                     _cleanup_orphaned_ota(core, item_path)
                 elif item.endswith(".ota"):
                     if log_level_debug:
-                        logger_debug(f"Removing orphaned staging file: {resolved_item}")
+                        logger_debug(
+                            f"Removing orphaned staging file: {resolved_item}"
+                        )
                     remove_func(resolved_item)
             except OSError:
                 pass
@@ -386,7 +396,9 @@ def run(core, callback=None):
                 core.logger.debug(f"Executing callback: {callback.__name__}")
                 callback(flag)
             except TypeError:
-                core.logger.debug(f"Executing callback with flag argument: {callback.__name__}")
+                core.logger.debug(
+                    f"Executing callback with flag argument: {callback.__name__}"
+                )
                 callback()
         else:
             _run_default_update_loop(core)

@@ -594,8 +594,24 @@ def test_manager_handles_mem(monkeypatch):
     import gc
     import os
 
-    monkeypatch.setattr(gc, "mem_free", lambda: 50000, raising=False)
-    monkeypatch.setattr(gc, "mem_alloc", lambda: 30000, raising=False)
+    gc_calls = []
+
+    def mock_collect():
+        gc_calls.append("collect")
+
+    monkeypatch.setattr(gc, "collect", mock_collect, raising=False)
+    monkeypatch.setattr(
+        gc,
+        "mem_free",
+        lambda: gc_calls.append("mem_free") or 50000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        gc,
+        "mem_alloc",
+        lambda: gc_calls.append("mem_alloc") or 30000,
+        raising=False,
+    )
 
     def mock_statvfs(path):
         assert path == "/"
@@ -608,3 +624,4 @@ def test_manager_handles_mem(monkeypatch):
     assert core.transport.sent_messages == [
         b"MEM_OK:50000,30000,524288,1048576"
     ]
+    assert gc_calls == ["collect", "mem_free", "mem_alloc"]

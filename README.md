@@ -1,6 +1,6 @@
 # OTAmpy — Over-The-Air Update Suite for MicroPython
 
-![Static Badge](<https://img.shields.io/badge/status-stable_(2.5.0)-green>)
+![Static Badge](<https://img.shields.io/badge/status-stable_(2.6.0)-green>)
 
 [![License: SUL-1.0](https://img.shields.io/badge/license-SUL--1.0-blue.svg)](LICENSE.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -186,6 +186,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `-p`, `--port`        | Select the USB/serial device used by `mpremote`.                          |
 | `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`       | Install the optional `log-to-file` package.                               |
+| `--urst-branch BRANCH`| Install URST-mpy from a Git branch, such as `develop`.                    |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files.                 |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
 | `--no-mip`            | Install neither URST nor the optional logger.                             |

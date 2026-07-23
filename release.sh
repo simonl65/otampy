@@ -21,6 +21,27 @@ abort() {
     exit 1
 }
 
+require_pushed_commits() {
+    local upstream
+    local unpushed_commits
+
+    if ! upstream=$(git rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" 2>/dev/null); then
+        abort "current branch has no upstream; push it and set an upstream before releasing."
+    fi
+
+    echo "Fetching ${upstream} to verify the release branch..."
+    git fetch --quiet || abort "could not fetch ${upstream}; cannot verify that all commits are pushed."
+
+    unpushed_commits=$(git log --format='  %h %s' "${upstream}..HEAD")
+    if [[ -n "$unpushed_commits" ]]; then
+        echo "Unpushed commits:" >&2
+        echo "$unpushed_commits" >&2
+        abort "push all local commits to ${upstream} before starting a release."
+    fi
+
+    echo "All local commits are pushed to ${upstream}."
+}
+
 create_github_release() {
     local version="$1"
     local tag="v${version}"
@@ -183,6 +204,8 @@ else
   echo "Worktree is dirty"
   exit 1
 fi
+
+require_pushed_commits
 
 
 # --- 1. Choose the version --------------------------------------------------

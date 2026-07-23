@@ -10,7 +10,10 @@ The release checker creates the bundle in a temporary staging directory. A plain
 - Have permission to publish the `otampy` project to the chosen package registry.
 - Configure a project-scoped registry token or trusted publishing.
 - Ensure a compatible `urst` release satisfying `urst>=1.0.0,<2.0.0` is already available from that registry.
-- Begin with the intended release commit checked out and a clean worktree.
+- Begin with the intended release commit checked out, a clean worktree, and no
+  local commits ahead of the branch upstream. `release.sh` fetches the upstream
+  branch and refuses to continue until every existing local commit has been
+  pushed.
 
 URST must be published first. The root workspace's Git source override is a development convenience and is not included in OTAmpy's published metadata. The final OTAmpy release check deliberately resolves URST from the registry.
 

@@ -27,6 +27,12 @@ Use semantic versioning:
 
 The host CLI and bundled device code share this one OTAmpy version.
 
+`release.sh` suggests a version from commits since the latest release tag:
+breaking-change commits suggest a major bump, `feat` commits a minor bump, and
+all other commits a patch bump. Press Enter to accept the suggestion or enter
+another `MAJOR.MINOR.PATCH` version; the script does not request a second
+confirmation.
+
 Read the current version:
 
 ```bash
@@ -92,7 +98,9 @@ This option is for preflight only. The final check before publishing OTAmpy must
 
 ## 8. Inspect and publish
 
-Confirm that `release-dist/` contains exactly one wheel and one source distribution for the intended version:
+`release.sh` proceeds automatically when `release-dist/` contains exactly one
+wheel and one source distribution. Inspect any unexpected artifact layout
+before confirming the script's fallback prompt:
 
 ```bash
 find release-dist -maxdepth 1 -type f -printf '%f\n'

@@ -170,6 +170,7 @@ class DeployArgs:
     mpy_cross: str = "mpy-cross"
     device_dir: Path | None = None
     set_time: bool = False
+    urst_branch: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,13 @@ def mpremote_prefix(args: DeployArgs) -> list[str]:
     if args.port:
         prefix.extend(("connect", args.port))
     return prefix
+
+
+def mip_packages(args: DeployArgs) -> tuple[str, ...]:
+    """Return the MIP packages selected for this source deployment."""
+    if args.urst_branch is None:
+        return MIP_PACKAGES
+    return (f"{MIP_PACKAGES[0]}@{args.urst_branch}", *MIP_PACKAGES[1:])
 
 
 def run_mpremote(args: DeployArgs, command: list[str]) -> None:
@@ -590,7 +598,7 @@ def deploy_command(
         command.insert(-1, str(rtc_helper))
 
     if not args.bytecode and not args.no_mip:
-        command.extend(("+", "mip", "install", *MIP_PACKAGES))
+        command.extend(("+", "mip", "install", *mip_packages(args)))
         if args.with_logger:
             command.append(LOGGER_MIP_PACKAGE)
 
@@ -737,7 +745,7 @@ def preflight_mip_dependencies(args: DeployArgs) -> None:
     if args.bytecode or args.no_mip or args.dry_run:
         return
 
-    packages = [*MIP_PACKAGES]
+    packages = [*mip_packages(args)]
     if args.with_logger:
         packages.append(LOGGER_MIP_PACKAGE)
     print("Checking deployment dependencies...", flush=True)
@@ -753,6 +761,10 @@ def deploy(args: DeployArgs) -> None:
     if args.minify and args.bytecode:
         raise DeployOptionError(
             "--minify cannot be combined with --bytecode; bytecode deployment is already a separate production profile."
+        )
+    if args.urst_branch is not None and args.bytecode:
+        raise DeployOptionError(
+            "--urst-branch cannot be combined with --bytecode; bytecode deployment uses the URST package installed on the host."
         )
     preflight_mip_dependencies(args)
     _remove_pycache_dirs()

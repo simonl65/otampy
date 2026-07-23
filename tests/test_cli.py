@@ -1487,9 +1487,19 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.bytecode is True
     assert called_args.minify is True
     assert called_args.mpy_cross == "uvx custom-cross"
+    assert called_args.urst_branch is None
     assert called_args.no_reset is False
     assert called_args.set_time is True
     assert called_args.dry_run is True
+
+
+def test_cli_deploy_forwards_urst_branch():
+    runner = CliRunner()
+    with mock.patch("otampy.cli.deploy.deploy") as mock_deploy:
+        result = runner.invoke(cli, ["deploy", "--urst-branch", "develop"])
+
+    assert result.exit_code == 0
+    assert mock_deploy.call_args.args[0].urst_branch == "develop"  # type: ignore
 
 
 def test_cli_deploy_reports_missing_mpremote_as_click_exception():

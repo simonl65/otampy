@@ -2112,6 +2112,11 @@ def config_cmd(
     help="Install log-to-file for development logging.",
 )
 @click.option(
+    "--urst-branch",
+    metavar="BRANCH",
+    help="Install URST-mpy from this Git branch instead of its default branch.",
+)
+@click.option(
     "--bytecode",
     "--mpy",
     is_flag=True,
@@ -2160,6 +2165,7 @@ def deploy_cmd(
     mpremote: str,
     no_mip: bool,
     with_logger: bool,
+    urst_branch: str | None,
     bytecode: bool,
     minify: bool,
     mpy_cross: str,
@@ -2174,6 +2180,7 @@ def deploy_cmd(
         mpremote=mpremote,  # type: ignore
         no_mip=no_mip,  # type: ignore
         with_logger=with_logger,  # type: ignore
+        urst_branch=urst_branch,  # type: ignore
         bytecode=bytecode,  # type: ignore
         minify=minify,  # type: ignore
         mpy_cross=mpy_cross,  # type: ignore

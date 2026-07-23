@@ -186,6 +186,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `-p`, `--port`        | Select the USB/serial device used by `mpremote`.                          |
 | `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`       | Install the optional `log-to-file` package.                               |
+| `--urst-branch BRANCH`| Install URST-mpy from a Git branch, such as `develop`.                    |
 | `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files.                 |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
 | `--no-mip`            | Install neither URST nor the optional logger.                             |

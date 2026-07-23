@@ -385,6 +385,40 @@ def test_deploy_installs_only_urst_mip_dependency_by_default():
     assert not any("log-to-file" in item for item in command)
 
 
+def test_deploy_installs_urst_from_requested_branch():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=True,
+        urst_branch="develop",
+    )
+
+    command = deploy.deploy_command(args)
+
+    assert "github:simonl65/URST-mpy@develop" in command
+
+
+def test_deploy_preflights_urst_from_requested_branch(monkeypatch):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        urst_branch="develop",
+    )
+    preflight = mock.Mock()
+    monkeypatch.setattr(deploy, "_preflight_mip_package", preflight)
+
+    deploy.preflight_mip_dependencies(args)
+
+    preflight.assert_called_once_with("github:simonl65/URST-mpy@develop")
+
+
 def test_deploy_installs_optional_logger():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
@@ -637,6 +671,22 @@ def test_bytecode_deploy_rejects_development_logger():
         deploy.BytecodeDeployError,
         match="cannot be combined",
     ):
+        deploy.deploy(args)
+
+
+def test_bytecode_deploy_rejects_urst_branch():
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=False,
+        with_logger=False,
+        no_reset=False,
+        dry_run=True,
+        bytecode=True,
+        urst_branch="develop",
+    )
+
+    with pytest.raises(deploy.DeployOptionError, match="--urst-branch"):
         deploy.deploy(args)
 
 

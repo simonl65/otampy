@@ -62,6 +62,12 @@ When run from this repository, it instead uses the canonical
 otampy deploy --port /dev/ttyACM0
 ```
 
+To deploy a development branch of URST-mpy instead, pass its branch name:
+
+```bash
+otampy deploy --port /dev/ttyACM0 --urst-branch develop
+```
+
 No file logger is installed. OTAmpy and the examples use `NullLogger`, so the
 application runs silently without importing a file-logging implementation.
 
@@ -138,7 +144,8 @@ over matching `.mpy` files, so do not mix both forms in `/lib`.
 
 The bytecode profile already packages URST and therefore performs no MIP
 installation. It cannot be combined with `--with-logger`; use the source
-profile for development file logging.
+profile for development file logging. It also cannot use `--urst-branch`,
+because bytecode deployment compiles the URST package installed on the host.
 
 ## Options
 
@@ -147,6 +154,7 @@ profile for development file logging.
 | `-p`, `--port PORT`      | Select the device port, such as `/dev/ttyACM0` or `COM3`.          |
 | `--device-dir DIRECTORY` | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`          | Install `log-to-file` for development logging.                     |
+| `--urst-branch BRANCH`   | Install URST-mpy from a Git branch, such as `develop`.             |
 | `--bytecode`, `--mpy`    | Compile and deploy target-matched `.mpy` libraries.                |
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
 | `--no-mip`               | Skip every MIP dependency, including URST and the optional logger. |

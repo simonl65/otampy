@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # release.sh — automates the OTAmpy release process.
-# Prompts for the version number and confirms before any irreversible step
-# (commit, publish, tag/push). Run from the repository root.
+# Suggests a version number and automates the release once the version is
+# selected. Run from the repository root.
 
 set -euo pipefail
 
@@ -40,6 +40,34 @@ require_pushed_commits() {
     fi
 
     echo "All local commits are pushed to ${upstream}."
+}
+
+suggest_release_version() {
+    local latest_tag
+    local major
+    local minor
+    local patch
+    local range
+
+    latest_tag=$(git describe --tags --abbrev=0 2>/dev/null) \
+        || abort "no release tag found; cannot suggest a semantic version."
+    if [[ ! "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        abort "latest release tag ${latest_tag} is not a semantic version tag."
+    fi
+
+    major=${BASH_REMATCH[1]}
+    minor=${BASH_REMATCH[2]}
+    patch=${BASH_REMATCH[3]}
+    range="${latest_tag}..HEAD"
+
+    if git log --format='%s%n%b' "$range" | grep -Eq \
+        '(^[[:alnum:]]+(\([^)]*\))?!:|BREAKING CHANGE:)'; then
+        printf '%d.0.0\n' "$((major + 1))"
+    elif git log --format='%s' "$range" | grep -Eq '^feat(\([^)]*\))?:'; then
+        printf '%d.%d.0\n' "$major" "$((minor + 1))"
+    else
+        printf '%d.%d.%d\n' "$major" "$minor" "$((patch + 1))"
+    fi
 }
 
 create_github_release() {
@@ -86,13 +114,8 @@ EOF
     cat "$notes_file"
     echo "--- end preview ---"
     echo
-    echo "This will create and publish a GitHub release for ${tag}, attaching:"
+    echo "Creating and publishing GitHub release ${tag}, attaching:"
     find release-dist -maxdepth 1 -type f -printf '  %f\n'
-
-    if ! confirm "Create and publish this GitHub release now?"; then
-        echo "Skipped. Your drafted notes are preserved at: $notes_file"
-        return 0
-    fi
 
     gh release create "$tag" release-dist/* --title "OTAmpy ${tag}" --notes-file "$notes_file"
     rm -f "$notes_file"
@@ -212,12 +235,12 @@ require_pushed_commits
 echo
 echo "Current version:"
 uv version
-read -r -p "Enter the new OTAmpy version (e.g. 1.1.0): " NEW_VERSION
-[[ -n "$NEW_VERSION" ]] || abort "version cannot be empty."
-
-if ! confirm "Set version to ${NEW_VERSION}?"; then
-    abort "cancelled by user."
-fi
+SUGGESTED_VERSION=$(suggest_release_version)
+read -r -p "Enter the new OTAmpy version [${SUGGESTED_VERSION}]: " NEW_VERSION
+NEW_VERSION=${NEW_VERSION:-$SUGGESTED_VERSION}
+[[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || abort "version must use MAJOR.MINOR.PATCH format."
+echo "Using OTAmpy version ${NEW_VERSION}."
 
 # This looks for 'status-stable_(' followed by digits/dots and ends with ')-green'
 FILE="README.md"
@@ -233,7 +256,9 @@ echo "Review docs/README/release notes and the diff before continuing."
 git diff --check
 git status --short
 
-if ! confirm "Have docs/release notes been updated, and are you ready to commit docs and README.md if changed?"; then
+if [[ -n "$(git status --porcelain=v1 -- README.md)" ]]; then
+    echo "README.md is changed; continuing with the release documentation commit."
+elif ! confirm "README.md is unchanged. Have docs/release notes been updated?"; then
     abort "make your documentation changes, then rerun this script."
 fi
 
@@ -280,7 +305,19 @@ echo
 echo "Contents of release-dist/:"
 find release-dist -maxdepth 1 -type f -printf '%f\n'
 
-if ! confirm "Confirm release-dist/ contains exactly one wheel and one sdist for v${NEW_VERSION}. Publish now?"; then
+mapfile -t RELEASE_ARTIFACTS < <(find release-dist -maxdepth 1 -type f -printf '%f\n')
+WHEEL_COUNT=0
+SDIST_COUNT=0
+for artifact in "${RELEASE_ARTIFACTS[@]}"; do
+    case "$artifact" in
+        *.whl) ((WHEEL_COUNT += 1)) ;;
+        *.tar.gz|*.zip) ((SDIST_COUNT += 1)) ;;
+    esac
+done
+
+if [[ ${#RELEASE_ARTIFACTS[@]} -eq 2 && $WHEEL_COUNT -eq 1 && $SDIST_COUNT -eq 1 ]]; then
+    echo "Found exactly one wheel and one source distribution; publishing v${NEW_VERSION}."
+elif ! confirm "release-dist/ does not contain exactly one wheel and one sdist. Publish anyway?"; then
     abort "publish cancelled. Verified files remain in release-dist/ for a manual publish later."
 fi
 
@@ -313,14 +350,7 @@ echo "Consumer workflow verification passed."
 
 # --- 10. Tag the verified release -------------------------------------------
 echo
-if ! confirm "Tag v${NEW_VERSION} at this commit and push it (and develop) now?"; then
-    echo "Stopping before tagging. The package is already published; tag manually"
-    echo "with: git tag -a v${NEW_VERSION} -m \"OTAmpy ${NEW_VERSION}\" && git push origin develop v${NEW_VERSION}"
-    echo "Afterwards, create the GitHub release yourself, e.g.:"
-    echo "  gh release create v${NEW_VERSION} release-dist/* --title \"OTAmpy v${NEW_VERSION}\""
-    exit 0
-fi
-
+echo "Tagging and pushing v${NEW_VERSION}."
 git tag -a "v${NEW_VERSION}" -m "OTAmpy ${NEW_VERSION}"
 git push origin develop
 git push origin "v${NEW_VERSION}"
@@ -328,7 +358,6 @@ git checkout main
 git merge develop
 git push origin main
 git checkout develop
-git push --tags
 
 echo
 echo "Tag v${NEW_VERSION} pushed."

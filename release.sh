@@ -77,9 +77,9 @@ create_github_release() {
     local editor="${EDITOR:-vi}"
     local -a editor_cmd
 
-    command -v gh >/dev/null 2>&1 || abort "gh (GitHub CLI) not found; install/authenticate it, then run: gh release create ${tag} release-dist/* --title \"OTAmpy ${tag}\""
+    command -v gh >/dev/null 2>&1 || abort "gh (GitHub CLI) not found; install/authenticate it, then run gh release create with the verified release-dist artifacts."
 
-    if [[ -z "$(find release-dist -maxdepth 1 -type f -print -quit 2>/dev/null)" ]]; then
+    if [[ ${#RELEASE_ARTIFACTS[@]} -eq 0 ]]; then
         abort "release-dist/ is empty or missing; nothing to attach to the GitHub release."
     fi
 
@@ -115,9 +115,9 @@ EOF
     echo "--- end preview ---"
     echo
     echo "Creating and publishing GitHub release ${tag}, attaching:"
-    find release-dist -maxdepth 1 -type f -printf '  %f\n'
+    printf '  %s\n' "${RELEASE_ARTIFACTS[@]}"
 
-    gh release create "$tag" release-dist/* --title "OTAmpy ${tag}" --notes-file "$notes_file"
+    gh release create "$tag" "${RELEASE_ARTIFACTS[@]}" --title "OTAmpy ${tag}" --notes-file "$notes_file"
     rm -f "$notes_file"
     echo "GitHub release ${tag} published: $(gh release view "$tag" --json url -q .url 2>/dev/null || echo "$tag")"
 }
@@ -305,13 +305,17 @@ echo
 echo "Contents of release-dist/:"
 find release-dist -maxdepth 1 -type f -printf '%f\n'
 
-mapfile -t RELEASE_ARTIFACTS < <(find release-dist -maxdepth 1 -type f -printf '%f\n')
+# A tracked placeholder keeps this otherwise generated directory visible, but is
+# not a release artifact and must never be uploaded.
+mapfile -t RELEASE_ARTIFACTS < <(
+    find release-dist -maxdepth 1 -type f ! -name '.gitignore' -printf '%p\n'
+)
 WHEEL_COUNT=0
 SDIST_COUNT=0
 for artifact in "${RELEASE_ARTIFACTS[@]}"; do
     case "$artifact" in
         *.whl) ((WHEEL_COUNT += 1)) ;;
-        *.tar.gz|*.zip) ((SDIST_COUNT += 1)) ;;
+        *.tar.gz) ((SDIST_COUNT += 1)) ;;
     esac
 done
 
@@ -323,7 +327,7 @@ fi
 
 echo "Publishing..."
 source ~/.secrets
-uv publish release-dist/* --token $UV_PUBLISH_TOKEN
+uv publish "${RELEASE_ARTIFACTS[@]}" --token $UV_PUBLISH_TOKEN
 echo "Published v${NEW_VERSION}."
 git push
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.resources
 import logging
+import time
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from urst import Urst
 
 logger = logging.getLogger(__name__)
+MONOTONIC = time.perf_counter
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -665,12 +667,18 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     default=get_default_log_level,
     help="CLI logging verbosity for this command. Use 'otampy log-level' to view or save the default.",
 )
+@click.option(
+    "--timing",
+    is_flag=True,
+    help="Temporarily print elapsed-time metrics for the command.",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
     port: str | None,
     baud: int,
     log_level: str,
+    timing: bool,
 ) -> None:
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
     log_level = log_level.upper()
@@ -680,6 +688,20 @@ def cli(
     ctx.obj["port"] = port
     ctx.obj["baud"] = baud
     ctx.obj["log_level"] = log_level
+    ctx.obj["timing"] = timing
+    if timing:
+        ctx.obj["command_started_at"] = MONOTONIC()
+
+
+@cli.result_callback()
+@click.pass_context
+def report_command_timing(ctx: click.Context, _result: object, **_params: object) -> None:
+    """Temporarily report successful command wall-clock durations."""
+    started_at = ctx.obj.get("command_started_at")
+    if started_at is None or ctx.invoked_subcommand in (None, "upd"):
+        return
+    elapsed = MONOTONIC() - started_at
+    _console().print(f"[dim]Timing: {ctx.invoked_subcommand} completed in {elapsed:.2f} s.[/dim]")
 
 
 def _friendly_error(err_msg: str, command: bytes) -> str:
@@ -735,8 +757,6 @@ def _query(
     baud = ctx.obj.get("baud")
     if not port:
         raise click.ClickException("Error: Missing serial port. Specify with --port or -p option.")
-
-    import time
 
     import serial
     from urst import Urst
@@ -1689,6 +1709,7 @@ def _update_files(ctx: click.Context, files_to_send: list[tuple[str, Path]], set
     # 4. Start update session: UPDATE_START
     _console().print(f"Sending manifest ({len(manifest)} files, {total_bytes} bytes)...")
     commit_sent = False
+    transfer_started_at = MONOTONIC() if ctx.obj["timing"] else None
     try:
         transport.send(f"UPDATE_START:{len(manifest)}:{total_bytes}".encode())
         resp = transport.read()
@@ -1745,6 +1766,13 @@ def _update_files(ctx: click.Context, files_to_send: list[tuple[str, Path]], set
             )
 
         _console().print("[green]Update completed successfully! Device is rebooting.[/green]")
+        if transfer_started_at is not None:
+            transfer_elapsed = MONOTONIC() - transfer_started_at
+            transfer_rate = total_bytes / transfer_elapsed if transfer_elapsed else 0
+            _console().print(
+                f"[dim]Timing: transferred {len(manifest)} files ({total_bytes} bytes) in "
+                f"{transfer_elapsed:.2f} s ({transfer_rate:.0f} bytes/s).[/dim]"
+            )
     except BaseException:
         if not commit_sent:
             try:

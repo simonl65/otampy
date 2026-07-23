@@ -1502,6 +1502,15 @@ def test_cli_deploy_forwards_urst_branch():
     assert mock_deploy.call_args.args[0].urst_branch == "develop"  # type: ignore
 
 
+def test_cli_timing_reports_successful_non_update_command():
+    runner = CliRunner()
+    with mock.patch("otampy.cli.deploy.deploy"):
+        result = runner.invoke(cli, ["--timing", "deploy"])
+
+    assert result.exit_code == 0
+    assert "Timing: deploy completed in" in result.output
+
+
 def test_cli_deploy_reports_missing_mpremote_as_click_exception():
     """Test that a missing mpremote error becomes a ClickException."""
     runner = CliRunner()
@@ -1613,6 +1622,7 @@ def test_cli_update_full_transfer():
             create=True,
         ),
         mock.patch("builtins.open", side_effect=mock_open),
+        mock.patch("otampy.cli.MONOTONIC", side_effect=(100.0, 101.0, 103.0)),
     ):
         mock_device_instance = mock_device.return_value
 
@@ -1640,7 +1650,7 @@ def test_cli_update_full_transfer():
             b"COMMIT_OK",
         ]
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+        result = runner.invoke(cli, ["--timing", "-p", "/dev/ttyFake", "upd"])
 
         assert result.exit_code == 0
         assert "Initiating update handshake" in result.output
@@ -1649,6 +1659,8 @@ def test_cli_update_full_transfer():
         assert "Transferring main.py" in result.output
         assert "Transferring lib/helper.py" in result.output
         assert "Update completed successfully!" in result.output
+        assert "Timing: transferred 2 files (37 bytes) in 2.00 s (18 bytes/s)." in result.output
+        assert "Timing: upd completed in" not in result.output
 
         # Verify command sequencing sent to device
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")

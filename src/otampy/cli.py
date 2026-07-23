@@ -1442,11 +1442,7 @@ def memory_info(ctx: click.Context) -> None:
 
     ram_total = ram_free + ram_alloc
     ram_free_pct = (ram_free / ram_total * 100) if ram_total > 0 else 0
-    ram_alloc_pct = (ram_alloc / ram_total * 100) if ram_total > 0 else 0
-
-    flash_used = flash_total - flash_free
     flash_free_pct = (flash_free / flash_total * 100) if flash_total > 0 else 0
-    flash_used_pct = (flash_used / flash_total * 100) if flash_total > 0 else 0
 
     def format_size(size_bytes: int) -> str:
         if size_bytes >= 1024 * 1024:
@@ -1456,20 +1452,14 @@ def memory_info(ctx: click.Context) -> None:
     _console().print()
     _console().print("[bold cyan]Memory Information:[/bold cyan]")
     _console().print()
-    _console().print("[bold]RAM (Random Access Memory):[/bold]")
+    _console().print("[bold]Memory (heap, post-GC):[/bold]")
     _console().print(
         f"  Free:      {ram_free_pct:.1f}% ({format_size(ram_free):<7} / {format_size(ram_total)})"
-    )
-    _console().print(
-        f"  Allocated: {ram_alloc_pct:.1f}% ({format_size(ram_alloc):<7})"
     )
     _console().print()
     _console().print("[bold]Flash (Storage):[/bold]")
     _console().print(
         f"  Free:      {flash_free_pct:.1f}% ({format_size(flash_free):<7} / {format_size(flash_total)})"
-    )
-    _console().print(
-        f"  Used:      {flash_used_pct:.1f}% ({format_size(flash_used):<7})"
     )
 
 

@@ -304,6 +304,7 @@ def poll(core, callback=None):
         try:
             import gc
 
+            gc.collect()
             ram_free = gc.mem_free()
             ram_alloc = gc.mem_alloc()
         except (ImportError, AttributeError):

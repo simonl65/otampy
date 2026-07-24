@@ -93,6 +93,7 @@ def _run_default_update_loop(core):
     # Flat target/staging pairs avoid a tuple allocation for every manifest
     # entry while preserving the complete transaction for atomic commit.
     files = []
+    delete_paths = []
     current_file = None
     current_hash = None
     hasher = None
@@ -173,6 +174,7 @@ def _run_default_update_loop(core):
                 continue
 
             free_bytes = _get_free_space()
+            delete_paths = []
             response = (
                 b"SPACE_ERR"
                 if free_bytes * 2 < total_bytes * 3
@@ -183,6 +185,21 @@ def _run_default_update_loop(core):
             collect()
             core.logger.debug(response.decode())
             send(response)
+
+        elif cmd == b"DELETE":
+            parts = packet.split(b":", 1)
+            if len(parts) != 2:
+                send(b"ERROR:Invalid delete")
+                continue
+            try:
+                delete_paths.append(_resolve_path(parts[1].decode("utf-8")))
+            except UnicodeError:
+                send(b"ERROR:Invalid delete")
+                continue
+            packet = None
+            parts = None
+            collect()
+            send(b"DELETE_OK")
 
         elif cmd == b"FILE_START":
             core.logger.debug("FILE START")
@@ -315,6 +332,11 @@ def _run_default_update_loop(core):
                     break
 
             if success:
+                for target in delete_paths:
+                    try:
+                        _os.remove(target)
+                    except OSError:
+                        pass
                 send(b"COMMIT_OK")
             else:
                 send(b"COMMIT_ERR")

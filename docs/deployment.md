@@ -124,12 +124,16 @@ The bytecode profile:
 
 1. queries `sys.implementation._mpy` and the target's positive small-int
    width;
-2. compiles OTAmpy, `Blink`, and the CLI's installed URST package into a
-   temporary `/lib` tree;
+2. compiles OTAmpy, `Blink`, and (when selected) `log-to-file` into a
+   temporary deployment tree;
 3. rejects wrong `.mpy` versions, excessive small-int widths, and unexpected
    architecture-specific output before erasing the device;
-4. deploys only `.mpy` library/dependency modules. `boot.py`, `main.py`, and
-   `configota.py` remain source files.
+4. deploys OTAmpy and selected user Python as `.mpy`. It retains tiny
+   `boot.py` and `main.py` launchers for reliable firmware startup; the user
+   implementations are `_otampy_boot.mpy` and `_otampy_main.mpy`.
+   The main launcher calls an exported `main()` function when present, so the
+   example application's normal `if __name__ == "__main__"` entry point runs.
+   `configota.mpy` remains directly importable as `configota`.
 
 Use `--mpy-cross` when the compiler is not directly on `PATH`, for example:
 
@@ -142,10 +146,11 @@ native architecture output. Rebuild for each target firmware rather than
 copying `.mpy` files between devices. MicroPython source files take precedence
 over matching `.mpy` files, so do not mix both forms in `/lib`.
 
-The bytecode profile already packages URST and therefore performs no MIP
-installation. It cannot be combined with `--with-logger`; use the source
-profile for development file logging. It also cannot use `--urst-branch`,
-because bytecode deployment compiles the URST package installed on the host.
+The bytecode profile installs URST through MIP as source, allowing its native
+decorators to compile for the device architecture. It supports `--with-logger`
+by compiling the logger locally, and supports `--urst-branch`. Use
+`--keep-user-source` to retain user Python source and `--all-files` to compile
+every deployable file under the device directory.
 
 ## Options
 

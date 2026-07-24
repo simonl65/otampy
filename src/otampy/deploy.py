@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import shlex
 import shutil
@@ -137,6 +138,10 @@ LOGGER_MIP_PACKAGE = "github:simonl65/log-to-file"
 MIP_INDEX = "https://micropython.org/pi/v2"
 MIP_PREFLIGHT_TIMEOUT_SECONDS = 10
 RTC_HELPER_FILE = "_otampy_set_rtc.py"
+BYTECODE_STARTUP_MODULES = {
+    Path("boot.py"): "_otampy_boot",
+    Path("main.py"): "_otampy_main",
+}
 
 
 class DeployError(Exception):
@@ -171,6 +176,8 @@ class DeployArgs:
     device_dir: Path | None = None
     set_time: bool = False
     urst_branch: str | None = None
+    all_files: bool = False
+    keep_user_source: bool = False
 
 
 @dataclass(frozen=True)
@@ -417,6 +424,112 @@ def _copy_compiled_tree(
     return count
 
 
+def _safe_stage_path(root: Path, relative: str) -> Path:
+    """Return a manifest path below *root*, rejecting unsafe MIP entries."""
+    path = Path(relative)
+    if path.is_absolute() or ".." in path.parts:
+        raise DependencyPreflightError(
+            f"Unsafe MIP package path: {relative!r}."
+        )
+    return root / path
+
+
+def _mip_manifest(package: str) -> tuple[dict[str, Any], str, str | None]:
+    """Fetch and parse a MIP manifest, returning its base URL and revision."""
+    version = None
+    if "@" in package:
+        package, version = package.split("@", 1)
+    if package.startswith(("github:", "gitlab:")):
+        manifest_url = package.rstrip("/") + "/package.json"
+    else:
+        manifest_url = (
+            f"{MIP_INDEX}/package/py/{package}/{version or 'latest'}.json"
+        )
+    try:
+        manifest = json.loads(
+            _read_mip_url(_rewrite_mip_url(manifest_url, version))
+        )
+    except json.JSONDecodeError as error:
+        raise DependencyPreflightError(
+            f"Invalid MIP package manifest for {package}."
+        ) from error
+    return manifest, manifest_url.rpartition("/")[0], version
+
+
+def _stage_mip_package(
+    args: DeployArgs, package: str, destination: Path, target: TargetMpy
+) -> int:
+    """Download a MIP package into bytecode staging, compiling Python files."""
+    manifest, base_url, version = _mip_manifest(package)
+    count = 0
+
+    def stage(relative: str, content: bytes) -> None:
+        nonlocal count
+        output = _safe_stage_path(destination, relative)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.suffix == ".py":
+            output.write_bytes(content)
+            compiled = output.with_suffix(".mpy")
+            _compile_module(args, output, compiled, "/lib/" + relative, target)
+            output.unlink()
+            count += 1
+        else:
+            output.write_bytes(content)
+
+    for relative, short_hash in manifest.get("hashes", ()):
+        stage(
+            relative,
+            _read_mip_url(f"{MIP_INDEX}/file/{short_hash[:2]}/{short_hash}"),
+        )
+    for relative, url in manifest.get("urls", ()):
+        if not url.startswith(("http://", "https://", "github:", "gitlab:")):
+            url = f"{base_url}/{url}"
+        stage(relative, _read_mip_url(_rewrite_mip_url(url, version)))
+    for dependency, dependency_version in manifest.get("deps", ()):
+        count += _stage_mip_package(
+            args, f"{dependency}@{dependency_version}", destination, target
+        )
+    return count
+
+
+def _is_deployable_user_file(path: Path) -> bool:
+    return (
+        not any(part in {".git", "__pycache__"} for part in path.parts)
+        and path.name
+        not in {
+            ".DS_Store",
+            "Thumbs.db",
+        }
+        and path.suffix != ".pyc"
+    )
+
+
+def _stage_user_file(
+    args: DeployArgs,
+    source: Path,
+    relative: Path,
+    destination: Path,
+    target: TargetMpy,
+) -> Path:
+    output_relative = relative
+    if source.suffix == ".py" and not args.keep_user_source:
+        module_name = BYTECODE_STARTUP_MODULES.get(relative)
+        if module_name is not None:
+            output_relative = Path(module_name + ".py")
+    output = destination / output_relative
+    if output.exists():
+        raise BytecodeDeployError(
+            f"User file {relative.as_posix()!r} conflicts with a staged OTAmpy or logger file."
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if source.suffix == ".py" and not args.keep_user_source:
+        output = output.with_suffix(".mpy")
+        _compile_module(args, source, output, "/" + relative.as_posix(), target)
+    else:
+        shutil.copy2(source, output)
+    return output
+
+
 def _urst_source_dir() -> Path:
     spec = importlib.util.find_spec("urst")
     locations = None if spec is None else spec.submodule_search_locations
@@ -450,16 +563,69 @@ def build_bytecode_lib(
         "/lib",
         target,
     )
-    count += _copy_compiled_tree(
-        args,
-        _urst_source_dir(),
-        destination / "urst",
-        "/lib/urst",
-        target,
-    )
+    if args.with_logger and not args.no_mip:
+        count += _stage_mip_package(
+            args, LOGGER_MIP_PACKAGE, destination, target
+        )
     compiler_version = (result.stdout or result.stderr).strip()  # type: ignore
     print(f"Built {count} target-matched .mpy modules with {compiler_version}.")
     return count
+
+
+def build_bytecode_deploy_tree(
+    args: DeployArgs, destination: Path, target: TargetMpy
+) -> DeployPaths:
+    """Build the complete device tree used by a bytecode deployment."""
+    paths = _resolve_deploy_paths(args)
+    lib_dir = destination / "lib"
+    build_bytecode_lib(args, lib_dir, target)
+    user_root = paths.config_file.parent
+    sources = (
+        [
+            path
+            for path in sorted(user_root.rglob("*"))
+            if path.is_file() and _is_deployable_user_file(path)
+        ]
+        if args.all_files
+        else [paths.config_file, paths.boot_file, paths.main_file]
+    )
+    staged: dict[Path, Path] = {}
+    for source in sources:
+        relative = source.relative_to(user_root)
+        staged[relative] = _stage_user_file(
+            args, source, relative, destination, target
+        )
+    required = (Path("configota.py"), Path("boot.py"), Path("main.py"))
+    missing = [path for path in required if path not in staged]
+    if missing:
+        raise BytecodeDeployError(
+            "Bytecode deployment is missing required user files: "
+            + ", ".join(path.as_posix() for path in missing)
+        )
+    if not args.keep_user_source:
+        for relative, module_name in BYTECODE_STARTUP_MODULES.items():
+            launcher = destination / relative
+            if relative.name == "main.py":
+                launcher.write_text(
+                    f"import {module_name} as _otampy_app\n"
+                    "_entry = getattr(_otampy_app, 'main', None)\n"
+                    "if _entry:\n"
+                    " _entry()\n"
+                )
+            else:
+                launcher.write_text(f"import {module_name}\n")
+            staged[relative] = launcher
+    known = {lib_dir, *(staged[path] for path in required)}
+    extras = tuple(
+        path for path in sorted(destination.iterdir()) if path not in known
+    )
+    return DeployPaths(
+        lib_dir=lib_dir,
+        config_file=staged[Path("configota.py")],
+        boot_file=staged[Path("boot.py")],
+        main_file=staged[Path("main.py")],
+        extra_files=extras,
+    )
 
 
 @dataclass(frozen=True)
@@ -477,6 +643,7 @@ class DeployPaths:
     config_file: Path
     boot_file: Path
     main_file: Path
+    extra_files: tuple[Path, ...] = ()
 
 
 def _resolve_user_files(device_dir: Path) -> tuple[Path, Path, Path]:
@@ -592,14 +759,15 @@ def deploy_command(
         str(paths.config_file),
         str(paths.main_file),
         str(paths.boot_file),
+        *(str(path) for path in paths.extra_files),
         ":",
     ]
     if rtc_helper is not None:
         command.insert(-1, str(rtc_helper))
 
-    if not args.bytecode and not args.no_mip:
+    if not args.no_mip:
         command.extend(("+", "mip", "install", *mip_packages(args)))
-        if args.with_logger:
+        if args.with_logger and not args.bytecode:
             command.append(LOGGER_MIP_PACKAGE)
 
     if not args.no_reset:
@@ -742,11 +910,11 @@ def _preflight_mip_package(
 
 def preflight_mip_dependencies(args: DeployArgs) -> None:
     """Verify MIP dependencies are fully accessible before device changes."""
-    if args.bytecode or args.no_mip or args.dry_run:
+    if args.no_mip or args.dry_run:
         return
 
     packages = [*mip_packages(args)]
-    if args.with_logger:
+    if args.with_logger and not args.bytecode:
         packages.append(LOGGER_MIP_PACKAGE)
     print("Checking deployment dependencies...", flush=True)
     for package in packages:
@@ -761,10 +929,6 @@ def deploy(args: DeployArgs) -> None:
     if args.minify and args.bytecode:
         raise DeployOptionError(
             "--minify cannot be combined with --bytecode; bytecode deployment is already a separate production profile."
-        )
-    if args.urst_branch is not None and args.bytecode:
-        raise DeployOptionError(
-            "--urst-branch cannot be combined with --bytecode; bytecode deployment uses the URST package installed on the host."
         )
     preflight_mip_dependencies(args)
     _remove_pycache_dirs()
@@ -787,11 +951,6 @@ def deploy(args: DeployArgs) -> None:
             staged_paths = DeployPaths(staged_lib, *staged_files)
             deploy_with_optional_rtc(args, staged_lib, staged_paths)
         return
-
-    if args.with_logger:
-        raise BytecodeDeployError(
-            "--bytecode cannot be combined with --with-logger; use the source profile for development logging."
-        )
 
     if args.dry_run:
         query = [
@@ -838,11 +997,10 @@ def deploy(args: DeployArgs) -> None:
         f"Target reports .mpy version {target.version}, {target.small_int_bits} small-int bits."
     )
     with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
-        lib_dir = Path(temp_dir) / "lib"
-        build_bytecode_lib(args, lib_dir, target)
+        staged_paths = build_bytecode_deploy_tree(args, Path(temp_dir), target)
         wait_for_target(args)
         print("Deploying files and dependencies -  please wait...", flush=True)
-        deploy_with_optional_rtc(args, lib_dir)
+        deploy_with_optional_rtc(args, staged_paths.lib_dir, staged_paths)
 
 
 def build_parser() -> argparse.ArgumentParser:

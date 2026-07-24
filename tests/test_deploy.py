@@ -498,7 +498,7 @@ def test_no_mip_skips_optional_logger():
     assert "github:simonl65/log-to-file" not in command
 
 
-def test_bytecode_command_uses_staged_lib_and_skips_mip(tmp_path):
+def test_bytecode_command_uses_staged_lib_and_installs_urst_mip(tmp_path):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -513,8 +513,8 @@ def test_bytecode_command_uses_staged_lib_and_skips_mip(tmp_path):
     command = deploy.deploy_command(args, staged_lib)
 
     assert str(staged_lib) in command
-    assert "mip" not in command
-    assert "github:simonl65/URST-mpy" not in command
+    assert "mip" in command
+    assert "github:simonl65/URST-mpy" in command
 
 
 def test_query_target_mpy_parses_runtime_capabilities():
@@ -597,17 +597,13 @@ def test_validate_mpy_header_rejects_excess_small_int_bits(tmp_path):
         deploy._validate_mpy_header(compiled, target)
 
 
-def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
+def test_build_bytecode_lib_compiles_otampy_not_urst(tmp_path, monkeypatch):
     device_dir = tmp_path / "device"
     source_lib = device_dir / "lib"
     (source_lib / "otampy").mkdir(parents=True)
     (source_lib / "Blink.py").write_text("class Blink: pass\n")
     (source_lib / "otampy" / "__init__.py").write_text("VALUE = 1\n")
     (source_lib / "data.bin").write_bytes(b"asset")
-
-    urst_source = tmp_path / "urst-source"
-    urst_source.mkdir()
-    (urst_source / "__init__.py").write_text("class Urst: pass\n")
 
     destination = tmp_path / "build" / "lib"
     target = deploy.TargetMpy(
@@ -641,22 +637,21 @@ def test_build_bytecode_lib_compiles_otampy_and_urst(tmp_path, monkeypatch):
         return mock.Mock(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(deploy, "_find_package_lib_dir", lambda: source_lib)
-    monkeypatch.setattr(deploy, "_urst_source_dir", lambda: urst_source)
     monkeypatch.setattr(deploy, "_run_mpy_cross", fake_cross)
 
     count = deploy.build_bytecode_lib(args, destination, target)
 
-    assert count == 3
+    assert count == 2
     assert (destination / "Blink.mpy").is_file()
     assert (destination / "otampy" / "__init__.mpy").is_file()
-    assert (destination / "urst" / "__init__.mpy").is_file()
+    assert not (destination / "urst").exists()
     assert not (destination / "Blink.py").exists()
     assert (destination / "data.bin").read_bytes() == b"asset"
     assert any("/lib/Blink.py" in call for call in calls)
-    assert any("/lib/urst/__init__.py" in call for call in calls)
+    assert not any("/lib/urst/" in call for call in calls)
 
 
-def test_bytecode_deploy_rejects_development_logger():
+def test_bytecode_deploy_allows_development_logger():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -667,14 +662,10 @@ def test_bytecode_deploy_rejects_development_logger():
         bytecode=True,
     )
 
-    with pytest.raises(
-        deploy.BytecodeDeployError,
-        match="cannot be combined",
-    ):
-        deploy.deploy(args)
+    deploy.deploy(args)
 
 
-def test_bytecode_deploy_rejects_urst_branch():
+def test_bytecode_deploy_supports_urst_branch():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -686,8 +677,7 @@ def test_bytecode_deploy_rejects_urst_branch():
         urst_branch="develop",
     )
 
-    with pytest.raises(deploy.DeployOptionError, match="--urst-branch"):
-        deploy.deploy(args)
+    deploy.deploy(args)
 
 
 def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
@@ -711,19 +701,23 @@ def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
         calls.append("query")
         return target
 
-    def fake_build(_args, lib_dir, received_target):
-        assert lib_dir.name == "lib"
+    def fake_build(_args, root, received_target):
+        assert root.name.startswith("otampy-mpy-")
         assert received_target is target
         calls.append("build")
-        return 12
+        staged = root / "lib"
+        staged.mkdir()
+        return deploy.DeployPaths(
+            staged, root / "configota.mpy", root / "boot.mpy", root / "main.mpy"
+        )
 
     def fake_run(_args, command):
-        assert "mip" not in command
+        assert "mip" in command
         assert any("otampy-mpy-" in item for item in command)
         calls.append("deploy")
 
     monkeypatch.setattr(deploy, "query_target_mpy", fake_query)
-    monkeypatch.setattr(deploy, "build_bytecode_lib", fake_build)
+    monkeypatch.setattr(deploy, "build_bytecode_deploy_tree", fake_build)
     monkeypatch.setattr(
         deploy,
         "wait_for_target",

@@ -24,7 +24,7 @@ View the latest version at [https://otampy.codeability.co.uk/](https://otampy.co
 - **Remote reboot and reset** — trigger a hard reboot (`rb`) or MicroPython soft reset (`sr`) over the air.
 - **Diagnostic commands** — `ping` health checks and `mem` RAM/flash queries.
 - **Port management** — `ports` lists and selects adapters; `OTAMPY_PORT` and persistent `~/.config/otampy/config.json` settings avoid repeating `--port` on every command.
-- **Target-matched bytecode deployment** — `--bytecode` compiles OTAmpy and URST to `.mpy` using the connected device's exact `.mpy` format and small-int width.
+- **Target-matched bytecode deployment** — `--bytecode` compiles OTAmpy and optional user/logger code to `.mpy` using the connected device's exact `.mpy` format and small-int width; URST remains device-native source.
 - **Fail-safe CLI** — destructive commands display a confirmation prompt before contacting the device.
 
 ---
@@ -187,7 +187,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--device-dir`        | Select the directory containing `boot.py`, `main.py`, and `configota.py`. |
 | `--with-logger`       | Install the optional `log-to-file` package.                               |
 | `--urst-branch BRANCH`| Install URST-mpy from a Git branch, such as `develop`.                    |
-| `--bytecode`, `--mpy` | Compile OTAmpy and URST into target-matched `.mpy` files.                 |
+| `--bytecode`, `--mpy` | Compile OTAmpy and selected user code into target-matched `.mpy` files.   |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
 | `--no-mip`            | Install neither URST nor the optional logger.                             |
 | `--no-reset`          | Leave the board without a final reset.                                    |

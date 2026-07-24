@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.resources
 import logging
+import tempfile
 import time
 from contextlib import nullcontext
 from datetime import datetime
@@ -1757,6 +1758,27 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
 
 @cli.command(name="upd")
 @click.option(
+    "--bytecode",
+    "--mpy",
+    is_flag=True,
+    help="Compile Python updates to target-matched .mpy files.",
+)
+@click.option(
+    "--keep-user-source",
+    is_flag=True,
+    help="Keep user Python updates as source when using --bytecode.",
+)
+@click.option(
+    "--mpy-cross",
+    default="mpy-cross",
+    help="mpy-cross executable or command to use.",
+)
+@click.option(
+    "--mpremote",
+    default="mpremote",
+    help="mpremote executable to use for bytecode probing.",
+)
+@click.option(
     "--minify",
     is_flag=True,
     help="Remove Python comments and redundant blank lines before updating.",
@@ -1777,6 +1799,10 @@ def update(
     ctx: click.Context,
     args: tuple[str, ...],
     minify: bool,
+    bytecode: bool,
+    keep_user_source: bool,
+    mpy_cross: str,
+    mpremote: str,
     all_files: bool,
     set_time: bool,
 ) -> None:
@@ -1785,14 +1811,23 @@ def update(
         raise click.UsageError(
             "--all-files cannot be combined with explicit update sources."
         )
+    if bytecode and minify:
+        raise click.UsageError("--minify cannot be combined with --bytecode.")
 
     # 0. Scan and collect files to send locally before touching device
-    files_to_send = _get_files_to_send(args, all_files=all_files)
+    effective_all_files = all_files or (bytecode and not args)
+    files_to_send = _get_files_to_send(args, all_files=effective_all_files)
+    if bytecode and effective_all_files:
+        files_to_send = [
+            (target, source)
+            for target, source in files_to_send
+            if deploy._is_deployable_user_file(source)
+        ]
     if not files_to_send:
         _console().print("[yellow]No files found to transfer.[/yellow]")
         return
 
-    if all_files:
+    if effective_all_files:
         _console().print(
             "[yellow]The following files will be uploaded:[/yellow]"
         )
@@ -1801,6 +1836,56 @@ def update(
         if not click.confirm("Continue with the update?", default=False):
             _console().print("Cancelled.")
             return
+
+    if bytecode:
+        port = ctx.obj.get("port")
+        probe_args = deploy.DeployArgs(
+            port=port,
+            mpremote=mpremote,
+            no_mip=True,
+            with_logger=False,
+            no_reset=False,
+            dry_run=False,
+            bytecode=True,
+            mpy_cross=mpy_cross,
+            keep_user_source=keep_user_source,
+        )
+        try:
+            target = deploy.query_target_mpy(probe_args)
+        except (deploy.DeployError, deploy.BytecodeDeployError) as error:
+            raise click.ClickException(
+                str(getattr(error, "output", error))
+            ) from error
+        with tempfile.TemporaryDirectory(prefix="otampy-upd-mpy-") as temp_dir:
+            staged = []
+            delete_paths = []
+            for target_path, source in files_to_send:
+                target_path = target_path.replace("\\", "/")
+                artifact = Path(temp_dir) / target_path
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                if source.suffix == ".py" and not keep_user_source:
+                    target_name = Path(target_path)
+                    startup_module = deploy.BYTECODE_STARTUP_MODULES.get(
+                        Path(target_path.lstrip("/"))
+                    )
+                    rewritten = (
+                        str(target_name.with_name(startup_module + ".mpy"))
+                        if startup_module is not None
+                        else str(target_name.with_suffix(".mpy"))
+                    )
+                    artifact = Path(temp_dir) / rewritten
+                    artifact.parent.mkdir(parents=True, exist_ok=True)
+                    deploy._compile_module(
+                        probe_args, source, artifact, "/" + rewritten, target
+                    )
+                    staged.append((rewritten, artifact))
+                    if startup_module is None:
+                        delete_paths.append(target_path)
+                else:
+                    artifact.write_bytes(source.read_bytes())
+                    staged.append((target_path, artifact))
+            _update_files(ctx, staged, set_time, delete_paths)
+        return
 
     staging = (
         source_minify.staged_minified_files(files_to_send)
@@ -1814,7 +1899,10 @@ def update(
 
 
 def _update_files(
-    ctx: click.Context, files_to_send: list[tuple[str, Path]], set_time: bool
+    ctx: click.Context,
+    files_to_send: list[tuple[str, Path]],
+    set_time: bool,
+    delete_paths: list[str] | None = None,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
@@ -1960,6 +2048,13 @@ def _update_files(
                 raise click.ClickException(
                     f"Device verification failed for {target_path}: "
                     f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                )
+
+        for target_path in delete_paths or ():
+            transport.send(f"DELETE:{target_path}".encode())
+            if transport.read() != b"DELETE_OK":
+                raise click.ClickException(
+                    f"Device rejected source cleanup for {target_path}."
                 )
 
         # 6. Commit transaction: UPDATE_COMMIT
@@ -2408,6 +2503,16 @@ def config_cmd(
     help="Deploy target-matched .mpy libraries.",
 )
 @click.option(
+    "--all-files",
+    is_flag=True,
+    help="With --bytecode, compile and deploy every file in the device directory.",
+)
+@click.option(
+    "--keep-user-source",
+    is_flag=True,
+    help="With --bytecode, keep device-directory Python files as source.",
+)
+@click.option(
     "--minify",
     is_flag=True,
     help="Remove Python comments and redundant blank lines before deploying.",
@@ -2452,6 +2557,8 @@ def deploy_cmd(
     with_logger: bool,
     urst_branch: str | None,
     bytecode: bool,
+    all_files: bool,
+    keep_user_source: bool,
     minify: bool,
     mpy_cross: str,
     no_reset: bool,
@@ -2467,6 +2574,8 @@ def deploy_cmd(
         with_logger=with_logger,  # type: ignore
         urst_branch=urst_branch,  # type: ignore
         bytecode=bytecode,  # type: ignore
+        all_files=all_files,  # type: ignore
+        keep_user_source=keep_user_source,  # type: ignore
         minify=minify,  # type: ignore
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore

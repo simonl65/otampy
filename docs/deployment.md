@@ -172,18 +172,18 @@ every deployable file under the device directory.
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
 | `--no-mip`               | Skip every MIP dependency, including URST and the optional logger. |
 | `--no-reset`             | Do not reset the device after deployment.                          |
-| `--set-time`             | Set the device RTC from the host during final boot.                |
+| `--no-rtc`               | Skip setting the device RTC from the host during final boot.       |
 | `--dry-run`              | Print the `mpremote` command without executing it.                 |
 | `--verbose`              | Show raw `mpremote` commands and output during deployment.         |
 | `--mpremote PATH`        | Select a different `mpremote` executable.                          |
 
 `--with-logger` has no effect when combined with `--no-mip`.
-`--set-time` stages a one-shot RTC helper before the deployment's final reset.
+By default, OTAmpy stages a one-shot RTC helper before the deployment's final reset.
 During normal boot OTAmpy's device boot module runs it to set the RTC from the
 host timestamp, then it deletes itself; no second USB connection or follow-up
 reset is needed.
-It cannot be combined with `--no-reset`.
-The same option is available on `otampy rb`, `otampy sr`, and `otampy upd`.
+Updating the device RTC requires the final device reset; use `--no-rtc` when deploying with `--no-reset`.
+The `--no-rtc` option is also available on `otampy rb`, `otampy sr`, and `otampy upd`.
 The reset commands stage the helper over OTA before rebooting; `upd` includes
 it in its transaction, so it runs only after the final update reboot.
 Use `--no-mip` only when the required packages are frozen into the firmware or

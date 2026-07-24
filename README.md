@@ -173,11 +173,11 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `mem`        | —                                                | Query device RAM and flash utilisation.                             |
 | `ping`       | —                                                | Connection health check - should receive PONG.                      |
 | `ports`      | —                                                | List available serial adapters; mark and store a selection.         |
-| `rb`         | `[--set-time]`                                   | Hard reboot the device (with confirmation).                         |
+| `rb`         | `[--no-rtc]`                                     | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`                                     | Remove paths from the device (with confirmation - not recoverable). |
 | `rtc`        | —                                                | Display the current device RTC timestamp without rebooting.         |
-| `sr`         | `[--set-time]`                                   | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `sr`         | `[--no-rtc]`                                     | MicroPython soft reset (with confirmation).                         |
+| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--no-rtc] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
@@ -196,7 +196,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
 | `--no-mip`            | Install neither URST nor the optional logger.                             |
 | `--no-reset`          | Leave the board without a final reset.                                    |
-| `--set-time`          | Set the device RTC from the host during final boot.                       |
+| `--no-rtc`            | Skip setting the device RTC from the host during final boot.              |
 | `--dry-run`           | Print the complete `mpremote` command without running it.                 |
 | `--verbose`           | Show raw `mpremote` commands and output during deployment.                |
 | `--mpremote`          | Use a specific `mpremote` executable.                                     |

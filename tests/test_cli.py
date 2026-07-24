@@ -628,7 +628,9 @@ def test_cli_hard_reboot():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"RB_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "rb"], input="y\n")
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rb", "--no-rtc"], input="y\n"
+        )
         assert result.exit_code == 0
         assert "Hard rebooting the device" in result.output
         mock_serial.assert_called_once_with(
@@ -661,7 +663,9 @@ def test_cli_soft_reset():
         mock_device_instance = mock_device.return_value
         mock_device_instance.read.return_value = b"SR_OK"
 
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "sr"], input="y\n")
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "sr", "--no-rtc"], input="y\n"
+        )
         assert result.exit_code == 0
         assert "Soft resetting the device" in result.output
         mock_serial.assert_called_once_with(
@@ -684,17 +688,56 @@ def test_cli_soft_reset_aborted():
         mock_device.assert_not_called()
 
 
-def test_cli_reboot_set_time_stages_before_reboot():
+def test_cli_reboot_stages_rtc_by_default():
     runner = CliRunner()
     with (
         mock.patch("otampy.cli._stage_rtc_update") as stage_time,
         mock.patch("otampy.cli._send_command") as send_command,
     ):
-        result = runner.invoke(cli, ["rb", "--set-time"], input="y\n")
+        result = runner.invoke(cli, ["rb"], input="y\n")
 
     assert result.exit_code == 0
     stage_time.assert_called_once()
     send_command.assert_called_once_with(mock.ANY, b"RB", b"RB_OK")
+
+
+def test_cli_reboot_no_rtc_skips_rtc():
+    runner = CliRunner()
+    with (
+        mock.patch("otampy.cli._stage_rtc_update") as stage_time,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(cli, ["rb", "--no-rtc"], input="y\n")
+
+    assert result.exit_code == 0
+    stage_time.assert_not_called()
+    send_command.assert_called_once_with(mock.ANY, b"RB", b"RB_OK")
+
+
+def test_cli_soft_reset_stages_rtc_by_default():
+    runner = CliRunner()
+    with (
+        mock.patch("otampy.cli._stage_rtc_update") as stage_time,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(cli, ["sr"], input="y\n")
+
+    assert result.exit_code == 0
+    stage_time.assert_called_once()
+    send_command.assert_called_once_with(mock.ANY, b"SR", b"SR_OK")
+
+
+def test_cli_soft_reset_no_rtc_skips_rtc():
+    runner = CliRunner()
+    with (
+        mock.patch("otampy.cli._stage_rtc_update") as stage_time,
+        mock.patch("otampy.cli._send_command") as send_command,
+    ):
+        result = runner.invoke(cli, ["sr", "--no-rtc"], input="y\n")
+
+    assert result.exit_code == 0
+    stage_time.assert_not_called()
+    send_command.assert_called_once_with(mock.ANY, b"SR", b"SR_OK")
 
 
 def test_cli_command_missing_port(tmp_path):
@@ -1690,7 +1733,7 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "--minify",
                 "--mpy-cross",
                 "uvx custom-cross",
-                "--set-time",
+                "--no-rtc",
                 "--dry-run",
                 "--verbose",
             ],
@@ -1707,7 +1750,7 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.mpy_cross == "uvx custom-cross"
     assert called_args.urst_branch is None
     assert called_args.no_reset is False
-    assert called_args.set_time is True
+    assert called_args.no_rtc is True
     assert called_args.dry_run is True
     assert called_args.verbose is True
 
@@ -1718,7 +1761,9 @@ def test_cli_deploy_forwards_urst_branch():
         result = runner.invoke(cli, ["deploy", "--urst-branch", "develop"])
 
     assert result.exit_code == 0
-    assert mock_deploy.call_args.args[0].urst_branch == "develop"  # type: ignore
+    called_args = mock_deploy.call_args.args[0]  # type: ignore
+    assert called_args.urst_branch == "develop"
+    assert called_args.no_rtc is False
 
 
 def test_cli_timing_reports_successful_non_update_command():
@@ -1786,7 +1831,7 @@ def test_cli_update_handshake():
 
         result = runner.invoke(
             cli,
-            ["-p", "/dev/ttyFake", "upd", "--set-time"],
+            ["-p", "/dev/ttyFake", "upd"],
         )
 
         assert result.exit_code == 0
@@ -1797,6 +1842,57 @@ def test_cli_update_handshake():
         assert "Device is READY. Handshake complete." in result.output
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
         assert any(
+            call.args[0].startswith(b"FILE_START:_otampy_set_rtc.py:")
+            for call in mock_device_instance.send.call_args_list
+        )
+
+
+def test_cli_update_handshake_no_rtc():
+    """Test that upd --no-rtc omits _otampy_set_rtc.py."""
+    runner = CliRunner()
+    from pathlib import Path
+
+    mock_files = [("test.py", Path("/tmp/test.py"))]
+    mock_content = b"print('test')"
+
+    class MockFile:
+        def read(self):
+            return mock_content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        mock.patch("serial.Serial") as _mock_serial,
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep") as _mock_sleep,
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch("otampy.cli._get_files_to_send", return_value=mock_files),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ]
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "upd", "--no-rtc"],
+        )
+
+        assert result.exit_code == 0
+        assert "Initiating update handshake" in result.output
+        mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
+        assert not any(
             call.args[0].startswith(b"FILE_START:_otampy_set_rtc.py:")
             for call in mock_device_instance.send.call_args_list
         )
@@ -1874,7 +1970,9 @@ def test_cli_update_full_transfer():
             b"COMMIT_OK",
         ]
 
-        result = runner.invoke(cli, ["--timing", "-p", "/dev/ttyFake", "upd"])
+        result = runner.invoke(
+            cli, ["--timing", "-p", "/dev/ttyFake", "upd", "--no-rtc"]
+        )
 
         assert result.exit_code == 0
         assert "Initiating update handshake" in result.output
@@ -1936,7 +2034,7 @@ def test_update_caps_legacy_chunk_size_to_single_urst_frame(monkeypatch):
         mock.patch("time.sleep"),
         mock.patch("builtins.open", return_value=MockFile()),
     ):
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--no-rtc"])
 
     assert result.exit_code == 0
     assert "Capping transfer chunk size to 132 bytes" in result.output

@@ -1026,12 +1026,12 @@ def rtc(ctx: click.Context) -> None:
 
 @cli.command(name="rb")
 @click.option(
-    "--set-time",
+    "--no-rtc",
     is_flag=True,
-    help="Set the device RTC from the host during reboot.",
+    help="Do not set the device RTC from the host during reboot.",
 )
 @click.pass_context
-def reboot(ctx: click.Context, set_time: bool) -> None:
+def reboot(ctx: click.Context, no_rtc: bool) -> None:
     """Hard reboots the device."""
     if not click.confirm(
         click.style(
@@ -1043,7 +1043,7 @@ def reboot(ctx: click.Context, set_time: bool) -> None:
         return
     _console().print("[yellow]Hard rebooting the device...[/yellow]")
     try:
-        if set_time:
+        if not no_rtc:
             _stage_rtc_update(ctx)
         _send_command(ctx, b"RB", b"RB_OK")
     except DeviceError as e:
@@ -1052,12 +1052,12 @@ def reboot(ctx: click.Context, set_time: bool) -> None:
 
 @cli.command(name="sr")
 @click.option(
-    "--set-time",
+    "--no-rtc",
     is_flag=True,
-    help="Set the device RTC from the host during reboot.",
+    help="Do not set the device RTC from the host during reboot.",
 )
 @click.pass_context
-def soft_reset(ctx: click.Context, set_time: bool) -> None:
+def soft_reset(ctx: click.Context, no_rtc: bool) -> None:
     """Soft resets the device."""
     if not click.confirm(
         click.style(
@@ -1069,7 +1069,7 @@ def soft_reset(ctx: click.Context, set_time: bool) -> None:
         return
     _console().print("[yellow]Soft resetting the device...[/yellow]")
     try:
-        if set_time:
+        if not no_rtc:
             _stage_rtc_update(ctx)
         _send_command(ctx, b"SR", b"SR_OK")
     except DeviceError as e:
@@ -1851,9 +1851,9 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     help="Upload every file in the device directory after confirmation.",
 )
 @click.option(
-    "--set-time",
+    "--no-rtc",
     is_flag=True,
-    help="Set the device RTC from the host during the final reboot.",
+    help="Do not set the device RTC from the host during update.",
 )
 @click.argument("args", nargs=-1)
 @click.pass_context
@@ -1865,7 +1865,7 @@ def update(
     keep_user_source: bool,
     mpy_cross: str,
     all_files: bool,
-    set_time: bool,
+    no_rtc: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -1988,7 +1988,7 @@ def update(
                 else:
                     artifact.write_bytes(source.read_bytes())
                     staged.append((target_path, artifact))
-            _update_files(ctx, staged, set_time, delete_paths)
+            _update_files(ctx, staged, no_rtc, delete_paths)
         return
 
     staging = (
@@ -2000,14 +2000,14 @@ def update(
         if minify:
             _print_minification_report(files_to_send, files_to_update)  # type: ignore
         _update_files(  # type: ignore
-            ctx, files_to_update, set_time, bytecode_cleanup_paths
+            ctx, files_to_update, no_rtc, bytecode_cleanup_paths
         )
 
 
 def _update_files(
     ctx: click.Context,
     files_to_send: list[tuple[str, Path]],
-    set_time: bool,
+    no_rtc: bool = False,
     delete_paths: list[str] | None = None,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
@@ -2027,7 +2027,7 @@ def _update_files(
                 f"Failed to read local file {local_path}: {e}"
             ) from e
 
-    if set_time:
+    if not no_rtc:
         content = deploy.rtc_helper_content().encode()
         size = len(content)
         manifest.append(
@@ -2643,9 +2643,9 @@ def config_cmd(
     help="Skip resetting the device after deployment.",
 )
 @click.option(
-    "--set-time",
+    "--no-rtc",
     is_flag=True,
-    help="Set the device RTC from the host during the final boot.",
+    help="Do not set the device RTC from the host during the final boot.",
 )
 @click.option(
     "--dry-run",
@@ -2682,7 +2682,7 @@ def deploy_cmd(
     minify: bool,
     mpy_cross: str,
     no_reset: bool,
-    set_time: bool,
+    no_rtc: bool,
     dry_run: bool,
     verbose: bool,
     device_dir: str | None,
@@ -2700,7 +2700,7 @@ def deploy_cmd(
         minify=minify,  # type: ignore
         mpy_cross=mpy_cross,  # type: ignore
         no_reset=no_reset,  # type: ignore
-        set_time=set_time,  # type: ignore
+        no_rtc=no_rtc,  # type: ignore
         dry_run=dry_run,  # type: ignore
         verbose=verbose,  # type: ignore
         device_dir=(  # type: ignore

@@ -174,7 +174,7 @@ class DeployArgs:
     minify: bool = False
     mpy_cross: str = "mpy-cross"
     device_dir: Path | None = None
-    set_time: bool = False
+    no_rtc: bool = False
     urst_branch: str | None = None
     all_files: bool = False
     keep_user_source: bool = False
@@ -821,7 +821,7 @@ def deploy_with_optional_rtc(
     paths: DeployPaths | None = None,
 ) -> None:
     """Deploy files, staging a one-shot RTC update when requested."""
-    if not args.set_time:
+    if args.no_rtc:
         print(
             "Deploying files and dependencies; this may take a moment...",
             flush=True,
@@ -940,8 +940,8 @@ def preflight_mip_dependencies(args: DeployArgs) -> None:
 
 def deploy(args: DeployArgs) -> None:
     validate_deploy_sources(args)
-    if args.set_time and args.no_reset:
-        raise DeployOptionError("--set-time requires the final device reset.")
+    if not args.no_rtc and args.no_reset:
+        raise DeployOptionError("RTC update requires the final device reset.")
     if args.minify and args.bytecode:
         raise DeployOptionError(
             "--minify cannot be combined with --bytecode; bytecode deployment is already a separate production profile."
@@ -1060,9 +1060,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip resetting the device after deployment.",
     )
     parser.add_argument(
-        "--set-time",
+        "--no-rtc",
         action="store_true",
-        help="Set the device RTC from the host during the final boot.",
+        help="Do not set the device RTC from the host during the final boot.",
     )
     parser.add_argument(
         "--dry-run",

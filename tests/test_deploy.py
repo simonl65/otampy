@@ -252,7 +252,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     mock_args.no_mip = True
     mock_args.bytecode = False
     mock_args.no_reset = True
-    mock_args.set_time = False
+    mock_args.no_rtc = True
     mock_args.dry_run = True
     mock_args.device_dir = None
 
@@ -467,7 +467,7 @@ def test_deploy_stages_rtc_helper_before_reset(monkeypatch, capsys):
         with_logger=False,
         no_reset=False,
         dry_run=False,
-        set_time=True,
+        no_rtc=False,
     )
     commands = []
     monkeypatch.setattr(
@@ -488,7 +488,33 @@ def test_deploy_stages_rtc_helper_before_reset(monkeypatch, capsys):
     ]
 
 
-def test_set_time_requires_final_reset():
+def test_deploy_skips_rtc_helper_when_no_rtc(monkeypatch, capsys):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        no_rtc=True,
+    )
+    commands = []
+    monkeypatch.setattr(
+        deploy,
+        "run_mpremote",
+        lambda _args, command: commands.append(command),
+    )
+    deploy.deploy(args)
+
+    command = commands[0]
+    assert not any(path.endswith("/_otampy_set_rtc.py") for path in command)
+    assert capsys.readouterr().out.splitlines() == [
+        "Deploying files and dependencies; this may take a moment...",
+        "Deployment completed successfully.",
+    ]
+
+
+def test_rtc_requires_final_reset():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -496,7 +522,7 @@ def test_set_time_requires_final_reset():
         with_logger=False,
         no_reset=True,
         dry_run=False,
-        set_time=True,
+        no_rtc=False,
     )
 
     with pytest.raises(deploy.DeployOptionError, match="requires the final"):

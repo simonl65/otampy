@@ -7,7 +7,7 @@ from .core import _get_config
 
 
 def _apply_staged_rtc_update():
-    """Run the one-shot RTC helper staged by ``otampy deploy --set-time``."""
+    """Run the one-shot RTC helper staged during host operations (unless --no-rtc is specified)."""
     try:
         __import__("_otampy_set_rtc")
     except ImportError:

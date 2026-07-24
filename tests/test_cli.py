@@ -1256,6 +1256,27 @@ def test_cli_update_default():
     assert "No files found to transfer" in result.output
 
 
+def test_device_has_bytecode_detects_root_mpy_artifact(monkeypatch):
+    from otampy.cli import _device_has_bytecode
+
+    monkeypatch.setattr(
+        "otampy.cli._query",
+        lambda *_args: (b"boot.py,configota.mpy,lib/", None),
+    )
+    assert _device_has_bytecode(click.Context(cli)) is True
+
+
+def test_query_target_mpy_uses_ota_transport(monkeypatch):
+    from otampy.cli import _query_target_mpy
+
+    monkeypatch.setattr("otampy.cli._query", lambda *_args: (b"4870:31", None))
+
+    target = _query_target_mpy(click.Context(cli))
+
+    assert target.value == 4870
+    assert target.small_int_bits == 31
+
+
 def test_cli_update_with_files():
     """Test 'upd' command with no matching files exits early without touching device."""
     runner = CliRunner(env={"NO_COLOR": "1"})
@@ -1649,6 +1670,7 @@ def test_cli_update_handshake():
         mock.patch("serial.Serial") as _mock_serial,
         mock.patch("urst.Urst") as mock_device,
         mock.patch("time.sleep") as _mock_sleep,
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
         mock.patch("otampy.cli._get_files_to_send", return_value=mock_files),
         mock.patch("builtins.open", return_value=MockFile()),
     ):
@@ -1721,6 +1743,7 @@ def test_cli_update_full_transfer():
         mock.patch("serial.Serial") as _mock_serial,
         mock.patch("urst.Urst") as mock_device,
         mock.patch("time.sleep") as _mock_sleep,
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
         mock.patch(
             "otampy.cli._get_files_to_send",
             return_value=mock_files,
@@ -1794,6 +1817,7 @@ def test_cli_update_aborts_before_commit_on_transfer_failure():
         mock.patch("serial.Serial"),
         mock.patch("urst.Urst") as urst,
         mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
         mock.patch(
             "otampy.cli._get_files_to_send",
             return_value=[("main.py", source)],

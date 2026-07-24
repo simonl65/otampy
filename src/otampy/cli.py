@@ -1600,6 +1600,34 @@ def _copy_requires_reboot(target: str) -> bool:
     return normalized in ("boot.py", "main.py")
 
 
+def _device_has_bytecode(ctx: click.Context) -> bool:
+    """Return whether the device root contains bytecode deployment artifacts."""
+    try:
+        response, _ = _query(ctx, b"LS", b"LS_OK")
+    except (click.ClickException, DeviceError):
+        return False
+    return any(
+        entry.strip().endswith(".mpy")
+        for entry in response.decode("utf-8", errors="replace").split(",")
+    )
+
+
+def _query_target_mpy(ctx: click.Context) -> deploy.TargetMpy:
+    """Read target bytecode compatibility over the active OTA transport."""
+    response, _ = _query(ctx, b"MPY", b"MPY_OK")
+    try:
+        value, small_int_bits = response.decode().split(":", 1)
+        return deploy.TargetMpy(
+            value=int(value),
+            small_int_bits=int(small_int_bits),
+            runtime="OTA transport query",
+        )
+    except (UnicodeDecodeError, ValueError) as error:
+        raise click.ClickException(
+            "The device returned an invalid bytecode compatibility response."
+        ) from error
+
+
 def _print_minification_report(
     sources: list[tuple[str, Path]], staged: list[tuple[str, Path]]
 ) -> None:
@@ -1774,11 +1802,6 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     help="mpy-cross executable or command to use.",
 )
 @click.option(
-    "--mpremote",
-    default="mpremote",
-    help="mpremote executable to use for bytecode probing.",
-)
-@click.option(
     "--minify",
     is_flag=True,
     help="Remove Python comments and redundant blank lines before updating.",
@@ -1802,7 +1825,6 @@ def update(
     bytecode: bool,
     keep_user_source: bool,
     mpy_cross: str,
-    mpremote: str,
     all_files: bool,
     set_time: bool,
 ) -> None:
@@ -1813,7 +1835,6 @@ def update(
         )
     if bytecode and minify:
         raise click.UsageError("--minify cannot be combined with --bytecode.")
-
     # 0. Scan and collect files to send locally before touching device
     effective_all_files = all_files or (bytecode and not args)
     files_to_send = _get_files_to_send(args, all_files=effective_all_files)
@@ -1837,11 +1858,18 @@ def update(
             _console().print("Cancelled.")
             return
 
+    if not bytecode and _device_has_bytecode(ctx):
+        _console().print(
+            "[yellow]The device contains .mpy files; a source update may shadow deployed bytecode.[/yellow]"
+        )
+        if click.confirm("Use --bytecode for this update?", default=True):
+            bytecode = True
+
     if bytecode:
         port = ctx.obj.get("port")
         probe_args = deploy.DeployArgs(
             port=port,
-            mpremote=mpremote,
+            mpremote="mpremote",
             no_mip=True,
             with_logger=False,
             no_reset=False,
@@ -1851,8 +1879,8 @@ def update(
             keep_user_source=keep_user_source,
         )
         try:
-            target = deploy.query_target_mpy(probe_args)
-        except (deploy.DeployError, deploy.BytecodeDeployError) as error:
+            target = _query_target_mpy(ctx)
+        except (click.ClickException, deploy.BytecodeDeployError) as error:
             raise click.ClickException(
                 str(getattr(error, "output", error))
             ) from error

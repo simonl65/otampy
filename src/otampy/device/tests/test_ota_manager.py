@@ -1,4 +1,5 @@
 import builtins
+import sys
 
 import machine
 import shared
@@ -26,6 +27,17 @@ def test_manager_handles_ping():
 
     manager.poll(core)
     assert core.transport.sent_messages == [b"PONG"]
+
+
+def test_manager_reports_mpy_compatibility(monkeypatch):
+    uart = shared.FakeUART()
+    core = OTACore(uart, logger=shared.FakeLogger())
+    monkeypatch.setattr(sys.implementation, "_mpy", 4870, raising=False)
+
+    core.transport.incoming_queue.append(b"MPY")
+
+    manager.poll(core)
+    assert core.transport.sent_messages[0].startswith(b"MPY_OK:4870:")
 
 
 def test_manager_returns_rtc_without_reset():

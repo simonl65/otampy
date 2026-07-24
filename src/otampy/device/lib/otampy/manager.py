@@ -204,6 +204,19 @@ def poll(core, callback=None):
 
     if cmd == "PING":
         core.transport.send(b"PONG")
+    elif cmd == "MPY":
+        import sys
+
+        value = getattr(sys.implementation, "_mpy", None)
+        bits = 0
+        maximum = sys.maxsize
+        while maximum:
+            bits += 1
+            maximum >>= 1
+        if value is None:
+            core.transport.send(b"ERROR:No _mpy support")
+        else:
+            core.transport.send(f"MPY_OK:{value}:{bits}".encode())
     elif cmd == "RTC":
         core.transport.send(
             b"RTC_OK:" + repr(machine.RTC().datetime()).encode()

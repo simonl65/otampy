@@ -822,12 +822,20 @@ def deploy_with_optional_rtc(
 ) -> None:
     """Deploy files, staging a one-shot RTC update when requested."""
     if not args.set_time:
+        print(
+            "Deploying files and dependencies; this may take a moment...",
+            flush=True,
+        )
         run_mpremote(args, deploy_command(args, lib_dir, paths=paths))
         return
 
     with tempfile.TemporaryDirectory(prefix="otampy-rtc-") as temp_dir:
         rtc_helper = prepare_rtc_helper(Path(temp_dir))
-        print("Staging device RTC update...", flush=True)
+        print(
+            "Deploying files and dependencies; this may take a moment...",
+            flush=True,
+        )
+        print("  - Including a device RTC update.", flush=True)
         run_mpremote(
             args,
             deploy_command(args, lib_dir, rtc_helper, paths),
@@ -937,7 +945,6 @@ def deploy(args: DeployArgs) -> None:
     preflight_mip_dependencies(args)
     _remove_pycache_dirs()
     if not args.bytecode:
-        print("Deploying files and dependencies -  please wait...", flush=True)
         if not args.minify:
             deploy_with_optional_rtc(args)
             return
@@ -989,7 +996,6 @@ def deploy(args: DeployArgs) -> None:
                 ]
             )
         )
-        print("Deploying files and dependencies -  please wait...", flush=True)
         deploy_with_optional_rtc(
             args,
             Path("<target-matched-mpy-lib>"),
@@ -1003,7 +1009,6 @@ def deploy(args: DeployArgs) -> None:
     with tempfile.TemporaryDirectory(prefix="otampy-mpy-") as temp_dir:
         staged_paths = build_bytecode_deploy_tree(args, Path(temp_dir), target)
         wait_for_target(args)
-        print("Deploying files and dependencies -  please wait...", flush=True)
         deploy_with_optional_rtc(args, staged_paths.lib_dir, staged_paths)
 
 

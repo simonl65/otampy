@@ -459,7 +459,7 @@ def test_deploy_installs_optional_logger():
     assert "github:simonl65/log-to-file" in command
 
 
-def test_deploy_stages_rtc_helper_before_reset(monkeypatch):
+def test_deploy_stages_rtc_helper_before_reset(monkeypatch, capsys):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -481,6 +481,10 @@ def test_deploy_stages_rtc_helper_before_reset(monkeypatch):
     assert any(path.endswith("/_otampy_set_rtc.py") for path in command)
     assert ["rtc", "--set"] not in commands
     assert "reset" in command
+    assert capsys.readouterr().out.splitlines() == [
+        "Deploying files and dependencies; this may take a moment...",
+        "  - Including a device RTC update.",
+    ]
 
 
 def test_set_time_requires_final_reset():

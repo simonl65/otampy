@@ -484,6 +484,7 @@ def test_deploy_stages_rtc_helper_before_reset(monkeypatch, capsys):
     assert capsys.readouterr().out.splitlines() == [
         "Deploying files and dependencies; this may take a moment...",
         "  - Including a device RTC update.",
+        "Deployment completed successfully.",
     ]
 
 

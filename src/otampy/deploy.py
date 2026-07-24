@@ -827,6 +827,8 @@ def deploy_with_optional_rtc(
             flush=True,
         )
         run_mpremote(args, deploy_command(args, lib_dir, paths=paths))
+        if not args.dry_run:
+            print("Deployment completed successfully.", flush=True)
         return
 
     with tempfile.TemporaryDirectory(prefix="otampy-rtc-") as temp_dir:
@@ -840,6 +842,8 @@ def deploy_with_optional_rtc(
             args,
             deploy_command(args, lib_dir, rtc_helper, paths),
         )
+        if not args.dry_run:
+            print("Deployment completed successfully.", flush=True)
 
 
 def _remove_pycache_dirs() -> None:

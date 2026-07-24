@@ -1909,7 +1909,7 @@ def update(
             if source.suffix == ".py"
         }
         _console().print(
-            "[yellow]The device contains .mpy files; a source update may shadow deployed bytecode.[/yellow]"
+            "[yellow]The device contains .mpy files; a source update may shadow deployed bytecode (meaning .py files will be used instead of .mpy).[/yellow]"
         )
         if click.confirm("Use --bytecode for this update?", default=True):
             bytecode = True

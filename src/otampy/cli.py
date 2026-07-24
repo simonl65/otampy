@@ -1620,7 +1620,7 @@ def _device_has_bytecode(ctx: click.Context) -> bool:
 def _deployed_bytecode_counterparts(
     ctx: click.Context, files: list[tuple[str, Path]]
 ) -> list[str]:
-    """Return deployed .mpy paths that would shadow the given source files."""
+    """Return deployed bytecode artifacts replaced by the given source files."""
     candidates_by_directory: dict[str, set[str]] = {}
     for target_path, source in files:
         if source.suffix != ".py":
@@ -1631,6 +1631,9 @@ def _deployed_bytecode_counterparts(
         candidates_by_directory.setdefault(str(path.parent), set()).add(
             candidate
         )
+        startup_module = deploy.BYTECODE_STARTUP_MODULES.get(path)
+        if startup_module is not None:
+            candidates_by_directory["."].add(startup_module + ".mpy")
 
     counterparts: list[str] = []
     for directory, candidates in candidates_by_directory.items():
@@ -1642,7 +1645,7 @@ def _deployed_bytecode_counterparts(
         entries = set(response.decode("utf-8", errors="replace").split(","))
         counterparts.extend(
             candidate
-            for candidate in candidates
+            for candidate in sorted(candidates)
             if Path(candidate).name in entries
         )
     return counterparts
@@ -1896,6 +1899,15 @@ def update(
 
     bytecode_cleanup_paths: list[str] = []
     if not bytecode and _device_has_bytecode(ctx):
+        shadowing_bytecode_paths = {
+            str(
+                Path(target_path.replace("\\", "/").lstrip("/")).with_suffix(
+                    ".mpy"
+                )
+            )
+            for target_path, source in files_to_send
+            if source.suffix == ".py"
+        }
         _console().print(
             "[yellow]The device contains .mpy files; a source update may shadow deployed bytecode.[/yellow]"
         )
@@ -1907,7 +1919,7 @@ def update(
             )
             if bytecode_cleanup_paths:
                 _console().print(
-                    "[yellow]Matching bytecode would shadow these source updates: "
+                    "[yellow]Matching bytecode artifacts correspond to these source updates: "
                     + ", ".join(bytecode_cleanup_paths)
                     + ".[/yellow]"
                 )
@@ -1919,10 +1931,15 @@ def update(
                         "[yellow]Matching bytecode will be removed after the source files are transferred.[/yellow]"
                     )
                 else:
-                    _console().print(
-                        "Cancelled: the source update would be shadowed by deployed bytecode."
-                    )
-                    return
+                    if any(
+                        path in shadowing_bytecode_paths
+                        for path in bytecode_cleanup_paths
+                    ):
+                        _console().print(
+                            "Cancelled: the source update would be shadowed by deployed bytecode."
+                        )
+                        return
+                    bytecode_cleanup_paths = []
 
     if bytecode:
         port = ctx.obj.get("port")

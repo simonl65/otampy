@@ -1270,7 +1270,7 @@ def test_deployed_bytecode_counterparts_finds_matching_paths(monkeypatch):
     from otampy.cli import _deployed_bytecode_counterparts
 
     responses = {
-        b"LS": (b"boot.py,configota.mpy,lib/", None),
+        b"LS": (b"_otampy_boot.mpy,boot.py,configota.mpy,lib/", None),
         b"LS:lib": (b"helper.mpy,other.mpy", None),
     }
     monkeypatch.setattr(
@@ -1284,7 +1284,7 @@ def test_deployed_bytecode_counterparts_finds_matching_paths(monkeypatch):
             ("configota.py", Path("configota.py")),
             ("lib/helper.py", Path("lib/helper.py")),
         ],
-    ) == ["configota.mpy", "lib/helper.mpy"]
+    ) == ["_otampy_boot.mpy", "configota.mpy", "lib/helper.mpy"]
 
 
 def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
@@ -1308,7 +1308,7 @@ def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
     )
 
     assert result.exit_code == 0
-    assert "Matching bytecode would shadow" in result.output
+    assert "Matching bytecode artifacts correspond" in result.output
     update_files.assert_called_once_with(
         mock.ANY, files, False, ["configota.mpy"]
     )
@@ -1335,6 +1335,28 @@ def test_update_aborts_if_shadowing_bytecode_cleanup_is_declined(monkeypatch):
     assert result.exit_code == 0
     assert "source update would be shadowed" in result.output
     update_files.assert_not_called()
+
+
+def test_update_keeps_startup_helper_when_its_cleanup_is_declined(monkeypatch):
+    runner = CliRunner()
+    files = [("boot.py", Path("boot.py"))]
+    update_files = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._get_files_to_send", lambda *_args, **_kwargs: files
+    )
+    monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: True)
+    monkeypatch.setattr(
+        "otampy.cli._deployed_bytecode_counterparts",
+        lambda _ctx, _files: ["_otampy_boot.mpy"],
+    )
+    monkeypatch.setattr("otampy.cli._update_files", update_files)
+
+    result = runner.invoke(
+        cli, ["-p", "/dev/ttyFake", "upd", "boot.py"], input="n\nn\n"
+    )
+
+    assert result.exit_code == 0
+    update_files.assert_called_once_with(mock.ANY, files, False, [])
 
 
 def test_query_target_mpy_uses_ota_transport(monkeypatch):

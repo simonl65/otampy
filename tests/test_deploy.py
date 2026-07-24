@@ -270,7 +270,7 @@ def test_remove_pycache_dirs_before_deploy(tmp_path, monkeypatch):
     assert called, "run_mpremote should be called after cleanup"
 
 
-def test_run_mpremote_streams_output_and_preserves_errors(monkeypatch, capsys):
+def test_run_mpremote_preserves_hidden_output_for_errors(monkeypatch, capsys):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -285,10 +285,34 @@ def test_run_mpremote_streams_output_and_preserves_errors(monkeypatch, capsys):
         deploy.subprocess, "Popen", mock.Mock(return_value=process)
     )
 
-    with pytest.raises(deploy.DeployError, match="copying"):
+    with pytest.raises(deploy.DeployError, match="copying") as error:
         deploy.run_mpremote(args, ["cp", "file.py", ":"])
 
-    assert "copying..." in capsys.readouterr().out
+    assert error.value.output == "copying...\n"
+    assert "copying..." not in capsys.readouterr().out
+
+
+def test_run_mpremote_shows_output_when_verbose(monkeypatch, capsys):
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=False,
+        verbose=True,
+    )
+    process = mock.Mock(stdout=StringIO("copying...\n"), returncode=0)
+    process.wait.return_value = 0
+    monkeypatch.setattr(
+        deploy.subprocess, "Popen", mock.Mock(return_value=process)
+    )
+
+    deploy.run_mpremote(args, ["cp", "file.py", ":"])
+
+    output = capsys.readouterr().out
+    assert "$ mpremote connect /dev/ttyACM0 cp file.py :" in output
+    assert "copying..." in output
 
 
 def test_deploy_preflights_mip_dependencies_before_device_changes(monkeypatch):
@@ -517,7 +541,7 @@ def test_bytecode_command_uses_staged_lib_and_installs_urst_mip(tmp_path):
     assert "github:simonl65/URST-mpy" in command
 
 
-def test_query_target_mpy_parses_runtime_capabilities():
+def test_query_target_mpy_parses_runtime_capabilities(capsys):
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",
         mpremote="mpremote",
@@ -539,6 +563,7 @@ def test_query_target_mpy_parses_runtime_capabilities():
     assert target.value == 4870
     assert target.version == 6
     assert target.small_int_bits == 31
+    assert "$ mpremote" not in capsys.readouterr().out
     assert target.runtime == "MicroPython v1.28.0"
 
 

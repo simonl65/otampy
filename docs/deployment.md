@@ -174,6 +174,7 @@ every deployable file under the device directory.
 | `--no-reset`             | Do not reset the device after deployment.                          |
 | `--set-time`             | Set the device RTC from the host during final boot.                |
 | `--dry-run`              | Print the `mpremote` command without executing it.                 |
+| `--verbose`              | Show raw `mpremote` commands and output during deployment.         |
 | `--mpremote PATH`        | Select a different `mpremote` executable.                          |
 
 `--with-logger` has no effect when combined with `--no-mip`.

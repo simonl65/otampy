@@ -198,6 +198,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--no-reset`          | Leave the board without a final reset.                                    |
 | `--set-time`          | Set the device RTC from the host during final boot.                       |
 | `--dry-run`           | Print the complete `mpremote` command without running it.                 |
+| `--verbose`           | Show raw `mpremote` commands and output during deployment.                |
 | `--mpremote`          | Use a specific `mpremote` executable.                                     |
 
 ### Common examples

@@ -178,6 +178,7 @@ class DeployArgs:
     urst_branch: str | None = None
     all_files: bool = False
     keep_user_source: bool = False
+    verbose: bool = False
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,8 @@ def mip_packages(args: DeployArgs) -> tuple[str, ...]:
 
 def run_mpremote(args: DeployArgs, command: list[str]) -> None:
     cmd = [*mpremote_prefix(args), *command]
-    print("$ " + shlex.join(cmd), flush=True)
+    if args.verbose or args.dry_run:
+        print("$ " + shlex.join(cmd), flush=True)
     if args.dry_run:
         return
 
@@ -221,7 +223,8 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
     assert process.stdout is not None
     output = ""
     for character in iter(lambda: process.stdout.read(1), ""):
-        print(character, end="", flush=True)
+        if args.verbose:
+            print(character, end="", flush=True)
         output += character
     if process.wait():
         raise DeployError(process.returncode or 1, output)
@@ -248,7 +251,8 @@ def query_target_mpy(args: DeployArgs) -> TargetMpy:
         "+",
         "reset",
     ]
-    print("$ " + shlex.join(command), flush=True)
+    if args.verbose:
+        print("$ " + shlex.join(command), flush=True)
 
     result = subprocess.run(
         command,
@@ -1055,6 +1059,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print mpremote commands without running them.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show raw mpremote commands and output during deployment.",
     )
     return parser
 

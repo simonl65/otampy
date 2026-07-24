@@ -2653,6 +2653,11 @@ def config_cmd(
     help="Print mpremote commands without running them.",
 )
 @click.option(
+    "--verbose",
+    is_flag=True,
+    help="Show raw mpremote commands and output during deployment.",
+)
+@click.option(
     "--device-dir",
     default=get_default_device_dir,
     help=(
@@ -2679,6 +2684,7 @@ def deploy_cmd(
     no_reset: bool,
     set_time: bool,
     dry_run: bool,
+    verbose: bool,
     device_dir: str | None,
 ) -> None:
     """Erase and deploy OTAmpy, examples, and device dependencies."""
@@ -2696,6 +2702,7 @@ def deploy_cmd(
         no_reset=no_reset,  # type: ignore
         set_time=set_time,  # type: ignore
         dry_run=dry_run,  # type: ignore
+        verbose=verbose,  # type: ignore
         device_dir=(  # type: ignore
             Path(device_dir)
             if device_dir

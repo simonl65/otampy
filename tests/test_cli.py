@@ -1692,6 +1692,7 @@ def test_cli_deploy_forwards_to_deploy_module():
                 "uvx custom-cross",
                 "--set-time",
                 "--dry-run",
+                "--verbose",
             ],
         )
 
@@ -1708,6 +1709,7 @@ def test_cli_deploy_forwards_to_deploy_module():
     assert called_args.no_reset is False
     assert called_args.set_time is True
     assert called_args.dry_run is True
+    assert called_args.verbose is True
 
 
 def test_cli_deploy_forwards_urst_branch():

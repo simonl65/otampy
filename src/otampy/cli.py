@@ -24,6 +24,11 @@ MONOTONIC = time.perf_counter
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+# URST's reliable data frame holds 194 bytes (200-byte payload minus its
+# protocol header). ``CHUNK:<sequence>:<base64>`` needs 17 bytes before its
+# encoded data when the sequence has up to ten digits, leaving room for at
+# most 132 raw bytes without transport fragmentation.
+MAX_SINGLE_FRAME_TRANSFER_CHUNK_BYTES = 132
 MAX_TX_BUFFER_BYTES = 2048
 
 CONFIG_SETTINGS = {
@@ -58,9 +63,9 @@ CONFIG_SETTINGS = {
     "transfer_chunk_size": {
         "display": "transfer-chunk-size",
         "env": "OTAMPY_TRANSFER_CHUNK_SIZE",
-        "default": 256,
+        "default": 128,
         "type": int,
-        "description": "Bytes per host transfer chunk. Must not exceed your serial module's (e.g. XBee) transmit buffer size.",
+        "description": "Bytes per host transfer chunk. OTA updates cap this at 132 bytes so each encoded URST message fits in one frame.",
     },
 }
 
@@ -1612,6 +1617,37 @@ def _device_has_bytecode(ctx: click.Context) -> bool:
     )
 
 
+def _deployed_bytecode_counterparts(
+    ctx: click.Context, files: list[tuple[str, Path]]
+) -> list[str]:
+    """Return deployed .mpy paths that would shadow the given source files."""
+    candidates_by_directory: dict[str, set[str]] = {}
+    for target_path, source in files:
+        if source.suffix != ".py":
+            continue
+        normalized = target_path.replace("\\", "/").lstrip("/")
+        path = Path(normalized)
+        candidate = str(path.with_suffix(".mpy"))
+        candidates_by_directory.setdefault(str(path.parent), set()).add(
+            candidate
+        )
+
+    counterparts: list[str] = []
+    for directory, candidates in candidates_by_directory.items():
+        command = b"LS" if directory == "." else f"LS:{directory}".encode()
+        try:
+            response, _ = _query(ctx, command, b"LS_OK")
+        except (click.ClickException, DeviceError):
+            continue
+        entries = set(response.decode("utf-8", errors="replace").split(","))
+        counterparts.extend(
+            candidate
+            for candidate in candidates
+            if Path(candidate).name in entries
+        )
+    return counterparts
+
+
 def _query_target_mpy(ctx: click.Context) -> deploy.TargetMpy:
     """Read target bytecode compatibility over the active OTA transport."""
     response, _ = _query(ctx, b"MPY", b"MPY_OK")
@@ -1858,12 +1894,35 @@ def update(
             _console().print("Cancelled.")
             return
 
+    bytecode_cleanup_paths: list[str] = []
     if not bytecode and _device_has_bytecode(ctx):
         _console().print(
             "[yellow]The device contains .mpy files; a source update may shadow deployed bytecode.[/yellow]"
         )
         if click.confirm("Use --bytecode for this update?", default=True):
             bytecode = True
+        else:
+            bytecode_cleanup_paths = _deployed_bytecode_counterparts(
+                ctx, files_to_send
+            )
+            if bytecode_cleanup_paths:
+                _console().print(
+                    "[yellow]Matching bytecode would shadow these source updates: "
+                    + ", ".join(bytecode_cleanup_paths)
+                    + ".[/yellow]"
+                )
+                if click.confirm(
+                    "Remove matching deployed bytecode during this update?",
+                    default=True,
+                ):
+                    _console().print(
+                        "[yellow]Matching bytecode will be removed after the source files are transferred.[/yellow]"
+                    )
+                else:
+                    _console().print(
+                        "Cancelled: the source update would be shadowed by deployed bytecode."
+                    )
+                    return
 
     if bytecode:
         port = ctx.obj.get("port")
@@ -1923,7 +1982,9 @@ def update(
     with staging as files_to_update:
         if minify:
             _print_minification_report(files_to_send, files_to_update)  # type: ignore
-        _update_files(ctx, files_to_update, set_time)  # type: ignore
+        _update_files(  # type: ignore
+            ctx, files_to_update, set_time, bytecode_cleanup_paths
+        )
 
 
 def _update_files(
@@ -2040,7 +2101,16 @@ def _update_files(
             )
 
         # 5. Send files sequentially
-        chunk_size = int(get_config_value("transfer_chunk_size"))
+        configured_chunk_size = int(get_config_value("transfer_chunk_size"))
+        chunk_size = min(
+            configured_chunk_size, MAX_SINGLE_FRAME_TRANSFER_CHUNK_BYTES
+        )
+        if chunk_size != configured_chunk_size:
+            _console().print(
+                "[yellow]Capping transfer chunk size to "
+                f"{MAX_SINGLE_FRAME_TRANSFER_CHUNK_BYTES} bytes so encoded "
+                "URST messages fit in one frame.[/yellow]"
+            )
         for target_path, _local_path, size, sha256, content in manifest:
             _console().print(f"Transferring {target_path} ({size} bytes)...")
 

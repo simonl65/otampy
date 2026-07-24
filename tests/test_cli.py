@@ -1266,6 +1266,77 @@ def test_device_has_bytecode_detects_root_mpy_artifact(monkeypatch):
     assert _device_has_bytecode(click.Context(cli)) is True
 
 
+def test_deployed_bytecode_counterparts_finds_matching_paths(monkeypatch):
+    from otampy.cli import _deployed_bytecode_counterparts
+
+    responses = {
+        b"LS": (b"boot.py,configota.mpy,lib/", None),
+        b"LS:lib": (b"helper.mpy,other.mpy", None),
+    }
+    monkeypatch.setattr(
+        "otampy.cli._query", lambda _ctx, command, _expected: responses[command]
+    )
+
+    assert _deployed_bytecode_counterparts(
+        click.Context(cli),
+        [
+            ("boot.py", Path("boot.py")),
+            ("configota.py", Path("configota.py")),
+            ("lib/helper.py", Path("lib/helper.py")),
+        ],
+    ) == ["configota.mpy", "lib/helper.mpy"]
+
+
+def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
+    monkeypatch,
+):
+    runner = CliRunner()
+    files = [("configota.py", Path("configota.py"))]
+    update_files = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._get_files_to_send", lambda *_args, **_kwargs: files
+    )
+    monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: True)
+    monkeypatch.setattr(
+        "otampy.cli._deployed_bytecode_counterparts",
+        lambda _ctx, _files: ["configota.mpy"],
+    )
+    monkeypatch.setattr("otampy.cli._update_files", update_files)
+
+    result = runner.invoke(
+        cli, ["-p", "/dev/ttyFake", "upd", "configota.py"], input="n\ny\n"
+    )
+
+    assert result.exit_code == 0
+    assert "Matching bytecode would shadow" in result.output
+    update_files.assert_called_once_with(
+        mock.ANY, files, False, ["configota.mpy"]
+    )
+
+
+def test_update_aborts_if_shadowing_bytecode_cleanup_is_declined(monkeypatch):
+    runner = CliRunner()
+    files = [("configota.py", Path("configota.py"))]
+    update_files = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._get_files_to_send", lambda *_args, **_kwargs: files
+    )
+    monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: True)
+    monkeypatch.setattr(
+        "otampy.cli._deployed_bytecode_counterparts",
+        lambda _ctx, _files: ["configota.mpy"],
+    )
+    monkeypatch.setattr("otampy.cli._update_files", update_files)
+
+    result = runner.invoke(
+        cli, ["-p", "/dev/ttyFake", "upd", "configota.py"], input="n\nn\n"
+    )
+
+    assert result.exit_code == 0
+    assert "source update would be shadowed" in result.output
+    update_files.assert_not_called()
+
+
 def test_query_target_mpy_uses_ota_transport(monkeypatch):
     from otampy.cli import _query_target_mpy
 
@@ -1684,6 +1755,7 @@ def test_cli_update_handshake():
             b"FILE_OK",
             b"FILE_OK",
             b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
             b"FILE_OK",
             b"COMMIT_OK",
         ]
@@ -1797,6 +1869,60 @@ def test_cli_update_full_transfer():
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
         mock_device_instance.send.assert_any_call(b"UPDATE_START:2:37")
         mock_device_instance.send.assert_any_call(b"UPDATE_COMMIT")
+
+
+def test_update_caps_legacy_chunk_size_to_single_urst_frame(monkeypatch):
+    runner = CliRunner()
+    source = Path("configota.py")
+    content = b"x" * 133
+    transport = mock.Mock()
+    transport.read.side_effect = [
+        b"REBOOTING",
+        b"READY",
+        b"SPACE_OK",
+        b"FILE_OK",
+        b"CHUNK_ACK:0",
+        b"CHUNK_ACK:1",
+        b"FILE_OK",
+        b"COMMIT_OK",
+    ]
+    monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: False)
+    monkeypatch.setattr(
+        "otampy.cli._get_files_to_send",
+        lambda *_args, **_kwargs: [("configota.py", source)],
+    )
+    monkeypatch.setattr(
+        "otampy.cli.get_config_value",
+        lambda key: 256 if key == "transfer_chunk_size" else 2.0,
+    )
+
+    class MockFile:
+        def read(self):
+            return content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst", return_value=transport),
+        mock.patch("time.sleep"),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+    assert result.exit_code == 0
+    assert "Capping transfer chunk size to 132 bytes" in result.output
+    chunk_packets = [
+        call.args[0]
+        for call in transport.send.call_args_list
+        if call.args[0].startswith(b"CHUNK:")
+    ]
+    assert len(chunk_packets) == 2
+    assert len(chunk_packets[0]) <= 194
 
 
 def test_cli_update_aborts_before_commit_on_transfer_failure():

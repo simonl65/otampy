@@ -82,6 +82,11 @@ contacts the device.
 This profile keeps OTAmpy and URST as editable `.py` files and is the
 recommended development profile.
 
+`upd --bytecode` applies the same target-matched compilation to selected
+updates. It accepts `--mpy-cross` and `--keep-user-source`. When a normal
+source update has a matching deployed `.mpy` file, OTAmpy offers to remove the
+stale bytecode in the same transaction so the source is not shadowed.
+
 ## Development logging profile
 
 Add `--with-logger` to install `log-to-file` alongside URST:
@@ -161,6 +166,9 @@ every deployable file under the device directory.
 | `--with-logger`          | Install `log-to-file` for development logging.                     |
 | `--urst-branch BRANCH`   | Install URST-mpy from a Git branch, such as `develop`.             |
 | `--bytecode`, `--mpy`    | Compile and deploy target-matched `.mpy` libraries.                |
+| `--all-files`            | With `--bytecode`, compile every deployable file in the device directory. |
+| `--keep-user-source`     | With `--bytecode`, deploy user Python files as source instead of `.mpy`. |
+| `--minify`               | Remove comments and redundant blank lines from deployed Python source. |
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
 | `--no-mip`               | Skip every MIP dependency, including URST and the optional logger. |
 | `--no-reset`             | Do not reset the device after deployment.                          |

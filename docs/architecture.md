@@ -145,6 +145,10 @@ uart = UART(
 OTA(uart, config=config).boot()
 ```
 
+`OTA.boot(callback)` calls the callback with the update-request flag path when
+an update is pending. Zero-argument callbacks remain supported for backwards
+compatibility.
+
 When an update is pending, boot mode accepts `UPDATE_ABORT` and automatically
 abandons an inactive transfer after `OTA_TIMEOUT_MS`. Both paths delete staged
 `.ota` files, clear the request flag, and continue into the current application.

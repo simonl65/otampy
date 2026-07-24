@@ -134,7 +134,10 @@ normal OTA operation was verified with `PONG`.
 ### FP-02 filesystem inventory
 
 On 2026-07-01, `packages/device/tools/footprint_fs.py` inventoried the running
-device without modifying it. The filesystem geometry was:
+device without modifying it. The table below is a historical on-device
+snapshot, not a current source inventory: `/lib/otampy/logger.py` was removed
+by FP-10, and the recorded `/lib/shared/` files are no longer present in this
+repository. The filesystem geometry was:
 
 | Property              |                   Value |
 | --------------------- | ----------------------: |

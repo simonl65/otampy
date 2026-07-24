@@ -36,6 +36,8 @@ otampy/
 ├── src/otampy/           # Host CLI package (Python ≥ 3.12)
 │   ├── cli.py            # Click-based command-line interface
 │   ├── deploy.py         # Deploy command implementation
+│   ├── minify.py         # Safe, staged source minification
+│   ├── utils/            # Host-side logging helpers
 │   └── device/           # MicroPython device library (bundled in releases)
 │       ├── lib/otampy/   # Device-side OTA library
 │       └── examples/     # Example boot.py, main.py, config files
@@ -175,7 +177,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `rm`         | `path [...]`                                     | Remove paths from the device (with confirmation - not recoverable). |
 | `rtc`        | —                                                | Display the current device RTC timestamp without rebooting.         |
 | `sr`         | `[--set-time]`                                   | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--set-time] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 
@@ -188,6 +190,9 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--with-logger`       | Install the optional `log-to-file` package.                               |
 | `--urst-branch BRANCH`| Install URST-mpy from a Git branch, such as `develop`.                    |
 | `--bytecode`, `--mpy` | Compile OTAmpy and selected user code into target-matched `.mpy` files.   |
+| `--all-files`         | With `--bytecode`, compile every deployable file in the device directory. |
+| `--keep-user-source`  | With `--bytecode`, deploy user Python files as source instead of `.mpy`.  |
+| `--minify`            | Remove comments and redundant blank lines from deployed Python source.     |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
 | `--no-mip`            | Install neither URST nor the optional logger.                             |
 | `--no-reset`          | Leave the board without a final reset.                                    |
@@ -239,9 +244,12 @@ Copy files or folders to the device (without reboot):
 otampy cp settings.json:config/settings.json
 otampy cp assets:assets/
 otampy cp 'device/lib/*:lib/'
+otampy cp --minify main.py
 ```
 
 `cp` accepts multiple sources, folders, and local wildcard patterns (`*`, `?`, `[]`, `**`). Folder contents are copied recursively; empty folders are not created. Files are streamed to checksum-verified staging files and committed individually while the device continues running. Copies targeting root `/boot.py` or `/main.py` produce a reminder that the replacement will take effect on the next restart.
+Use `--minify` to stage Python files without comments or redundant blank lines;
+it never alters local source files.
 
 Local `cp` and `upd` source paths are resolved from the project root: `/device/*:/`
 copies `<project-root>/device/*` to the device filesystem root. The path after
@@ -278,6 +286,11 @@ otampy upd 'device/lib/something/*.py:lib/something/'
 ```
 
 Directories include all Python files recursively. Local `*`, `?`, `[]`, and `**` patterns are supported. A pattern matching multiple files must map to a destination ending in `/`. If any source or pattern has no matches, the update stops before contacting the device.
+
+Use `--bytecode` to compile selected updates for the connected target; it accepts
+`--mpy-cross` and `--keep-user-source` just like `deploy`. If a source update
+would be shadowed by matching deployed bytecode, OTAmpy offers to switch to
+bytecode or remove the stale artifact as part of the transaction.
 
 Enable **host-side** diagnostics for a single command:
 

@@ -34,12 +34,12 @@ Every request from the Host CLI expects a corresponding response from the Device
 
 ### 2.1 Control Commands
 
-| Request | Response | Description                                         |
-| ------- | -------- | --------------------------------------------------- |
-| `PING`  | `PONG`   | Connection health check.                            |
+| Request | Response                                                              | Description                                                                            |
+| ------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `PING`  | `PONG`                                                                | Connection health check.                                                               |
 | `RTC`   | `RTC_OK:(year, month, day, weekday, hour, minute, second, subsecond)` | Return the raw RTC tuple without resetting the device. The CLI formats it for display. |
-| `RB`    | `RB_OK`  | Trigger a hardware hard reboot (`machine.reset()`). |
-| `SR`    | `SR_OK`  | Trigger a soft reboot (`machine.soft_reset()`).     |
+| `RB`    | `RB_OK`                                                               | Trigger a hardware hard reboot (`machine.reset()`).                                    |
+| `SR`    | `SR_OK`                                                               | Trigger a soft reboot (`machine.soft_reset()`).                                        |
 
 ### 2.2 File System Commands
 
@@ -78,16 +78,16 @@ rebooting.
 
 These commands handle the transition from runtime (`main.py`) to bootloader (`boot.py`) and the subsequent file transfer.
 
-| Request / Msg                         | Sender | Response                       | Description                                                                                            |
-| ------------------------------------- | ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `UPDATE_REQUEST`                      | Host   | `REBOOTING`<br>`BUSY`          | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots.   |
-| `READY`                               | Device | (None)                         | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload.                    |
-| `UPDATE_START:file_count:total_bytes` | Host   | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA transfer session. Device checks disk space.                                          |
-| `FILE_START:path:size:sha256`         | Host   | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).                                      |
-| `CHUNK:seq:data`                      | Host   | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send file chunk of configurable size (e.g., 256/512 bytes).                                            |
-| `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                               |
+| Request / Msg                         | Sender | Response                       | Description                                                                                                                         |
+| ------------------------------------- | ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `UPDATE_REQUEST`                      | Host   | `REBOOTING`<br>`BUSY`          | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots.                                |
+| `READY`                               | Device | (None)                         | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload.                                                 |
+| `UPDATE_START:file_count:total_bytes` | Host   | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA transfer session. Device checks disk space.                                                                       |
+| `FILE_START:path:size:sha256`         | Host   | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).                                                                   |
+| `CHUNK:seq:data`                      | Host   | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send a file chunk. OTAmpy defaults to 128 raw bytes and caps chunks at 132 bytes so the encoded message fits in one URST frame.     |
+| `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                                                            |
 | `UPDATE_ABORT`                        | Host   | `UPDATE_ABORTED`               | Cancel before commit. Device closes the active file, removes session staging files and the update flag, then continues normal boot. |
-| `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`                    | Complete update. Device renames all `.ota` files, clears flag, and reboots to run the new application. |
+| `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`                    | Complete update. Device renames all `.ota` files, clears flag, and reboots to run the new application.                              |
 
 ---
 

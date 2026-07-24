@@ -405,7 +405,6 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "pyserial" },
-    { name = "pytest-cov" },
     { name = "rich" },
     { name = "urst-mpy" },
 ]
@@ -424,7 +423,6 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
     { name = "pyserial", specifier = ">=3.5" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "urst-mpy", specifier = ">=1.0.0,<2.0.0" },
 ]
@@ -433,7 +431,7 @@ requires-dist = [
 dev = [
     { name = "micropython-rp2-rpi-pico-w-stubs", specifier = "==1.28.0.*" },
     { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-watcher", specifier = ">=0.6.3" },
     { name = "python-semantic-release", specifier = ">=10.6.0" },
     { name = "ruff", specifier = ">=0.4" },

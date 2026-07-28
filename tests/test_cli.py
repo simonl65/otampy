@@ -849,7 +849,9 @@ def test_cli_cat_file():
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
         assert result.exit_code == 0
         assert "import config" in result.output
-        assert mock_serial.call_count == 2
+        mock_serial.assert_called_once_with(
+            "/dev/ttyFake", baudrate=57600, timeout=2.0
+        )
         assert mock_device_instance.send.call_args_list == [
             mock.call(b"CAT:boot.py"),
             mock.call(b"CAT_READ:boot.py:0"),

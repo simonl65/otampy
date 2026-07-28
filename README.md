@@ -190,7 +190,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--with-logger`       | Install the optional `log-to-file` package.                               |
 | `--urst-branch BRANCH`| Install URST-mpy from a Git branch, such as `develop`.                    |
 | `--bytecode`, `--mpy` | Compile OTAmpy and selected user code into target-matched `.mpy` files.   |
-| `--all-files`         | With `--bytecode`, compile every deployable file in the device directory. |
+| `--all-files`         | Deploy every deployable file and directory in the device directory. |
 | `--keep-user-source`  | With `--bytecode`, deploy user Python files as source instead of `.mpy`.  |
 | `--minify`            | Remove comments and redundant blank lines from deployed Python source.     |
 | `--mpy-cross`         | Select the `mpy-cross` executable or command.                             |
@@ -200,6 +200,10 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `--dry-run`           | Print the complete `mpremote` command without running it.                 |
 | `--verbose`           | Show raw `mpremote` commands and output during deployment.                |
 | `--mpremote`          | Use a specific `mpremote` executable.                                     |
+
+`--all-files` recursively copies user directories such as `lib/`; it excludes
+`configota.example.py` so only the active `configota.py` configuration is
+installed.
 
 ### Common examples
 

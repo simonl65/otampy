@@ -503,6 +503,7 @@ def _is_deployable_user_file(path: Path) -> bool:
         not in {
             ".DS_Store",
             "Thumbs.db",
+            "configota.example.py",
         }
         and path.suffix != ".pyc"
     )
@@ -662,6 +663,21 @@ def _resolve_user_files(device_dir: Path) -> tuple[Path, Path, Path]:
     )
 
 
+def _all_user_deploy_entries(paths: DeployPaths) -> tuple[Path, ...]:
+    """Return deployable top-level user entries besides the required files.
+
+    Directories are retained as entries so mpremote's recursive copy preserves
+    their complete relative layout (for example ``lib/drivers/...``).
+    """
+    root = paths.config_file.parent
+    required = {paths.config_file, paths.boot_file, paths.main_file}
+    return tuple(
+        path
+        for path in sorted(root.iterdir())
+        if path not in required and _is_deployable_user_file(path)
+    )
+
+
 def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
     """Return the effective source paths for *args*.
 
@@ -681,12 +697,21 @@ def _resolve_deploy_paths(args: DeployArgs) -> DeployPaths:
         boot_file = DEVICE_ROOT / "examples" / "boot.py"
         main_file = DEVICE_ROOT / "examples" / "main.py"
 
-    return DeployPaths(
+    paths = DeployPaths(
         lib_dir=lib_dir,  # type: ignore
         config_file=config_file,  # type: ignore
         boot_file=boot_file,  # type: ignore
         main_file=main_file,  # type: ignore
     )
+    if args.all_files:
+        return DeployPaths(
+            lib_dir=paths.lib_dir,
+            config_file=paths.config_file,
+            boot_file=paths.boot_file,
+            main_file=paths.main_file,
+            extra_files=_all_user_deploy_entries(paths),
+        )
+    return paths
 
 
 def validate_deploy_sources(args: DeployArgs | None = None) -> None:
@@ -846,6 +871,52 @@ def deploy_with_optional_rtc(
             print("Deployment completed successfully.", flush=True)
 
 
+def build_minified_deploy_tree(
+    paths: DeployPaths, destination: Path
+) -> DeployPaths:
+    """Stage the complete source deployment tree with Python files minified."""
+    staged_lib = destination / "lib"
+    copy_minified_tree(paths.lib_dir, staged_lib)
+    source_root = paths.config_file.parent
+    sources = (
+        paths.config_file,
+        paths.boot_file,
+        paths.main_file,
+        *paths.extra_files,
+    )
+
+    for source in sources:
+        if source.is_dir():
+            for nested in sorted(source.rglob("*")):
+                if nested.is_dir() or not _is_deployable_user_file(nested):
+                    continue
+                target = destination / nested.relative_to(source_root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if nested.suffix == ".py":
+                    minify_python_file(nested, target)
+                else:
+                    shutil.copy2(nested, target)
+            continue
+
+        target = destination / source.relative_to(source_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.suffix == ".py":
+            minify_python_file(source, target)
+        else:
+            shutil.copy2(source, target)
+
+    return DeployPaths(
+        staged_lib,
+        destination / "configota.py",
+        destination / "boot.py",
+        destination / "main.py",
+        tuple(
+            destination / path.relative_to(source_root)
+            for path in paths.extra_files
+        ),
+    )
+
+
 def _remove_pycache_dirs() -> None:
     """Remove local __pycache__ directories from the workspace before copying files."""
     if not ROOT.is_dir():
@@ -956,15 +1027,8 @@ def deploy(args: DeployArgs) -> None:
         paths = _resolve_deploy_paths(args)
         with tempfile.TemporaryDirectory(prefix="otampy-minify-") as temp_dir:
             staging_root = Path(temp_dir)
-            staged_lib = staging_root / "lib"
-            copy_minified_tree(paths.lib_dir, staged_lib)
-            staged_files = []
-            for source in (paths.config_file, paths.boot_file, paths.main_file):
-                destination = staging_root / source.name
-                minify_python_file(source, destination)
-                staged_files.append(destination)
-            staged_paths = DeployPaths(staged_lib, *staged_files)
-            deploy_with_optional_rtc(args, staged_lib, staged_paths)
+            staged_paths = build_minified_deploy_tree(paths, staging_root)
+            deploy_with_optional_rtc(args, staged_paths.lib_dir, staged_paths)
         return
 
     if args.dry_run:

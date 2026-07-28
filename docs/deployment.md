@@ -154,8 +154,8 @@ over matching `.mpy` files, so do not mix both forms in `/lib`.
 The bytecode profile installs URST through MIP as source, allowing its native
 decorators to compile for the device architecture. It supports `--with-logger`
 by compiling the logger locally, and supports `--urst-branch`. Use
-`--keep-user-source` to retain user Python source and `--all-files` to compile
-every deployable file under the device directory.
+`--keep-user-source` to retain user Python source and `--all-files` to deploy
+every deployable file and directory under the device directory.
 
 ## Options
 
@@ -166,7 +166,7 @@ every deployable file under the device directory.
 | `--with-logger`          | Install `log-to-file` for development logging.                     |
 | `--urst-branch BRANCH`   | Install URST-mpy from a Git branch, such as `develop`.             |
 | `--bytecode`, `--mpy`    | Compile and deploy target-matched `.mpy` libraries.                |
-| `--all-files`            | With `--bytecode`, compile every deployable file in the device directory. |
+| `--all-files`            | Deploy every deployable file and directory in the device directory.       |
 | `--keep-user-source`     | With `--bytecode`, deploy user Python files as source instead of `.mpy`. |
 | `--minify`               | Remove comments and redundant blank lines from deployed Python source. |
 | `--mpy-cross COMMAND`    | Select the compiler executable or command.                         |
@@ -177,7 +177,10 @@ every deployable file under the device directory.
 | `--verbose`              | Show raw `mpremote` commands and output during deployment.         |
 | `--mpremote PATH`        | Select a different `mpremote` executable.                          |
 
-`--with-logger` has no effect when combined with `--no-mip`.
+`--with-logger` has no effect when combined with `--no-mip`. `--all-files`
+recursively copies user directories such as `lib/`; it excludes
+`configota.example.py` so only the active `configota.py` configuration is
+installed.
 By default, OTAmpy stages a one-shot RTC helper before the deployment's final reset.
 During normal boot OTAmpy's device boot module runs it to set the RTC from the
 host timestamp, then it deletes itself; no second USB connection or follow-up

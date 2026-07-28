@@ -2675,7 +2675,7 @@ def config_cmd(
 @click.option(
     "--all-files",
     is_flag=True,
-    help="With --bytecode, compile and deploy every file in the device directory.",
+    help="Deploy every deployable file and directory in the device directory.",
 )
 @click.option(
     "--keep-user-source",

@@ -409,6 +409,41 @@ def test_deploy_installs_only_urst_mip_dependency_by_default():
     assert not any("log-to-file" in item for item in command)
 
 
+def test_deploy_all_files_copies_nested_user_directories(tmp_path, monkeypatch):
+    device_dir = tmp_path / "device"
+    device_dir.mkdir()
+    for name in ("configota.py", "boot.py", "main.py"):
+        (device_dir / name).write_text("# required\n")
+    driver = device_dir / "lib" / "drivers" / "motor.py"
+    driver.parent.mkdir(parents=True)
+    driver.write_text("# driver\n")
+    (device_dir / "assets").mkdir()
+    (device_dir / "assets" / "calibration.json").write_text("{}\n")
+    (device_dir / "configota.example.py").write_text("# example\n")
+
+    monkeypatch.setattr(
+        deploy, "_find_package_lib_dir", lambda: tmp_path / "otampy"
+    )
+    (tmp_path / "otampy").mkdir()
+    args = deploy.DeployArgs(
+        port="/dev/ttyACM0",
+        mpremote="mpremote",
+        no_mip=True,
+        with_logger=False,
+        no_reset=False,
+        dry_run=True,
+        all_files=True,
+        device_dir=device_dir,
+    )
+
+    command = deploy.deploy_command(args)
+
+    assert str(device_dir / "lib") in command
+    assert str(device_dir / "assets") in command
+    assert str(device_dir / "configota.example.py") not in command
+    assert command[-2:] == ["+", "reset"]
+
+
 def test_deploy_installs_urst_from_requested_branch():
     args = deploy.DeployArgs(
         port="/dev/ttyACM0",

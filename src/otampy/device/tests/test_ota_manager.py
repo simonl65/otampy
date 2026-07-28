@@ -272,7 +272,11 @@ def test_manager_handles_cat(monkeypatch):
     )
 
     manager.poll(core)
-    assert core.transport.sent_messages == [b"CAT_OK:import config"]
+    assert core.transport.sent_messages == [
+        b"CAT_BEGIN:13",
+        b"CAT_DATA:0:import config",
+        b"CAT_END:1:13",
+    ]
 
 
 def _reassemble_fragments(transport):
@@ -294,7 +298,7 @@ def _reassemble_fragments(transport):
     return bytes(payload)
 
 
-def test_manager_streams_large_cat_without_full_transport_message(tmp_path):
+def test_manager_streams_large_cat_as_bounded_messages(tmp_path):
     content = b"x" * (16 * 1024)
     source = tmp_path / "large.txt"
     source.write_bytes(content)
@@ -303,8 +307,18 @@ def test_manager_streams_large_cat_without_full_transport_message(tmp_path):
 
     manager.poll(core)
 
-    assert core.transport.sent_messages == []
-    assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
+    messages = core.transport.sent_messages
+    assert messages[0] == b"CAT_BEGIN:16384"
+    assert messages[-1] == b"CAT_END:128:16384"
+    data_messages = messages[1:-1]
+    assert len(data_messages) == 128
+    assert all(message.startswith(b"CAT_DATA:") for message in data_messages)
+    assert all(len(message) <= 194 for message in data_messages)
+    assert (
+        b"".join(message.split(b":", 2)[2] for message in data_messages)
+        == content
+    )
+    assert core.transport.protocol.sent_fragments == []
 
 
 def test_manager_streams_large_directory_without_full_transport_message(

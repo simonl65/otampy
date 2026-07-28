@@ -11,6 +11,7 @@ from .core import _get_config
 
 _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
+_CAT_CHUNK_BYTES = 128
 _RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
@@ -119,13 +120,28 @@ def _send_response(transport, total_size, parts):
         collect()
 
 
-def _file_parts(source):
-    yield b"CAT_OK:"
+def _send_cat_stream(transport, source, size):
+    """Send a file as bounded reliable messages, never one large response."""
+    if not transport.send(b"CAT_BEGIN:" + str(size).encode()):
+        return
+    sequence = 0
+    sent = 0
     while True:
-        chunk = source.read(_MAX_FRAGMENT_DATA)
+        chunk = source.read(_CAT_CHUNK_BYTES)
         if not chunk:
+            break
+        message = b"CAT_DATA:" + str(sequence).encode() + b":" + chunk
+        if not transport.send(message):
             return
-        yield chunk
+        sent += len(chunk)
+        sequence += 1
+        if sequence & 7 == 0:
+            import gc
+
+            gc.collect()
+    transport.send(
+        b"CAT_END:" + str(sequence).encode() + b":" + str(sent).encode()
+    )
 
 
 def _directory_entries(path):
@@ -285,11 +301,7 @@ def poll(core, callback=None):
             else:
                 size = _os.stat(filename)[6]
                 with open(filename, "rb") as source:
-                    _send_response(
-                        core.transport,
-                        len(b"CAT_OK:") + size,
-                        _file_parts(source),
-                    )
+                    _send_cat_stream(core.transport, source, size)
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "RM":

@@ -841,7 +841,11 @@ def test_cli_cat_file():
         mock.patch("urst.Urst") as mock_device,
     ):
         mock_device_instance = mock_device.return_value
-        mock_device_instance.read.return_value = b"CAT_OK:import config"
+        mock_device_instance.read.side_effect = [
+            b"CAT_BEGIN:13",
+            b"CAT_DATA:0:import config",
+            b"CAT_END:1:13",
+        ]
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
         assert result.exit_code == 0

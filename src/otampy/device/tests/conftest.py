@@ -19,6 +19,7 @@ class FakeUrst:
 
     def send(self, data):
         self.sent_messages.append(data)
+        return len(data)
 
     def read(self):
         if self.incoming_queue:

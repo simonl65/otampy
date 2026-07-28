@@ -826,6 +826,7 @@ def _query(
     command: bytes,
     expected_prefix: bytes,
     transport: Urst | None = None,
+    keep_transport: bool = False,
 ) -> tuple[bytes, Urst | None]:
     """Query device. If transport is provided, reuse it; otherwise create new.
 
@@ -948,6 +949,8 @@ def _query(
             else:
                 res = response[prefix_len:]
 
+            if keep_transport:
+                return res, new_transport
             ser.close()
             return res, None
 
@@ -1110,11 +1113,70 @@ def cat(ctx: click.Context, file: str) -> None:
         f"[green]Showing content of specified file: {file}[/green]"
     )
     try:
-        resp, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
+        size_text, transport = _query(
+            ctx,
+            f"CAT:{file}".encode(),
+            b"CAT_BEGIN",
+            keep_transport=True,
+        )
     except DeviceError as e:
         _handle_device_error(e)
-    content = resp.decode("utf-8", errors="replace")  # type: ignore
-    _console().print(content)
+    try:
+        expected_size = int(size_text)
+    except (TypeError, ValueError) as error:
+        raise click.ClickException("Invalid CAT_BEGIN response.") from error
+
+    received = 0
+    expected_sequence = 0
+    try:
+        while True:
+            response = transport.read()  # type: ignore[union-attr]
+            if not response:
+                raise click.ClickException(
+                    "Timed out while reading file content."
+                )
+            if response.startswith(b"ERROR:"):
+                raise DeviceError(
+                    response[6:].decode("utf-8", errors="replace")
+                )
+            if response.startswith(b"CAT_DATA:"):
+                try:
+                    sequence_text, chunk = response[9:].split(b":", 1)
+                    sequence = int(sequence_text)
+                except (TypeError, ValueError):
+                    raise click.ClickException(
+                        "Invalid CAT_DATA response."
+                    ) from None
+                if sequence != expected_sequence:
+                    raise click.ClickException("Unexpected CAT_DATA sequence.")
+                _console().print(
+                    chunk.decode("utf-8", errors="replace"), end=""
+                )
+                received += len(chunk)
+                expected_sequence += 1
+                continue
+            if response.startswith(b"CAT_END:"):
+                try:
+                    count_text, size_text = response[8:].split(b":", 1)
+                    count = int(count_text)
+                    final_size = int(size_text)
+                except (TypeError, ValueError):
+                    raise click.ClickException(
+                        "Invalid CAT_END response."
+                    ) from None
+                if count != expected_sequence or final_size != received:
+                    raise click.ClickException("Incomplete CAT response.")
+                if received != expected_size:
+                    raise click.ClickException(
+                        "CAT response size does not match CAT_BEGIN."
+                    )
+                return
+            raise click.ClickException("Unexpected CAT response.")
+    except DeviceError as error:
+        _handle_device_error(error)
+    finally:
+        if transport is not None:
+            transport.ser.close()
 
 
 def _join_remote_path(parent: str, name: str) -> str:

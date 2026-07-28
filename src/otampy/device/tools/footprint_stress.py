@@ -144,6 +144,7 @@ class _ManagerTransport(_Transport):
         self._sample()
         self._validator(response)
         self.response_seen = True
+        return len(response)
 
     def _accept_fragment(self, fragment):
         if self._stream_validator is not None:
@@ -163,19 +164,33 @@ class _ManagerTransport(_Transport):
 class _CatStreamValidator:
     def __init__(self):
         self._offset = 0
+        self._sequence = 0
+        self.finished = False
 
-    def feed(self, fragment):
-        prefix = b"CAT_OK:"
-        offset = self._offset
-        for value in fragment:
-            expected = prefix[offset] if offset < len(prefix) else ord("x")
-            if value != expected:
+    def __call__(self, response):
+        if self._sequence == 0:
+            if response != b"CAT_BEGIN:16384":
+                raise RuntimeError("CAT streamed-begin assertion failed")
+            self._sequence = 1
+            return
+        if response.startswith(b"CAT_DATA:"):
+            sequence, content = response[9:].split(b":", 1)
+            if int(sequence) != self._sequence - 1 or content != b"x" * len(
+                content
+            ):
                 raise RuntimeError("CAT streamed-content assertion failed")
-            offset += 1
-        self._offset = offset
+            self._offset += len(content)
+            self._sequence += 1
+            return
+        if response == b"CAT_END:128:16384":
+            if self._offset != 16 * 1024 or self._sequence != 129:
+                raise RuntimeError("CAT streamed-length assertion failed")
+            self.finished = True
+            return
+        raise RuntimeError("CAT streamed response assertion failed")
 
     def finish(self):
-        if self._offset != 7 + 16 * 1024:
+        if not self.finished:
             raise RuntimeError("CAT streamed-length assertion failed")
 
 
@@ -264,23 +279,15 @@ def _run_measured(gc, os, index, operation, cleanup):
 
 
 def _cat_scenario(gc, manager):
-    def validate(response):
-        if (
-            len(response) != 7 + 16 * 1024
-            or not response.startswith(b"CAT_OK:")
-            or response[7:23] != b"x" * 16
-            or response[-16:] != b"x" * 16
-        ):
-            raise RuntimeError("CAT functional assertion failed")
+    validator = _CatStreamValidator()
 
     transport = _ManagerTransport(
         gc,
         f"CAT:{_CAT_PATH}".encode(),
-        validate,
-        _CatStreamValidator(),
+        validator,
     )
     manager.poll(_Core(transport))
-    if not transport.response_seen:
+    if not transport.response_seen or not validator.finished:
         raise RuntimeError("CAT did not respond")
     return transport
 

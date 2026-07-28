@@ -246,14 +246,14 @@ def _run_measured(gc, os, index, operation, cleanup):
 
 
 def _cat_scenario(gc, manager):
-    def validate_begin(response):
-        if response != b"CAT_BEGIN:16384":
-            raise RuntimeError("CAT begin assertion failed")
+    def validate(response):
+        if response != b"CAT_OK:" + b"x" * 16384:
+            raise RuntimeError("CAT functional assertion failed")
 
     transport = _ManagerTransport(
         gc,
         f"CAT:{_CAT_PATH}".encode(),
-        validate_begin,
+        validate,
     )
     manager.poll(_Core(transport))
     if not transport.response_seen:

@@ -272,7 +272,7 @@ def test_manager_handles_cat(monkeypatch):
     )
 
     manager.poll(core)
-    assert core.transport.sent_messages == [b"CAT_BEGIN:13"]
+    assert core.transport.sent_messages == [b"CAT_OK:import config"]
 
 
 def _reassemble_fragments(transport):
@@ -294,7 +294,7 @@ def _reassemble_fragments(transport):
     return bytes(payload)
 
 
-def test_manager_starts_large_cat_without_streaming_file_content(tmp_path):
+def test_manager_streams_large_cat_as_one_bounded_response(tmp_path):
     content = b"x" * (16 * 1024)
     source = tmp_path / "large.txt"
     source.write_bytes(content)
@@ -303,20 +303,33 @@ def test_manager_starts_large_cat_without_streaming_file_content(tmp_path):
 
     manager.poll(core)
 
-    assert core.transport.sent_messages == [b"CAT_BEGIN:16384"]
-    assert core.transport.protocol.sent_fragments == []
+    assert core.transport.sent_messages == []
+    assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
 
 
-def test_manager_reads_bounded_cat_range(tmp_path):
-    content = b"x" * 256
-    source = tmp_path / "large.txt"
-    source.write_bytes(content)
+def test_manager_cat_limits_response_to_initial_file_size(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "growing.log"
+    source.write_bytes(b"before-after")
     core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
-    core.transport.incoming_queue.append(f"CAT_READ:{source}:128".encode())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+
+    import os
+
+    original_stat = os.stat
+
+    def initial_size(path):
+        result = original_stat(path)
+        if str(path) == str(source):
+            return os.stat_result((*result[:6], len(b"before"), *result[7:]))
+        return result
+
+    monkeypatch.setattr(os, "stat", initial_size)
 
     manager.poll(core)
 
-    assert core.transport.sent_messages == [b"CAT_DATA:128:" + b"x" * 128]
+    assert core.transport.sent_messages == [b"CAT_OK:before"]
 
 
 def test_manager_streams_large_directory_without_full_transport_message(

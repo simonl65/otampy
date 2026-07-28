@@ -826,13 +826,12 @@ def _query(
     command: bytes,
     expected_prefix: bytes,
     transport: Urst | None = None,
-    keep_transport: bool = False,
 ) -> tuple[bytes, Urst | None]:
     """Query device. If transport is provided, reuse it; otherwise create new.
 
-    Returns ``(response_data, transport)`` when ``keep_transport`` creates a
-    transport. Otherwise, the returned transport is ``None``. A supplied
-    transport always remains owned by the caller.
+    Returns: (response_data, transport_to_close_or_none)
+    If transport was provided, returns (data, None) - caller manages connection.
+    If transport was created, returns (data, transport) - caller should close it.
     """
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")
@@ -949,8 +948,6 @@ def _query(
             else:
                 res = response[prefix_len:]
 
-            if keep_transport:
-                return res, new_transport
             ser.close()
             return res, None
 
@@ -1112,64 +1109,11 @@ def cat(ctx: click.Context, file: str) -> None:
     _console().print(
         f"[green]Showing content of specified file: {file}[/green]"
     )
-    transport = None
     try:
-        try:
-            size_text, transport = _query(
-                ctx,
-                f"CAT:{file}".encode(),
-                b"CAT_BEGIN",
-                keep_transport=True,
-            )
-        except DeviceError as e:
-            _handle_device_error(e)
-        try:
-            expected_size = int(size_text)
-        except (TypeError, ValueError) as error:
-            raise click.ClickException("Invalid CAT_BEGIN response.") from error
-
-        received = 0
-        while received < expected_size:
-            command = f"CAT_READ:{file}:{received}".encode()
-            try:
-                response, _ = _query(ctx, command, b"CAT_DATA", transport)
-            except DeviceError as error:
-                _handle_device_error(error)
-            except click.ClickException:
-                # A range read is idempotent. Reconnect only after the live
-                # transport fails, then retry the same range through _query's
-                # normal bounded connection retry loop.
-                try:
-                    transport.ser.close()
-                except Exception:
-                    pass
-                try:
-                    response, transport = _query(
-                        ctx, command, b"CAT_DATA", keep_transport=True
-                    )
-                except DeviceError as error:
-                    _handle_device_error(error)
-            try:
-                offset_text, chunk = response.split(b":", 1)
-                offset = int(offset_text)
-            except (TypeError, ValueError):
-                raise click.ClickException(
-                    "Invalid CAT_DATA response."
-                ) from None
-            if offset != received or not chunk:
-                raise click.ClickException("Incomplete CAT response.")
-            # The file can grow after CAT_BEGIN (notably when debug logging
-            # records incoming CAT_READ packets). Read only the advertised
-            # snapshot rather than rejecting a valid final response.
-            chunk = chunk[: expected_size - received]
-            _console().print(chunk.decode("utf-8", errors="replace"), end="")
-            received += len(chunk)
-    finally:
-        if transport is not None:
-            try:
-                transport.ser.close()
-            except Exception:
-                pass
+        response, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+    _console().print(response.decode("utf-8", errors="replace"))
 
 
 def _join_remote_path(parent: str, name: str) -> str:

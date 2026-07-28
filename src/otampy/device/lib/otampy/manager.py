@@ -11,7 +11,6 @@ from .core import _get_config
 
 _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
-_CAT_CHUNK_BYTES = 128
 _RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
@@ -118,6 +117,18 @@ def _send_response(transport, total_size, parts):
         )
         fragment = None
         collect()
+
+
+def _file_parts(source, size):
+    """Yield one fixed-size CAT snapshot without buffering the whole file."""
+    yield b"CAT_OK:"
+    remaining = size
+    while remaining:
+        chunk = source.read(min(_MAX_FRAGMENT_DATA, remaining))
+        if not chunk:
+            return
+        yield chunk
+        remaining -= len(chunk)
 
 
 def _directory_entries(path):
@@ -276,28 +287,12 @@ def poll(core, callback=None):
                 core.transport.send(b"ERROR:EISDIR")
             else:
                 size = _os.stat(filename)[6]
-                core.transport.send(b"CAT_BEGIN:" + str(size).encode())
-        except OSError as e:
-            core.transport.send(f"ERROR:{e}".encode())
-    elif cmd == "CAT_READ":
-        if len(parts) != 3 or not parts[1]:
-            core.transport.send(b"ERROR:Missing filename or offset")
-            return
-        filename = parts[1]
-        try:
-            offset = int(parts[2])
-            if offset < 0:
-                raise ValueError
-        except ValueError:
-            core.transport.send(b"ERROR:Invalid file offset")
-            return
-        try:
-            with open(filename, "rb") as source:
-                source.seek(offset)
-                chunk = source.read(_CAT_CHUNK_BYTES)
-            core.transport.send(
-                b"CAT_DATA:" + str(offset).encode() + b":" + chunk
-            )
+                with open(filename, "rb") as source:
+                    _send_response(
+                        core.transport,
+                        len(b"CAT_OK:") + size,
+                        _file_parts(source, size),
+                    )
         except OSError as e:
             core.transport.send(f"ERROR:{e}".encode())
     elif cmd == "RM":

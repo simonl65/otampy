@@ -841,10 +841,7 @@ def test_cli_cat_file():
         mock.patch("urst.Urst") as mock_device,
     ):
         mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [
-            b"CAT_BEGIN:13",
-            b"CAT_DATA:0:import config",
-        ]
+        mock_device_instance.read.return_value = b"CAT_OK:import config"
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
         assert result.exit_code == 0
@@ -852,30 +849,7 @@ def test_cli_cat_file():
         mock_serial.assert_called_once_with(
             "/dev/ttyFake", baudrate=57600, timeout=2.0
         )
-        assert mock_device_instance.send.call_args_list == [
-            mock.call(b"CAT:boot.py"),
-            mock.call(b"CAT_READ:boot.py:0"),
-        ]
-
-
-def test_cli_cat_accepts_a_final_chunk_after_the_file_grows():
-    """CAT_BEGIN is a size snapshot; logging can append during CAT_READ."""
-    runner = CliRunner()
-    with (
-        mock.patch("serial.Serial"),
-        mock.patch("urst.Urst") as mock_device,
-    ):
-        mock_device_instance = mock_device.return_value
-        mock_device_instance.read.side_effect = [
-            b"CAT_BEGIN:13",
-            b"CAT_DATA:0:import config\nappended after CAT_BEGIN",
-        ]
-
-        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
-
-    assert result.exit_code == 0
-    assert "import config" in result.output
-    assert "appended after CAT_BEGIN" not in result.output
+        mock_device_instance.send.assert_called_once_with(b"CAT:boot.py")
 
 
 def test_cli_rm_missing_arg():

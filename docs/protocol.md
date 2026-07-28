@@ -46,7 +46,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | Request     | Response                 | Description                                                          |
 | ----------- | ------------------------ | -------------------------------------------------------------------- |
 | `LS[:path]` | `LS_OK:[file1,dir2,...]` | List contents of a directory. Returns comma-separated list of items. |
-| `CAT:path` then `CAT_READ:path:offset` | `CAT_BEGIN:size`, then `CAT_DATA:offset:bytes` for each requested range | Read a file through independently retried bounded ranges. |
+| `CAT:path` | `CAT_OK:bytes` | Read a fixed-size file snapshot through one reliably fragmented URST response. |
 | `RM:path`   | `RM_OK`                  | Remove a file or directory from the device.                          |
 
 The official CLI refuses to send `RM` for `/boot.py`, `/main.py`,

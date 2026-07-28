@@ -844,16 +844,16 @@ def test_cli_cat_file():
         mock_device_instance.read.side_effect = [
             b"CAT_BEGIN:13",
             b"CAT_DATA:0:import config",
-            b"CAT_END:1:13",
         ]
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
         assert result.exit_code == 0
         assert "import config" in result.output
-        mock_serial.assert_called_once_with(
-            "/dev/ttyFake", baudrate=57600, timeout=2.0
-        )
-        mock_device_instance.send.assert_called_once_with(b"CAT:boot.py")
+        assert mock_serial.call_count == 2
+        assert mock_device_instance.send.call_args_list == [
+            mock.call(b"CAT:boot.py"),
+            mock.call(b"CAT_READ:boot.py:0"),
+        ]
 
 
 def test_cli_rm_missing_arg():

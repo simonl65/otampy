@@ -46,7 +46,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | Request     | Response                 | Description                                                          |
 | ----------- | ------------------------ | -------------------------------------------------------------------- |
 | `LS[:path]` | `LS_OK:[file1,dir2,...]` | List contents of a directory. Returns comma-separated list of items. |
-| `CAT:path`  | `CAT_BEGIN:size`, zero or more `CAT_DATA:sequence:bytes`, then `CAT_END:count:size` | Read a file as bounded reliable messages. |
+| `CAT:path` then `CAT_READ:path:offset` | `CAT_BEGIN:size`, then `CAT_DATA:offset:bytes` for each requested range | Read a file through independently retried bounded ranges. |
 | `RM:path`   | `RM_OK`                  | Remove a file or directory from the device.                          |
 
 The official CLI refuses to send `RM` for `/boot.py`, `/main.py`,

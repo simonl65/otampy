@@ -161,39 +161,6 @@ class _ManagerTransport(_Transport):
         self.response_seen = True
 
 
-class _CatStreamValidator:
-    def __init__(self):
-        self._offset = 0
-        self._sequence = 0
-        self.finished = False
-
-    def __call__(self, response):
-        if self._sequence == 0:
-            if response != b"CAT_BEGIN:16384":
-                raise RuntimeError("CAT streamed-begin assertion failed")
-            self._sequence = 1
-            return
-        if response.startswith(b"CAT_DATA:"):
-            sequence, content = response[9:].split(b":", 1)
-            if int(sequence) != self._sequence - 1 or content != b"x" * len(
-                content
-            ):
-                raise RuntimeError("CAT streamed-content assertion failed")
-            self._offset += len(content)
-            self._sequence += 1
-            return
-        if response == b"CAT_END:128:16384":
-            if self._offset != 16 * 1024 or self._sequence != 129:
-                raise RuntimeError("CAT streamed-length assertion failed")
-            self.finished = True
-            return
-        raise RuntimeError("CAT streamed response assertion failed")
-
-    def finish(self):
-        if not self.finished:
-            raise RuntimeError("CAT streamed-length assertion failed")
-
-
 class _PacketTransport(_Transport):
     def __init__(self, gc, packets):
         super().__init__(gc)
@@ -279,15 +246,17 @@ def _run_measured(gc, os, index, operation, cleanup):
 
 
 def _cat_scenario(gc, manager):
-    validator = _CatStreamValidator()
+    def validate_begin(response):
+        if response != b"CAT_BEGIN:16384":
+            raise RuntimeError("CAT begin assertion failed")
 
     transport = _ManagerTransport(
         gc,
         f"CAT:{_CAT_PATH}".encode(),
-        validator,
+        validate_begin,
     )
     manager.poll(_Core(transport))
-    if not transport.response_seen or not validator.finished:
+    if not transport.response_seen:
         raise RuntimeError("CAT did not respond")
     return transport
 

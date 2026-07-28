@@ -1158,10 +1158,10 @@ def cat(ctx: click.Context, file: str) -> None:
                 ) from None
             if offset != received or not chunk:
                 raise click.ClickException("Incomplete CAT response.")
-            if received + len(chunk) > expected_size:
-                raise click.ClickException(
-                    "CAT response exceeds CAT_BEGIN size."
-                )
+            # The file can grow after CAT_BEGIN (notably when debug logging
+            # records incoming CAT_READ packets). Read only the advertised
+            # snapshot rather than rejecting a valid final response.
+            chunk = chunk[: expected_size - received]
             _console().print(chunk.decode("utf-8", errors="replace"), end="")
             received += len(chunk)
     finally:

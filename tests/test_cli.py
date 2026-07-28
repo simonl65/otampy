@@ -858,6 +858,26 @@ def test_cli_cat_file():
         ]
 
 
+def test_cli_cat_accepts_a_final_chunk_after_the_file_grows():
+    """CAT_BEGIN is a size snapshot; logging can append during CAT_READ."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device_instance = mock_device.return_value
+        mock_device_instance.read.side_effect = [
+            b"CAT_BEGIN:13",
+            b"CAT_DATA:0:import config\nappended after CAT_BEGIN",
+        ]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
+
+    assert result.exit_code == 0
+    assert "import config" in result.output
+    assert "appended after CAT_BEGIN" not in result.output
+
+
 def test_cli_rm_missing_arg():
     """Test that 'rm' without required file argument fails."""
     runner = CliRunner()

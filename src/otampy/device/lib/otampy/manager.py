@@ -95,6 +95,7 @@ def _send_response(transport, total_size, parts):
                     _urst_constants.FRAME_FRAG,
                     header + bytes(fragment),
                 ):
+                    transport.send(b"ERROR:Fragment transfer failed")
                     return
                 fragment_number += 1
                 fragment = bytearray()
@@ -111,10 +112,12 @@ def _send_response(transport, total_size, parts):
                 len(fragment),
             )
         )
-        protocol.send_reliable(
+        if not protocol.send_reliable(
             _urst_constants.FRAME_FRAG,
             header + bytes(fragment),
-        )
+        ):
+            transport.send(b"ERROR:Fragment transfer failed")
+            return
         fragment = None
         collect()
 

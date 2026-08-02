@@ -307,6 +307,60 @@ def test_manager_streams_large_cat_as_one_bounded_response(tmp_path):
     assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
 
 
+def _flaky_send_reliable(core, fail_on_call):
+    """Fail the Nth (1-indexed) fragment send; record the rest normally."""
+    call_count = 0
+
+    def send_reliable(frame_type, payload):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_on_call:
+            return False
+        core.transport.protocol.sent_fragments.append(
+            (frame_type, bytes(payload))
+        )
+        return True
+
+    return send_reliable
+
+
+def test_manager_reports_error_when_a_fragment_fails(tmp_path):
+    """A mid-stream fragment failure must abort with a visible ERROR reply,
+    not leave the host waiting on a response that will never arrive."""
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+    core.transport.protocol.send_reliable = _flaky_send_reliable(
+        core, fail_on_call=2
+    )
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ERROR:Fragment transfer failed"]
+    assert len(core.transport.protocol.sent_fragments) == 1
+
+
+def test_manager_reports_error_when_the_final_fragment_fails(tmp_path):
+    """Same as above, but for the trailing (non-full-size) fragment sent
+    after the main loop -- that path used to skip the failure check
+    entirely."""
+    content = b"y" * 197  # total_size 204 -> fragments of 194 + 10 bytes
+    source = tmp_path / "small.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+    core.transport.protocol.send_reliable = _flaky_send_reliable(
+        core, fail_on_call=2
+    )
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ERROR:Fragment transfer failed"]
+    assert len(core.transport.protocol.sent_fragments) == 1
+
+
 def test_manager_cat_limits_response_to_initial_file_size(
     tmp_path, monkeypatch
 ):

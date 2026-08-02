@@ -1291,10 +1291,14 @@ def test_cli_friendly_errors():
             assert "Error: Is a directory: 'lib/'" in result.output
 
 
-def test_cli_update_default():
+def test_cli_update_default(tmp_path):
     """Test 'upd' command without parameters and no local files exits early."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+    with (
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+    ):
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
     assert result.exit_code == 0
     assert "No files found to transfer" in result.output
 

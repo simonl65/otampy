@@ -26,6 +26,32 @@ This document defines the communication protocol between the OTAmpy Host CLI and
   COMMAND[:ARG1[:ARG2[:...]]]
   ```
 
+### 1.1 Sharing the UART with application code
+
+If your project's own code needs the same physical UART OTAmpy is using
+(e.g. a control/telemetry stream sharing one radio link), do **not** call
+`uart.read()`/`uart.write()` directly anywhere outside of `OTA(...)`. Both
+sides read the same buffer, so whichever one calls `read()` first on a
+given loop tick silently steals the other's bytes -- most commonly this
+shows up as OTAmpy handshakes/commands timing out with no error, because
+the CONNECT or command frame never reached URST.
+
+Use `otampy.mux.SerialMux` to split one UART into isolated channels:
+
+```python
+from otampy.mux import SerialMux
+
+mux = SerialMux(uart)
+ota = OTA(mux.ota_port, config=config, logger=logger)
+
+# elsewhere in your loop, instead of uart.read()/uart.write():
+mux.service()             # pump the real UART -- call every loop tick
+mux.send_app(payload)      # write on your application's channel
+data = mux.poll_app()      # newest pending payload on your channel, or None
+```
+
+This is exactly the pattern the shipped `boot.py`/`main.py` examples use.
+
 ---
 
 ## 2. Command & Response Reference

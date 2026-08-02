@@ -40,10 +40,20 @@ fake_constants = types.SimpleNamespace(
     FRAME_FRAG=0x04,
     MAX_PAYLOAD_SIZE=200,
 )
+
+# mux.py uses the real COBS implementation (it's the thing under test in
+# test_mux.py, which asserts identity against it) -- import it before
+# sys.modules["urst"] gets replaced below, and pin it under the dotted
+# submodule name too so `from urst.codec_layer import ...` resolves
+# deterministically regardless of module collection order.
+import urst.codec_layer as _real_urst_codec_layer  # noqa: E402
+
 sys.modules["urst"] = types.SimpleNamespace(  # pyright: ignore[reportArgumentType]
     Urst=FakeUrst,
     constants=fake_constants,
+    codec_layer=_real_urst_codec_layer,
 )
+sys.modules["urst.codec_layer"] = _real_urst_codec_layer
 
 # 2. Create a virtual package 'device_otampy' to avoid conflict with CLI
 LIB_PATH = Path(__file__).resolve().parent.parent / "lib"

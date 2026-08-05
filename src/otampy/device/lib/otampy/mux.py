@@ -133,7 +133,7 @@ class SerialMux:
             if idx < 0:
                 break
             frame = bytes(self._rx_buffer[:idx])
-            self._rx_buffer = self._rx_buffer[idx + 1 :]
+            del self._rx_buffer[: idx + 1]
             if not frame:
                 continue
             if len(frame) > MAX_OUTER_FRAME_BYTES:

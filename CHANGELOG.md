@@ -6,6 +6,13 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ## Unreleased
 
+### Changed
+
+- **Device library (`manager.py`, `filecopy.py`, `boot.py`) now replies via `transport.reply()` instead of `transport.send()`**, to work with `urst-mpy`'s upcoming §5.8 Request ID correlation (spec v0.4.0, not yet released -- see `urst-mpy`'s `CHANGELOG.md`). Every command handler answers whatever it most recently read, so this is a mechanical `send()` -> `reply()` rename at each reply call site; `boot.py`'s unprompted `READY` push (sent before any command is received, to kick off an OTA session) is the one call site that correctly stays on `send()`.
+  - `manager.py::_send_response()`'s manual fragment loop (bypasses `Urst.send()`'s own fragmentation to keep `gc.collect()` calls between fragments) now threads `request_id` through to `protocol.send_reliable()` by hand, and calls the new `protocol.send_abort()` on retry exhaustion -- neither comes for free outside `Urst.send()`.
+  - No change needed on the CLI side: `_query()`'s existing `transport.send(command)` / `transport.read()` pattern already matches the new default (`request_id=None` starts a new request), unchanged.
+  - Requires `urst-mpy` with `Urst.reply()`/Request ID support once released; the dependency pin isn't widened yet since that release hasn't happened.
+
 ## [4.2.1] - 2026-08-10
 
 ### Fixed

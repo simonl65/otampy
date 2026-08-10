@@ -16,24 +16,36 @@ class FakeUrst:
         self.incoming_queue = []
         self._msg_id = 0
         self.protocol = FakeProtocol()
+        self.last_request_id = None
 
-    def send(self, data):
+    def send(self, data, request_id=None):
         self.sent_messages.append(data)
         return len(data)
 
     def read(self):
         if self.incoming_queue:
+            self.last_request_id = 0
             return self.incoming_queue.pop(0)
         return None
+
+    def reply(self, data):
+        if self.last_request_id is None:
+            raise RuntimeError(
+                "reply() called with nothing received yet to reply to"
+            )
+        return self.send(data, request_id=self.last_request_id)
 
 
 class FakeProtocol:
     def __init__(self):
         self.sent_fragments = []
 
-    def send_reliable(self, frame_type, payload):
+    def send_reliable(self, frame_type, payload, request_id=0):
         self.sent_fragments.append((frame_type, bytes(payload)))
         return True
+
+    def send_abort(self, message_id, request_id=0, reason_code=0):
+        pass
 
 
 fake_constants = types.SimpleNamespace(

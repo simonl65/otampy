@@ -85,8 +85,11 @@ def _run_default_update_loop(core):
 
     import machine
 
-    # Caching Attributes for speed
-    send = core.transport.send
+    # Caching Attributes for speed. `reply`, not `send`: every call in this
+    # loop answers the packet most recently read (§5.8.3) -- `READY` above,
+    # sent unprompted to kick off the session, is the one exception and
+    # correctly stays on `core.transport.send()` directly.
+    send = core.transport.reply
     read = core.transport.read
     collect = gc.collect
 

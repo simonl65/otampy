@@ -25,12 +25,12 @@ def _do_callback(core, callback=None):
 
 def _stage_rtc_update(core, parts):
     if len(parts) != 9:
-        core.transport.send(b"RTC_STAGE_ERR")
+        core.transport.reply(b"RTC_STAGE_ERR")
         return
     try:
         time_tuple = tuple(int(value) for value in parts[1:])
     except ValueError:
-        core.transport.send(b"RTC_STAGE_ERR")
+        core.transport.reply(b"RTC_STAGE_ERR")
         return
     try:
         with open(_RTC_HELPER_FILE, "w") as helper:
@@ -42,14 +42,14 @@ def _stage_rtc_update(core, parts):
             )
     except OSError as error:
         core.logger.error(f"Failed to stage RTC update: {error}")
-        core.transport.send(b"RTC_STAGE_ERR")
+        core.transport.reply(b"RTC_STAGE_ERR")
         return
-    core.transport.send(b"RTC_STAGE_OK")
+    core.transport.reply(b"RTC_STAGE_OK")
 
 
 def _send_response(transport, total_size, parts):
     if total_size > _MAX_RESPONSE_SIZE:
-        transport.send(b"ERROR:Response too large")
+        transport.reply(b"ERROR:Response too large")
         return
 
     protocol = getattr(transport, "protocol", None)
@@ -61,9 +61,15 @@ def _send_response(transport, total_size, parts):
         response = bytearray()
         for part in parts:
             response.extend(part)
-        transport.send(bytes(response))
+        transport.reply(bytes(response))
         return
 
+    # Replying with an already-fragmented payload bypasses Urst.send()'s
+    # own fragmentation (to keep gc.collect() calls between fragments for
+    # low-memory devices), so it must independently echo the request's
+    # Request ID (§5.8.3) and send ABORT on retry exhaustion (§5.7.2) --
+    # neither of those come for free outside Urst.send().
+    request_id = transport.last_request_id
     total_fragments = (
         total_size + _MAX_FRAGMENT_DATA - 1
     ) // _MAX_FRAGMENT_DATA
@@ -94,8 +100,10 @@ def _send_response(transport, total_size, parts):
                 if not protocol.send_reliable(
                     _urst_constants.FRAME_FRAG,
                     header + bytes(fragment),
+                    request_id,
                 ):
-                    transport.send(b"ERROR:Fragment transfer failed")
+                    protocol.send_abort(message_id, request_id)
+                    transport.reply(b"ERROR:Fragment transfer failed")
                     return
                 fragment_number += 1
                 fragment = bytearray()
@@ -115,8 +123,10 @@ def _send_response(transport, total_size, parts):
         if not protocol.send_reliable(
             _urst_constants.FRAME_FRAG,
             header + bytes(fragment),
+            request_id,
         ):
-            transport.send(b"ERROR:Fragment transfer failed")
+            protocol.send_abort(message_id, request_id)
+            transport.reply(b"ERROR:Fragment transfer failed")
             return
         fragment = None
         collect()
@@ -209,7 +219,7 @@ def poll(core, callback=None):
     cmd = parts[0]
 
     if cmd == "PING":
-        core.transport.send(b"PONG")
+        core.transport.reply(b"PONG")
     elif cmd == "MPY":
         import sys
 
@@ -220,22 +230,22 @@ def poll(core, callback=None):
             bits += 1
             maximum >>= 1
         if value is None:
-            core.transport.send(b"ERROR:No _mpy support")
+            core.transport.reply(b"ERROR:No _mpy support")
         else:
-            core.transport.send(f"MPY_OK:{value}:{bits}".encode())
+            core.transport.reply(f"MPY_OK:{value}:{bits}".encode())
     elif cmd == "RTC":
-        core.transport.send(
+        core.transport.reply(
             b"RTC_OK:" + repr(machine.RTC().datetime()).encode()
         )
     elif cmd == "RTC_STAGE":
         _stage_rtc_update(core, parts)
     elif cmd == "RB":
-        core.transport.send(b"RB_OK")
+        core.transport.reply(b"RB_OK")
         core.logger.info("Reboot commanded (RB)")
         _do_callback(core, callback)
         machine.reset()
     elif cmd == "SR":
-        core.transport.send(b"SR_OK")
+        core.transport.reply(b"SR_OK")
         core.logger.info("Soft-reset commanded (SR)")
         machine.soft_reset()
     elif cmd == "UPDATE_REQUEST":
@@ -248,7 +258,7 @@ def poll(core, callback=None):
                     f.write("1")
             except OSError as e:
                 core.logger.error(f"Failed to write flag file: {e}")
-        core.transport.send(b"REBOOTING")
+        core.transport.reply(b"REBOOTING")
         core.logger.info(
             "Shutdown started: OTA update requested (rebooting into boot.py)"
         )
@@ -264,7 +274,7 @@ def poll(core, callback=None):
 
             if not is_dir:
                 name = path.split("/")[-1]
-                core.transport.send(f"LS_OK:{name}".encode())
+                core.transport.reply(f"LS_OK:{name}".encode())
             else:
                 total_size = _directory_size(path)
                 _send_response(
@@ -273,10 +283,10 @@ def poll(core, callback=None):
                     _directory_parts(path),
                 )
         except OSError as e:
-            core.transport.send(f"ERROR:{e}".encode())
+            core.transport.reply(f"ERROR:{e}".encode())
     elif cmd == "CAT":
         if len(parts) < 2 or not parts[1]:
-            core.transport.send(b"ERROR:Missing filename")
+            core.transport.reply(b"ERROR:Missing filename")
             return
         filename = parts[1]
         try:
@@ -287,7 +297,7 @@ def poll(core, callback=None):
                 is_dir = False
 
             if is_dir:
-                core.transport.send(b"ERROR:EISDIR")
+                core.transport.reply(b"ERROR:EISDIR")
             else:
                 size = _os.stat(filename)[6]
                 with open(filename, "rb") as source:
@@ -297,24 +307,24 @@ def poll(core, callback=None):
                         _file_parts(source, size),
                     )
         except OSError as e:
-            core.transport.send(f"ERROR:{e}".encode())
+            core.transport.reply(f"ERROR:{e}".encode())
     elif cmd == "RM":
         if len(parts) < 2 or not parts[1]:
-            core.transport.send(b"ERROR:Missing filename")
+            core.transport.reply(b"ERROR:Missing filename")
             return
         filename = parts[1]
         try:
             _os.remove(filename)
-            core.transport.send(b"RM_OK")
+            core.transport.reply(b"RM_OK")
         except OSError as remove_error:
             try:
                 is_dir = _os.stat(filename)[0] & 0x4000
                 if not is_dir:
                     raise remove_error
                 _os.rmdir(filename)
-                core.transport.send(b"RM_OK")
+                core.transport.reply(b"RM_OK")
             except OSError as e:
-                core.transport.send(f"ERROR:{e}".encode())
+                core.transport.reply(f"ERROR:{e}".encode())
     elif cmd.startswith("CP_"):
         from .filecopy import handle
 
@@ -338,7 +348,7 @@ def poll(core, callback=None):
             flash_free = 0
             flash_total = 0
 
-        core.transport.send(
+        core.transport.reply(
             f"MEM_OK:{ram_free},{ram_alloc},{flash_free},{flash_total}".encode()
         )
     else:

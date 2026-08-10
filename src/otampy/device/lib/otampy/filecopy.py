@@ -75,14 +75,14 @@ def _start(core, command):
     _clear_state(core)
     fields = command.split(":", 3)
     if len(fields) < 4 or not fields[1]:
-        core.transport.send(b"ERROR:Invalid copy start")
+        core.transport.reply(b"ERROR:Invalid copy start")
         return
     try:
         size = int(fields[2])
         if size < 0 or len(fields[3]) != 64:
             raise ValueError
     except ValueError:
-        core.transport.send(b"ERROR:Invalid copy metadata")
+        core.transport.reply(b"ERROR:Invalid copy metadata")
         return
 
     target = fields[1]
@@ -91,7 +91,7 @@ def _start(core, command):
         try:
             stat = _os.statvfs("/")
             if stat[4] * stat[0] < size:
-                core.transport.send(b"ERROR:Insufficient storage")
+                core.transport.reply(b"ERROR:Insufficient storage")
                 return
         except (AttributeError, OSError):
             pass
@@ -115,21 +115,21 @@ def _start(core, command):
             0,
             0,
         ]
-        core.transport.send(b"CP_READY")
+        core.transport.reply(b"CP_READY")
     except OSError as e:
         _clear_state(core)
-        core.transport.send(f"ERROR:{e}".encode())
+        core.transport.reply(f"ERROR:{e}".encode())
 
 
 def _chunk(core, command):
     state = getattr(core, "_copy_state", None)
     fields = command.split(":", 2)
     if state is None:
-        core.transport.send(b"ERROR:No active copy")
+        core.transport.reply(b"ERROR:No active copy")
         return
     if len(fields) < 3:
         _clear_state(core)
-        core.transport.send(b"ERROR:Invalid copy chunk")
+        core.transport.reply(b"ERROR:Invalid copy chunk")
         return
     try:
         sequence = int(fields[1])
@@ -144,16 +144,16 @@ def _chunk(core, command):
         state[4].update(data)
         state[6] += len(data)
         state[7] += 1
-        core.transport.send(f"CP_ACK:{sequence}".encode())
+        core.transport.reply(f"CP_ACK:{sequence}".encode())
     except (OSError, ValueError) as e:
         _clear_state(core)
-        core.transport.send(f"ERROR:{e}".encode())
+        core.transport.reply(f"ERROR:{e}".encode())
 
 
 def _end(core):
     state = getattr(core, "_copy_state", None)
     if state is None:
-        core.transport.send(b"ERROR:No active copy")
+        core.transport.reply(b"ERROR:No active copy")
         return
     try:
         state[0].close()
@@ -167,10 +167,10 @@ def _end(core):
             raise ValueError("Copy checksum mismatch")
         _commit(state[1], state[2])
         _clear_state(core, remove_staging=False)
-        core.transport.send(b"CP_OK")
+        core.transport.reply(b"CP_OK")
     except (OSError, ValueError) as e:
         _clear_state(core)
-        core.transport.send(f"ERROR:{e}".encode())
+        core.transport.reply(f"ERROR:{e}".encode())
 
 
 def handle(core, command):
@@ -183,6 +183,6 @@ def handle(core, command):
         _end(core)
     elif cmd == "CP_ABORT":
         _clear_state(core)
-        core.transport.send(b"CP_ABORTED")
+        core.transport.reply(b"CP_ABORTED")
     else:
-        core.transport.send(b"ERROR:Unknown copy command")
+        core.transport.reply(b"ERROR:Unknown copy command")

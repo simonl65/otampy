@@ -311,7 +311,7 @@ def _flaky_send_reliable(core, fail_on_call):
     """Fail the Nth (1-indexed) fragment send; record the rest normally."""
     call_count = 0
 
-    def send_reliable(frame_type, payload):
+    def send_reliable(frame_type, payload, request_id=0):
         nonlocal call_count
         call_count += 1
         if call_count == fail_on_call:

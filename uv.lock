@@ -424,7 +424,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "urst-mpy", specifier = ">=1.0.0,<2.0.0" },
+    { name = "urst-mpy", specifier = ">=1.0.0,<3.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -766,14 +766,14 @@ wheels = [
 
 [[package]]
 name = "urst-mpy"
-version = "1.0.2"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyserial" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/46/762684da2603f84136886af9d6e675912f59288e30aee79868fbe29c8185/urst_mpy-1.0.2.tar.gz", hash = "sha256:0d53fc2fca538b70396e5bb728981751e9c5b5533767f94d29177279c496f5ff", size = 10468, upload-time = "2026-07-07T18:19:06.849Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/15/59a8e79e0a15bad77766ea7141cea4fc2fcc78f34c47f9ce1cf55b5edeab/urst_mpy-2.0.0.tar.gz", hash = "sha256:a946ff4d3bd63a385d2645b022ff1a56ef4dae522660f653a7073d5f4b3b59c5", size = 12090, upload-time = "2026-08-10T12:50:01.61Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/a5/03e2e4e1295acdea627a91122219e4d23646154ab7ba37cb6fb5517c6428/urst_mpy-1.0.2-py3-none-any.whl", hash = "sha256:51b3d31de3e57995a03c33c3f6b029faef098574db3a8455a5eab4db21eaaaee", size = 12653, upload-time = "2026-07-07T18:19:05.649Z" },
+    { url = "https://files.pythonhosted.org/packages/38/32/a96c8d3f9c8dad7875cd39aaf275d48397a3a23b2f7de8fae6e4e8ffb197/urst_mpy-2.0.0-py3-none-any.whl", hash = "sha256:1af38902afb27420b1cf784dee719c203988a35ec3956ad1ee6098e1c6bb55c9", size = 14324, upload-time = "2026-08-10T12:50:02.438Z" },
 ]
 
 [[package]]

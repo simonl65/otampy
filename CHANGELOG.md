@@ -6,6 +6,8 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ## Unreleased
 
+## [4.2.1] - 2026-08-10
+
 ### Fixed
 
 - **`mux.py`'s `SerialMux.service()` crashed on the very first frame it ever
@@ -30,6 +32,10 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   `test_service_trims_rx_buffer_via_slice_reassignment` and rewritten to
   assert only the correct trimming behaviour, not a specific
   (MicroPython-incompatible) mechanism.
+
+## [4.2.0] - 2026-08-10
+
+### Fixed
 
 - **`upd`'s per-step reads (`SPACE_OK`/`FILE_OK`/`CHUNK_ACK`/`DELETE_OK`/
   `COMMIT_OK`/`UPDATE_ABORTED`) gave up after a single empty

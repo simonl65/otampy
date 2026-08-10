@@ -400,7 +400,7 @@ wheels = [
 
 [[package]]
 name = "otampy"
-version = "4.2.1"
+version = "4.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -424,7 +424,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "urst-mpy", specifier = ">=1.0.0,<3.0.0" },
+    { name = "urst-mpy", specifier = ">=3.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -766,14 +766,14 @@ wheels = [
 
 [[package]]
 name = "urst-mpy"
-version = "2.0.0"
+version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyserial" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/15/59a8e79e0a15bad77766ea7141cea4fc2fcc78f34c47f9ce1cf55b5edeab/urst_mpy-2.0.0.tar.gz", hash = "sha256:a946ff4d3bd63a385d2645b022ff1a56ef4dae522660f653a7073d5f4b3b59c5", size = 12090, upload-time = "2026-08-10T12:50:01.61Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/37/b8601d0f05c021cb309a875e971fcaea472f05ad37db4559aae0313df636/urst_mpy-3.0.0.tar.gz", hash = "sha256:d14a0f2911a3d12876ea95ba12e416a06f051170865d3e6203cd93a2e64091b4", size = 14167, upload-time = "2026-08-10T19:24:21.332Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/32/a96c8d3f9c8dad7875cd39aaf275d48397a3a23b2f7de8fae6e4e8ffb197/urst_mpy-2.0.0-py3-none-any.whl", hash = "sha256:1af38902afb27420b1cf784dee719c203988a35ec3956ad1ee6098e1c6bb55c9", size = 14324, upload-time = "2026-08-10T12:50:02.438Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/eb/139d86d82a956e613c8574c1a02fa9671a6c9fda74c74db2158365acb8ad/urst_mpy-3.0.0-py3-none-any.whl", hash = "sha256:56032a92f7048477722f7000a528b9e0fb7b8b25b8624c6b2dedb1d5340cefb0", size = 16689, upload-time = "2026-08-10T19:24:20.12Z" },
 ]
 
 [[package]]

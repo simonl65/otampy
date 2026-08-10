@@ -127,24 +127,22 @@ def test_oversized_unterminated_frame_is_discarded():
     assert serial_mux.outer_frames_dropped == 1
 
 
-def test_service_trims_rx_buffer_in_place_without_reallocating():
-    # A slice assignment (`self._rx_buffer = self._rx_buffer[idx + 1:]`)
-    # allocates a brand-new bytearray every trim, on every service() call
-    # that finds a delimiter -- i.e. every round of a caller's main loop.
-    # An in-place `del` shrinks the same object instead: no new allocation.
+def test_service_trims_rx_buffer_via_slice_reassignment():
+    # MicroPython's bytearray doesn't support item/slice deletion at all
+    # (`del buf[:n]` raises TypeError: 'bytearray' object doesn't support
+    # item deletion) -- only CPython's does. service() must trim consumed
+    # bytes off the front of _rx_buffer via slice reassignment instead.
     uart = FakeUart()
     serial_mux = mux.SerialMux(uart)
     uart.incoming.extend(
         outer_frame(mux.DEFAULT_OTA_CHANNEL, b"\x00one\x00")
         + outer_frame(mux.DEFAULT_OTA_CHANNEL, b"\x00two\x00")
     )
-    buffer = serial_mux._rx_buffer  # keep a live reference: `is`, not id(),
-    # since id() alone can't tell a rebind from reusing a just-freed address
 
     serial_mux.service()
 
-    assert serial_mux._rx_buffer is buffer
     assert serial_mux.ota_port.read() == b"\x00one\x00\x00two\x00"
+    assert not serial_mux._rx_buffer
 
 
 def test_channel_ids_are_configurable():

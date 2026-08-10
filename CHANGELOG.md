@@ -8,6 +8,29 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ### Fixed
 
+- **`mux.py`'s `SerialMux.service()` crashed on the very first frame it ever
+  parsed on real MicroPython hardware**, with `TypeError: 'bytearray'
+  object doesn't support item deletion`. It trimmed consumed bytes off the
+  front of `_rx_buffer` with `del self._rx_buffer[: idx + 1]`; MicroPython's
+  `bytearray` doesn't support item/slice deletion at all (only CPython's
+  does), so this raised on every device, unconditionally, the moment any
+  outer frame was received.
+
+  Reproduced against a real deployment (diff-drive-robot): `main.py`'s
+  loop died with this traceback on startup, every boot.
+
+  `service()` now trims via slice reassignment
+  (`self._rx_buffer = self._rx_buffer[idx + 1 :]`) instead, matching the
+  pattern already used elsewhere in `mux.py` (e.g. `_VirtualPort._feed`).
+  The existing `test_service_trims_rx_buffer_in_place_without_reallocating`
+  test had asserted the old `del`-based behaviour as a desired
+  optimization; it passed because CPython's `bytearray` *does* support
+  slice deletion, masking the MicroPython incompatibility entirely from
+  the test suite. Renamed to
+  `test_service_trims_rx_buffer_via_slice_reassignment` and rewritten to
+  assert only the correct trimming behaviour, not a specific
+  (MicroPython-incompatible) mechanism.
+
 - **`upd`'s per-step reads (`SPACE_OK`/`FILE_OK`/`CHUNK_ACK`/`DELETE_OK`/
   `COMMIT_OK`/`UPDATE_ABORTED`) gave up after a single empty
   `transport.read()`, treating a merely-late reply as a failed transfer.**

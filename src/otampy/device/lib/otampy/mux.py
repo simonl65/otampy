@@ -133,7 +133,11 @@ class SerialMux:
             if idx < 0:
                 break
             frame = bytes(self._rx_buffer[:idx])
-            del self._rx_buffer[: idx + 1]
+            # Slice reassignment, not `del buf[:n]`: MicroPython's bytearray
+            # doesn't support item/slice deletion at all (only CPython's
+            # does), so `del` here crashes the device on the first frame
+            # ever parsed -- see CHANGELOG.md.
+            self._rx_buffer = self._rx_buffer[idx + 1 :]
             if not frame:
                 continue
             if len(frame) > MAX_OUTER_FRAME_BYTES:

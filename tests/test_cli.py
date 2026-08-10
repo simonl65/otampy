@@ -2081,6 +2081,11 @@ def test_cli_update_aborts_before_commit_on_transfer_failure():
             b"REBOOTING",
             b"READY",
             b"SPACE_OK",
+            # FILE_OK never arrives, even after _read_reply's retries
+            # (default transfer_reply_retries=3, so 1 initial + 3 retries).
+            None,
+            None,
+            None,
             None,
             b"UPDATE_ABORTED",
         ]
@@ -2091,6 +2096,64 @@ def test_cli_update_aborts_before_commit_on_transfer_failure():
     sent = [call.args[0] for call in transport.send.call_args_list]
     assert b"UPDATE_ABORT" in sent
     assert b"UPDATE_COMMIT" not in sent
+    # FILE_START was sent exactly once -- a missing reply is recovered by
+    # retrying the read, never by resending the command.
+    import hashlib as _hashlib
+
+    assert (
+        sent.count(
+            b"FILE_START:main.py:20:"
+            + _hashlib.sha256(b"print('replacement')").hexdigest().encode()
+        )
+        == 1
+    )
+
+
+def test_cli_update_retries_read_through_late_reply_without_resending():
+    """A reply that's merely slow (empty reads before it arrives) must be
+    recovered by retrying the read, not treated as a failed transfer."""
+    runner = CliRunner()
+    source = Path("/tmp/main.py")
+
+    class MockFile:
+        def read(self):
+            return b"print('replacement')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("main.py", source)],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        transport = urst.return_value
+        transport.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            None,  # CHUNK_ACK:0 is merely late, not lost
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ]
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--no-rtc"])
+
+    assert result.exit_code == 0, result.output
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    # CHUNK:0 was sent exactly once despite the late reply.
+    assert sent.count(b"CHUNK:0:cHJpbnQoJ3JlcGxhY2VtZW50Jyk=") == 1
 
 
 def test_cli_query_connection_retry():

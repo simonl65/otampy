@@ -6,7 +6,47 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ## Unreleased
 
+### Fixed
+
+- **`upd`'s per-step reads (`SPACE_OK`/`FILE_OK`/`CHUNK_ACK`/`DELETE_OK`/
+  `COMMIT_OK`/`UPDATE_ABORTED`) gave up after a single empty
+  `transport.read()`, treating a merely-late reply as a failed transfer.**
+  `Urst.send()` already delivers each command reliably (URST-level
+  ACK/NAK with retries) before `_update_files` moves on to read the
+  device's application-level reply; but that reply is itself sent via the
+  device's own `send_reliable()`, which can still be mid-retry well after
+  our single read's `ACK_TIMEOUT_MS` window elapses. A missing reply is
+  therefore not proof it was lost, only that we haven't seen it yet.
+
+  Reproduced against a real deployment (diff-drive-robot, over a marginal
+  radio link, after the `urst-mpy` NAK/desync fix below): an `upd`
+  progressed far further than before but still failed outright on what
+  the device-side log showed was a purely late `CHUNK_ACK`.
+
+  New `_read_reply()` retries the *read* (never resends the command) up
+  to `transfer_reply_retries` (new config, default 3) times when the read
+  comes back empty; an explicit reply, even a rejection, is returned
+  immediately and never retried, since only silence is ambiguous.
+  - `tests/test_cli.py::test_cli_update_retries_read_through_late_reply_without_resending`
+    covers the happy path (an empty read recovered by retrying the read,
+    with the command sent exactly once). `test_cli_update_aborts_before_commit_on_transfer_failure`
+    was updated to genuinely exhaust the retry budget rather than fail on
+    a single empty read, since that's no longer sufficient by itself.
+
 ### Notes
+
+- **A second, deterministic root cause of `Error: Fragment transfer
+  failed` / stuck `upd` transfers was in `urst-mpy`, not otampy: a NAK
+  triggered a blind retransmit of the identical frame instead of
+  connection re-establishment.** Per the URST spec, a NAK means the peer's
+  sequence state has desynchronized and MUST be resolved via `CONNECT`,
+  not by resending what was just rejected -- `urst-mpy`'s
+  `ProtocolLayer.send_reliable()` did the latter, which can livelock
+  forever against a genuinely desynchronized peer (confirmed live: 12
+  consecutive NAKs on the same chunk during an `upd`). No otampy code
+  change needed for this part; same dependency/version-bump note as
+  below applies.
+  - Fix, tests, and full analysis: `urst-mpy` `238fee6` (`develop`).
 
 - **Root-caused an intermittent `Error: Fragment transfer failed` /
   mismatched-response class of bug to `urst-mpy`, not otampy.** Diagnosed

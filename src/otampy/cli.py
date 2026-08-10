@@ -67,6 +67,13 @@ CONFIG_SETTINGS = {
         "type": int,
         "description": "Bytes per host transfer chunk. OTA updates cap this at 132 bytes so each encoded URST message fits in one frame.",
     },
+    "transfer_reply_retries": {
+        "display": "transfer-reply-retries",
+        "env": "OTAMPY_TRANSFER_REPLY_RETRIES",
+        "default": 3,
+        "type": int,
+        "description": "Extra read attempts for a transfer step's application-level reply (SPACE_OK/FILE_OK/CHUNK_ACK/etc.) before treating it as failed.",
+    },
 }
 
 _CONFIG_DISPLAY_TO_KEY = {
@@ -965,6 +972,29 @@ def _query(
                 time.sleep(retry_backoff * (2**attempt))
 
     raise click.ClickException(str(last_err))
+
+
+def _read_reply(transport, retries: int | None = None) -> bytes | None:
+    """Read one application-level reply, retrying the *read* -- never the
+    command -- when nothing arrives at all.
+
+    ``Urst.send()`` already delivers the command reliably (URST-level
+    ACK/NAK with retries); once it returns, the peer has it. The peer's
+    own reply is sent the same way, via its own send_reliable(), which can
+    still be retrying on its side after our single read's timeout has
+    already elapsed -- an empty read is evidence we haven't *seen* the
+    reply yet, not that it was lost, let alone that the command needs
+    resending. An explicit reply, even a rejection, is returned
+    immediately and never retried: only silence is ambiguous.
+    """
+    if retries is None:
+        retries = int(get_config_value("transfer_reply_retries"))
+    resp = transport.read()
+    attempt = 0
+    while not resp and attempt < retries:
+        attempt += 1
+        resp = transport.read()
+    return resp
 
 
 def _handle_device_error(device_error: DeviceError) -> None:
@@ -2110,7 +2140,7 @@ def _update_files(
     transfer_started_at = MONOTONIC() if ctx.obj["timing"] else None
     try:
         transport.send(f"UPDATE_START:{len(manifest)}:{total_bytes}".encode())
-        resp = transport.read()
+        resp = _read_reply(transport)
         if resp != b"SPACE_OK":
             raise click.ClickException(
                 f"Device rejected manifest. Response: {resp.decode('utf-8', errors='replace') if resp else 'None'}"
@@ -2132,7 +2162,7 @@ def _update_files(
 
             # Send FILE_START
             transport.send(f"FILE_START:{target_path}:{size}:{sha256}".encode())
-            resp = transport.read()
+            resp = _read_reply(transport)
             if resp != b"FILE_OK":
                 raise click.ClickException(
                     f"Device failed to initialize file transfer for {target_path}: "
@@ -2148,7 +2178,7 @@ def _update_files(
                 )
 
                 transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
-                resp = transport.read()
+                resp = _read_reply(transport)
                 if resp != f"CHUNK_ACK:{i}".encode():
                     raise click.ClickException(
                         f"Chunk {i} transmission failed for {target_path}: "
@@ -2157,7 +2187,7 @@ def _update_files(
 
             # Send FILE_END
             transport.send(b"FILE_END")
-            resp = transport.read()
+            resp = _read_reply(transport)
             if resp != b"FILE_OK":
                 raise click.ClickException(
                     f"Device verification failed for {target_path}: "
@@ -2166,7 +2196,7 @@ def _update_files(
 
         for target_path in delete_paths or ():
             transport.send(f"DELETE:{target_path}".encode())
-            if transport.read() != b"DELETE_OK":
+            if _read_reply(transport) != b"DELETE_OK":
                 raise click.ClickException(
                     f"Device rejected source cleanup for {target_path}."
                 )
@@ -2175,7 +2205,7 @@ def _update_files(
         _console().print("Committing update transaction...")
         commit_sent = True
         transport.send(b"UPDATE_COMMIT")
-        resp = transport.read()
+        resp = _read_reply(transport)
         if resp != b"COMMIT_OK":
             raise click.ClickException(
                 f"Device commit failed: {resp.decode('utf-8', errors='replace') if resp else 'None'}"
@@ -2197,7 +2227,7 @@ def _update_files(
         if not commit_sent:
             try:
                 transport.send(b"UPDATE_ABORT")
-                if transport.read() != b"UPDATE_ABORTED":
+                if _read_reply(transport) != b"UPDATE_ABORTED":
                     _console().print(
                         "[yellow]Device did not acknowledge update abort; waiting for its inactivity timeout.[/yellow]"
                     )

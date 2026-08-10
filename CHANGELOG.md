@@ -33,6 +33,14 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
     was updated to genuinely exhaust the retry budget rather than fail on
     a single empty read, since that's no longer sufficient by itself.
 
+### Changed
+
+- Widened the `urst-mpy` dependency pin from `>=1.0.0,<2.0.0` to
+  `>=1.0.0,<3.0.0` so `uv lock -P urst-mpy` picks up `urst-mpy` 2.0.0
+  (released to carry the NAK/desync fix noted below; its only breaking
+  change -- removing the unused `urst.__version__` attribute -- isn't
+  referenced anywhere in otampy). `uv.lock` now resolves `urst-mpy==2.0.0`.
+
 ### Notes
 
 - **A second, deterministic root cause of `Error: Fragment transfer
@@ -44,9 +52,9 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   `ProtocolLayer.send_reliable()` did the latter, which can livelock
   forever against a genuinely desynchronized peer (confirmed live: 12
   consecutive NAKs on the same chunk during an `upd`). No otampy code
-  change needed for this part; same dependency/version-bump note as
-  below applies.
-  - Fix, tests, and full analysis: `urst-mpy` `238fee6` (`develop`).
+  change needed for the fix itself; see the dependency pin update above.
+  - Fix, tests, and full analysis: `urst-mpy` `238fee6` (`develop`),
+    released as `urst-mpy` [v2.0.0](https://github.com/simonl65/URST-mpy/releases/tag/v2.0.0).
 
 - **Root-caused an intermittent `Error: Fragment transfer failed` /
   mismatched-response class of bug to `urst-mpy`, not otampy.** Diagnosed

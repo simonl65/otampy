@@ -828,6 +828,47 @@ def _friendly_error(err_msg: str, command: bytes) -> str:
     return err_msg
 
 
+# Each stalled read costs one ACK_TIMEOUT_MS (1s by default), so this
+# bounds the wait for a peer that keeps claiming a reassembly is in
+# progress. URST's own §6.3.4 deadline normally ends the wait long first.
+_MAX_STALLED_READS = 300
+
+
+def _read_full_reply(transport):
+    """Read one reply, tolerating a peer that pauses between fragments.
+
+    `Urst.read()` is single-shot: it returns b"" as soon as a frame read
+    times out (ACK_TIMEOUT_MS) while keeping the partial reassembly for a
+    later call, so URST's much longer §6.3.4 reassembly deadline is only
+    reachable by reading again. A constrained device streaming a large
+    fragmented response -- `cat` of a log file is 56 fragments -- routinely
+    pauses longer than ACK_TIMEOUT_MS between them, so treating the first
+    b"" as a timeout abandoned the transfer part-way. The caller then
+    retried the whole command, colliding a fresh CONNECT with the
+    still-streaming response and leaving both ends desynchronised.
+
+    Keep reading while fragments are still arriving; the reassembly
+    deadline inside URST is what eventually gives up, so a peer that dies
+    mid-message still terminates this loop.
+
+    The flag is compared with `is True` rather than for truthiness on
+    purpose: a `MagicMock` transport returns a truthy mock for *any*
+    attribute, which would spin here forever. `_MAX_STALLED_READS` is a
+    belt-and-braces stop so a transport that reports progress it isn't
+    making can still only waste a bounded amount of time.
+    """
+    response = transport.read()
+    stalled = 0
+    while (
+        not response
+        and getattr(transport, "reassembly_in_progress", False) is True
+        and stalled < _MAX_STALLED_READS
+    ):
+        stalled += 1
+        response = transport.read()
+    return response
+
+
 def _query(
     ctx: click.Context,
     command: bytes,
@@ -857,7 +898,7 @@ def _query(
         if not transport.send(command):
             raise click.ClickException("Failed to send command over transport.")
 
-        response = transport.read()
+        response = _read_full_reply(transport)
         if not response:
             raise click.ClickException(
                 f"Timeout waiting for response to command: {command.decode()}"
@@ -921,7 +962,7 @@ def _query(
                     "Failed to send command over transport."
                 )
 
-            response = new_transport.read()
+            response = _read_full_reply(new_transport)
             if not response:
                 raise click.ClickException(
                     f"Timeout waiting for response to command: {command.decode()}"

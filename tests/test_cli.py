@@ -2518,3 +2518,93 @@ def test_device_dir_set_rejects_existing_file(tmp_path):
 
     assert result.exit_code != 0
     assert "Device directory is not a directory" in result.output
+
+
+class _StallingTransport:
+    """A peer that pauses mid-message, as a real device streaming a large
+    fragmented reply does: read() returns b"" while fragments are still
+    arriving, exactly as Urst.read() does on a frame-read timeout."""
+
+    def __init__(self, stalls, reply=b"CAT_OK:data"):
+        self._stalls = stalls
+        self._reply = reply
+        self.reads = 0
+        self.reassembly_in_progress = True
+
+    def read(self):
+        self.reads += 1
+        if self.reads <= self._stalls:
+            return b""
+        self.reassembly_in_progress = False
+        return self._reply
+
+
+def test_read_full_reply_waits_out_pauses_between_fragments():
+    """Regression: giving up on the first empty read abandoned a
+    multi-fragment `cat` part-way, and the retry then collided a fresh
+    CONNECT with the still-streaming response."""
+    from otampy.cli import _read_full_reply
+
+    transport = _StallingTransport(stalls=3)
+
+    assert _read_full_reply(transport) == b"CAT_OK:data"
+    assert transport.reads == 4
+
+
+def test_read_full_reply_gives_up_when_nothing_is_being_reassembled():
+    """A silent peer must still terminate rather than loop forever."""
+    from otampy.cli import _read_full_reply
+
+    class Silent:
+        reassembly_in_progress = False
+
+        def read(self):
+            return b""
+
+    assert _read_full_reply(Silent()) == b""
+
+
+def test_read_full_reply_tolerates_a_transport_without_the_accessor():
+    """Older URST releases have no `reassembly_in_progress`."""
+    from otampy.cli import _read_full_reply
+
+    class Old:
+        def read(self):
+            return b""
+
+    assert _read_full_reply(Old()) == b""
+
+
+def test_read_full_reply_does_not_hang_on_a_magicmock_transport():
+    """Regression: `MagicMock` returns a truthy mock for *any* attribute,
+    so a truthiness check on `reassembly_in_progress` spun forever here --
+    which hung the test suite until the OOM killer stopped it."""
+    from unittest.mock import MagicMock
+
+    from otampy.cli import _read_full_reply
+
+    transport = MagicMock()
+    transport.read.return_value = b""
+
+    assert _read_full_reply(transport) == b""
+    assert transport.read.call_count == 1
+
+
+def test_read_full_reply_is_bounded_when_progress_never_completes():
+    """A peer that always claims progress must still stop eventually."""
+    from otampy.cli import _MAX_STALLED_READS, _read_full_reply
+
+    class NeverFinishes:
+        reassembly_in_progress = True
+
+        def __init__(self):
+            self.reads = 0
+
+        def read(self):
+            self.reads += 1
+            return b""
+
+    transport = NeverFinishes()
+
+    assert _read_full_reply(transport) == b""
+    assert transport.reads == _MAX_STALLED_READS + 1

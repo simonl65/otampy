@@ -102,8 +102,15 @@ def _send_response(transport, total_size, parts):
                     header + bytes(fragment),
                     request_id,
                 ):
-                    protocol.send_abort(message_id, request_id)
-                    transport.reply(b"ERROR:Fragment transfer failed")
+                    if not protocol.session_reset_during_send:
+                        protocol.send_abort(message_id, request_id)
+                        transport.reply(b"ERROR:Fragment transfer failed")
+                    # else: a CONNECT reset the peer's session mid-send
+                    # (US-003, urst-mpy's send_reliable() already gave up
+                    # without retrying). Both ABORT and this reply would
+                    # reference a message the new session never asked
+                    # about, becoming the next stale frame -- exactly the
+                    # failure this suppression exists to stop.
                     return
                 fragment_number += 1
                 fragment = bytearray()
@@ -125,8 +132,12 @@ def _send_response(transport, total_size, parts):
             header + bytes(fragment),
             request_id,
         ):
-            protocol.send_abort(message_id, request_id)
-            transport.reply(b"ERROR:Fragment transfer failed")
+            if not protocol.session_reset_during_send:
+                protocol.send_abort(message_id, request_id)
+                transport.reply(b"ERROR:Fragment transfer failed")
+            # else: see the matching guard above -- a CONNECT already
+            # reset the peer's session, so neither ABORT nor this reply
+            # has anywhere valid to land.
             return
         fragment = None
         collect()

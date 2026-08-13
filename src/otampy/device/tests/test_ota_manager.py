@@ -361,6 +361,49 @@ def test_manager_reports_error_when_the_final_fragment_fails(tmp_path):
     assert len(core.transport.protocol.sent_fragments) == 1
 
 
+def _session_reset_send_reliable(core, fail_on_call):
+    """Fail the Nth (1-indexed) fragment send the way urst-mpy's
+    send_reliable() does when a CONNECT abandons it (US-003): returns
+    False and sets protocol.session_reset_during_send."""
+    call_count = 0
+
+    def send_reliable(frame_type, payload, request_id=0):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_on_call:
+            core.transport.protocol.session_reset_during_send = True
+            return False
+        core.transport.protocol.sent_fragments.append(
+            (frame_type, bytes(payload))
+        )
+        return True
+
+    return send_reliable
+
+
+def test_manager_suppresses_abort_and_reply_when_peer_reset_the_session(
+    tmp_path,
+):
+    """When urst-mpy abandons a fragment send because a CONNECT already
+    reset the peer's session (US-003), neither ABORT nor the ERROR reply
+    has anywhere valid to land -- both would be stale frames poisoning
+    the new session, exactly the failure US-003 exists to stop."""
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+    core.transport.protocol.send_reliable = _session_reset_send_reliable(
+        core, fail_on_call=2
+    )
+
+    manager.poll(core)
+
+    assert core.transport.sent_messages == []
+    assert core.transport.protocol.aborted == []
+    assert len(core.transport.protocol.sent_fragments) == 1
+
+
 def test_manager_cat_limits_response_to_initial_file_size(
     tmp_path, monkeypatch
 ):

@@ -6,6 +6,11 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ## Unreleased
 
+### Fixed
+
+- **`manager.py`'s manual fragment loop (`_send_response()`) no longer sends ABORT or an `ERROR:Fragment transfer failed` reply when `send_reliable()` failed because a CONNECT already reset the peer's session (US-003, `urst-mpy`'s corresponding fix).** Both used to fire unconditionally on any fragment-send failure; when the failure is a mid-stream CONNECT reset, the peer that would receive either one has already moved on to a new session and never asked about this message -- sending them anyway just adds another stale frame to the exact problem US-003 exists to stop. Both call sites (lines ~106, ~129) now check the new `protocol.session_reset_during_send` flag first. Requires `urst-mpy`'s unreleased US-003 fix (`develop`, `a2f1a8c`); the existing `>=3.0.0` pin (no upper bound) will pick it up once released, no pin change needed.
+  - `src/otampy/device/tests/test_ota_manager.py::test_manager_suppresses_abort_and_reply_when_peer_reset_the_session` covers the suppression; `conftest.py`'s `FakeProtocol` gained `session_reset_during_send` and an `aborted` list to make ABORT calls observable.
+
 ### Changed
 
 - **Device library (`manager.py`, `filecopy.py`, `boot.py`) now replies via `transport.reply()` instead of `transport.send()`**, to work with `urst-mpy`'s upcoming §5.8 Request ID correlation (spec v0.4.0, not yet released -- see `urst-mpy`'s `CHANGELOG.md`). Every command handler answers whatever it most recently read, so this is a mechanical `send()` -> `reply()` rename at each reply call site; `boot.py`'s unprompted `READY` push (sent before any command is received, to kick off an OTA session) is the one call site that correctly stays on `send()`.

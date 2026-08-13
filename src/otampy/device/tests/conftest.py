@@ -39,13 +39,18 @@ class FakeUrst:
 class FakeProtocol:
     def __init__(self):
         self.sent_fragments = []
+        self.aborted = []
+        # Mirrors urst-mpy's ProtocolLayer.session_reset_during_send
+        # (US-003): True only when the last failed send_reliable() call
+        # was abandoned because a CONNECT reset the peer's session.
+        self.session_reset_during_send = False
 
     def send_reliable(self, frame_type, payload, request_id=0):
         self.sent_fragments.append((frame_type, bytes(payload)))
         return True
 
     def send_abort(self, message_id, request_id=0, reason_code=0):
-        pass
+        self.aborted.append((message_id, request_id, reason_code))
 
 
 fake_constants = types.SimpleNamespace(

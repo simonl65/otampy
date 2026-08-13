@@ -11,12 +11,22 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 - **`manager.py`'s manual fragment loop (`_send_response()`) no longer sends ABORT or an `ERROR:Fragment transfer failed` reply when `send_reliable()` failed because a CONNECT already reset the peer's session (US-003, `urst-mpy`'s corresponding fix).** Both used to fire unconditionally on any fragment-send failure; when the failure is a mid-stream CONNECT reset, the peer that would receive either one has already moved on to a new session and never asked about this message -- sending them anyway just adds another stale frame to the exact problem US-003 exists to stop. Both call sites (lines ~106, ~129) now check the new `protocol.session_reset_during_send` flag first. Requires `urst-mpy`'s unreleased US-003 fix (`develop`, `a2f1a8c`); the existing `>=3.0.0` pin (no upper bound) will pick it up once released, no pin change needed.
   - `src/otampy/device/tests/test_ota_manager.py::test_manager_suppresses_abort_and_reply_when_peer_reset_the_session` covers the suppression; `conftest.py`'s `FakeProtocol` gained `session_reset_during_send` and an `aborted` list to make ABORT calls observable.
 
+## [4.2.3] - 2026-08-11
+
+### Fixed
+
+- **The CLI abandoned a fragmented reply the moment the device paused mid-stream, instead of waiting out the pause.** `_query()` treated the first empty `read()` as a timeout and raised, then retried the whole command with a fresh transport. `Urst.read()` is single-shot -- it returns `b""` on a frame-read timeout while keeping the partial reassembly -- so any device pause longer than `ACK_TIMEOUT_MS` (1s) mid-response ended the transfer. Measured on real hardware: a Pico W replying to `CAT` with 56 fragments stalls ~1.2s between fragments, so the retry's CONNECT collided with the still-streaming response and desynchronised both ends; `cat` of a device log failed every single time.
+
+  `_read_full_reply()` now keeps reading while URST reports a reassembly in progress, so §6.3.4's (much longer) reassembly deadline is what actually decides to give up. Measured over the radio link, resetting the device between attempts: `cat boot.py` went from 0/3 to 2/3 successful. The remaining failure is a device-side abort (`send_reliable` exhausting its retries) and was not fixed here -- see US-003 above.
+
+## [4.2.2] - 2026-08-10
+
 ### Changed
 
-- **Device library (`manager.py`, `filecopy.py`, `boot.py`) now replies via `transport.reply()` instead of `transport.send()`**, to work with `urst-mpy`'s upcoming §5.8 Request ID correlation (spec v0.4.0, not yet released -- see `urst-mpy`'s `CHANGELOG.md`). Every command handler answers whatever it most recently read, so this is a mechanical `send()` -> `reply()` rename at each reply call site; `boot.py`'s unprompted `READY` push (sent before any command is received, to kick off an OTA session) is the one call site that correctly stays on `send()`.
-  - `manager.py::_send_response()`'s manual fragment loop (bypasses `Urst.send()`'s own fragmentation to keep `gc.collect()` calls between fragments) now threads `request_id` through to `protocol.send_reliable()` by hand, and calls the new `protocol.send_abort()` on retry exhaustion -- neither comes for free outside `Urst.send()`.
+- **Device library (`manager.py`, `filecopy.py`, `boot.py`) now replies via `transport.reply()` instead of `transport.send()`**, using `urst-mpy`'s §5.8 Request ID correlation (released in `urst-mpy` 3.0.0). Every command handler answers whatever it most recently read, so this is a mechanical `send()` -> `reply()` rename at each reply call site; `boot.py`'s unprompted `READY` push (sent before any command is received, to kick off an OTA session) is the one call site that correctly stays on `send()`.
+  - `manager.py::_send_response()`'s manual fragment loop (bypasses `Urst.send()`'s own fragmentation to keep `gc.collect()` calls between fragments) now threads `request_id` through to `protocol.send_reliable()` by hand, and calls `protocol.send_abort()` on retry exhaustion -- neither comes for free outside `Urst.send()`.
   - No change needed on the CLI side: `_query()`'s existing `transport.send(command)` / `transport.read()` pattern already matches the new default (`request_id=None` starts a new request), unchanged.
-  - Requires `urst-mpy` with `Urst.reply()`/Request ID support once released; the dependency pin isn't widened yet since that release hasn't happened.
+  - `urst-mpy` dependency widened from `>=1.0.0,<3.0.0` to `>=3.0.0` to pick up `Urst.reply()`/Request ID support.
 
 ## [4.2.1] - 2026-08-10
 

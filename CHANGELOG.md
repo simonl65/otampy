@@ -4,7 +4,19 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
-## Unreleased
+## [4.3.0] - 2026-08-14
+
+### Added
+
+- **`SerialMux(uart, min_tx_gap_ms=0)`: an opt-in minimum gap enforced between the end of one physical UART write and the start of the next, across both the OTA and app channels.**
+
+  Bench testing on `diff-drive-robot` (old MaxStream XBee Pro 802.15.4 radios, transparent/AP=0 mode) found that a device transmitting frames back-to-back with no inter-frame gap reliably corrupts reception at the other end -- confirmed fixed by pacing transmissions at >=20ms, and confirmed not explainable by payload size or `RO` (packetization timeout). Mirrors `urst-mpy` 3.2.0's `CodecLayer(min_tx_gap_ms=...)`, but at the mux layer, since a mux user's channel-1 (app) traffic sits entirely outside URST and shares the same physical UART -- only enforcing the gap in `urst-mpy` couldn't protect against an app-channel write landing right after an OTA-channel write.
+
+  `SerialMux._write_channel()`'s inner `_write()` closure is the single point both channels' physical `uart.write()` calls already go through, so the gap is tracked once on the mux instance and applies uniformly regardless of which channel wrote last. Default `0` -- zero behaviour change for existing users/hardware.
+
+  - `src/otampy/device/tests/test_mux.py::TestMinTxGap` covers the default no-op case, sleeping for the remaining gap across a channel-0-then-channel-1 write pair, and not sleeping once the gap has naturally elapsed.
+
+## [4.2.4] - 2026-08-13
 
 ### Fixed
 

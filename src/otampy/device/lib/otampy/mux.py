@@ -31,6 +31,37 @@ MAX_OUTER_FRAME_BYTES = 1024
 OTA_BUFFER_BYTES = 2048
 
 
+def _sleep_ms(ms):
+    try:
+        import utime
+
+        utime.sleep_ms(ms)
+    except ImportError:
+        import time
+
+        time.sleep(ms / 1000.0)
+
+
+def _ticks_ms():
+    try:
+        import utime
+
+        return utime.ticks_ms()
+    except ImportError:
+        import time
+
+        return int(time.monotonic() * 1000)
+
+
+def _ticks_diff(new, old):
+    try:
+        import utime
+
+        return utime.ticks_diff(new, old)
+    except ImportError:
+        return new - old
+
+
 class _VirtualPort:
     """Minimal machine.UART-like object for URST's codec layer."""
 
@@ -85,11 +116,20 @@ class SerialMux:
         uart,
         ota_channel=DEFAULT_OTA_CHANNEL,
         app_channel=DEFAULT_APP_CHANNEL,
+        min_tx_gap_ms=0,
     ):
         """uart: an already-configured machine.UART instance (the real one).
 
         ota_channel/app_channel: single-byte channel ids for the two
         logical streams. Must be distinct.
+
+        min_tx_gap_ms: opt-in minimum gap enforced between the end of one
+        physical UART write and the start of the next, across *both*
+        channels -- some half-duplex transparent-mode radios corrupt
+        reception when a device transmits back-to-back with no inter-frame
+        gap (found bench-testing diff-drive-robot's XBee link; see
+        urst-mpy's CodecLayer(min_tx_gap_ms=...), which this mirrors).
+        Default 0 -- zero behaviour change for existing users/hardware.
         """
         self._uart = uart
         self._rx_buffer = bytearray()
@@ -98,6 +138,8 @@ class SerialMux:
         self._app_rx = None
         self.app_dropped = 0
         self.outer_frames_dropped = 0
+        self.min_tx_gap_ms = min_tx_gap_ms
+        self._last_write_done_ms = None
 
         self.ota_port = _VirtualPort(
             self._write_channel(ota_channel), self.service
@@ -106,8 +148,14 @@ class SerialMux:
 
     def _write_channel(self, channel_id):
         def _write(payload):
+            if self.min_tx_gap_ms and self._last_write_done_ms is not None:
+                elapsed = _ticks_diff(_ticks_ms(), self._last_write_done_ms)
+                remaining = self.min_tx_gap_ms - elapsed
+                if remaining > 0:
+                    _sleep_ms(remaining)
             frame = cobs_encode(bytes([channel_id]) + payload) + b"\x00"
             self._uart.write(frame)
+            self._last_write_done_ms = _ticks_ms()
 
         return _write
 

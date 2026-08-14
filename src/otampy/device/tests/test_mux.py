@@ -156,3 +156,56 @@ def test_channel_ids_are_configurable():
 
     assert serial_mux.poll_app() == b"app data"
     assert serial_mux.ota_port.read() == b"\x00ota\x00"
+
+
+class TestMinTxGap:
+    """`min_tx_gap_ms` (see CHANGELOG.md): an opt-in minimum gap enforced
+    between the end of one physical UART write and the start of the next,
+    across *both* channels -- some half-duplex transparent-mode radios
+    corrupt reception when a device transmits back-to-back with no
+    inter-frame gap (found bench-testing diff-drive-robot's XBee link).
+    Default 0 -- zero behaviour change for existing users/hardware."""
+
+    def test_default_gap_is_zero_and_never_sleeps(self, monkeypatch):
+        sleep_calls = []
+        monkeypatch.setattr(mux, "_sleep_ms", lambda ms: sleep_calls.append(ms))
+        uart = FakeUart()
+        serial_mux = mux.SerialMux(uart)
+
+        serial_mux.ota_port.write(b"one")
+        serial_mux.send_app(b"two")
+
+        assert sleep_calls == []
+        assert len(uart.writes) == 2
+
+    def test_sleeps_for_the_remaining_gap_across_both_channels(
+        self, monkeypatch
+    ):
+        sleep_calls = []
+        monkeypatch.setattr(mux, "_sleep_ms", lambda ms: sleep_calls.append(ms))
+        clock = [1_000]
+        monkeypatch.setattr(mux, "_ticks_ms", lambda: clock[0])
+        uart = FakeUart()
+        serial_mux = mux.SerialMux(uart, min_tx_gap_ms=20)
+
+        serial_mux.ota_port.write(b"ota frame")
+        clock[0] += 5  # only 5ms elapsed, 15ms short of the 20ms floor
+        serial_mux.send_app(b"app frame")  # different channel, same gap
+
+        assert sleep_calls == [15]
+
+    def test_does_not_sleep_once_the_gap_has_naturally_elapsed(
+        self, monkeypatch
+    ):
+        sleep_calls = []
+        monkeypatch.setattr(mux, "_sleep_ms", lambda ms: sleep_calls.append(ms))
+        clock = [1_000]
+        monkeypatch.setattr(mux, "_ticks_ms", lambda: clock[0])
+        uart = FakeUart()
+        serial_mux = mux.SerialMux(uart, min_tx_gap_ms=20)
+
+        serial_mux.ota_port.write(b"first")
+        clock[0] += 25  # already past the 20ms floor
+        serial_mux.send_app(b"second")
+
+        assert sleep_calls == []

@@ -33,7 +33,7 @@ def _ticks_ms():
     except ImportError:
         import time
 
-        return int(time.monotonic() * 1000)
+        return int(time.monotonic() * 1000)  # type: ignore
 
 
 def _ticks_diff(new, old):
@@ -102,7 +102,7 @@ def _run_default_update_loop(core):
     hasher = None
     timeout_ms = _get_config(core.config, "OTA_TIMEOUT_MS", 5000)
     try:
-        timeout_ms = int(timeout_ms)
+        timeout_ms = int(timeout_ms)  # type: ignore
     except (TypeError, ValueError):
         timeout_ms = 5000
     if timeout_ms < 1:

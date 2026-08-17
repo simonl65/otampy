@@ -15,6 +15,7 @@ configota.py
 .agents
 .antigravity*
 TODO.md
+TODO.*
 .coverage
 *.log
 typings*

@@ -815,10 +815,21 @@ def test_bytecode_deploy_builds_before_destructive_command(monkeypatch):
         lambda _args: calls.append("wait"),
     )
     monkeypatch.setattr(deploy, "run_mpremote", fake_run)
+    monkeypatch.setattr(
+        deploy,
+        "_preflight_mip_package",
+        lambda package: calls.append(("preflight", package)),
+    )
 
     deploy.deploy(args)
 
-    assert calls == ["query", "build", "wait", "deploy"]
+    assert calls == [
+        ("preflight", "github:simonl65/URST-mpy"),
+        "query",
+        "build",
+        "wait",
+        "deploy",
+    ]
 
 
 def test_missing_mpy_cross_has_clear_error():

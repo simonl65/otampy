@@ -852,6 +852,43 @@ def test_cli_cat_file():
         mock_device_instance.send.assert_called_once_with(b"CAT:boot.py")
 
 
+def test_cli_cat_status_message_goes_to_stderr():
+    """Piped/captured `cat` output (e.g. for file-integrity diffing) must be
+    exactly the device file's bytes -- the "Showing content..." status line
+    used to print to stdout, always prepending itself to the content, and
+    `console.print`'s own trailing newline used to add a spurious blank
+    line after content that already ended in one."""
+    runner = CliRunner(mix_stderr=False)
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = b"CAT_OK:import config\n"
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
+        assert result.exit_code == 0
+        assert result.stdout == "import config\n"
+        assert "Showing content of specified file: boot.py" in result.stderr
+
+
+def test_cli_cat_does_not_interpret_brackets_as_markup():
+    """Rich console markup (`[tag]...[/tag]`) must not be applied to raw
+    device file content, or literal bracket text -- list literals, dict/
+    subscript syntax -- gets silently swallowed as an unrecognized tag."""
+    runner = CliRunner(mix_stderr=False)
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = (
+            b"CAT_OK:total = sums[name]  # [a, b]\n"
+        )
+
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "cat", "boot.py"])
+        assert result.exit_code == 0
+        assert result.stdout == "total = sums[name]  # [a, b]\n"
+
+
 def test_cli_rm_missing_arg():
     """Test that 'rm' without required file argument fails."""
     runner = CliRunner()

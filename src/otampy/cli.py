@@ -90,8 +90,8 @@ class DeviceError(Exception):
         super().__init__(error_msg)
 
 
-def _console() -> Console:
-    return Console(highlight=False)
+def _console(stderr: bool = False) -> Console:
+    return Console(highlight=False, stderr=stderr)
 
 
 # from .shared.protocol import OTA_COMMANDS
@@ -1177,14 +1177,16 @@ def list_dir(ctx: click.Context, path: str | None) -> None:
 @click.pass_context
 def cat(ctx: click.Context, file: str) -> None:
     """Shows content of specified file on device."""
-    _console().print(
+    _console(stderr=True).print(
         f"[green]Showing content of specified file: {file}[/green]"
     )
     try:
         response, _ = _query(ctx, f"CAT:{file}".encode(), b"CAT_OK")
     except DeviceError as e:
         _handle_device_error(e)
-    _console().print(response.decode("utf-8", errors="replace"))
+    _console().print(
+        response.decode("utf-8", errors="replace"), markup=False, end=""
+    )
 
 
 def _join_remote_path(parent: str, name: str) -> str:

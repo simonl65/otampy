@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [4.3.1] - 2026-08-17
+
+### Fixed
+
+- **`otampy cat` corrupted piped/captured output, breaking any exact byte-for-byte use (e.g. file-integrity verification against the source file).** Three separate bugs, all in the `cat` command:
+  - The `"Showing content of specified file: ..."` status line printed to stdout instead of stderr, always prepending itself to the captured content.
+  - The raw device file content was printed through `Console.print()` with Rich markup enabled, so any literal `[...]` in the file -- list literals, dict/subscript syntax, bracketed comments -- was silently swallowed as an unrecognized style tag. Real data loss, not a formatting artifact; not recoverable downstream once printed. Fixed with `markup=False`.
+  - `Console.print()` appends its own trailing newline regardless of whether the content already ends in one, so `cat` always emitted one extra blank line beyond the file's actual content. Fixed with `end=""`.
+
+  Found via `diff-drive-robot`'s `bin/robot-hil-check`, which diffs `otampy cat`'s output against the repo's source file to prove a deploy landed -- all three bugs made that check permanently fail regardless of whether the device content actually matched.
+  - `tests/test_cli.py::test_cli_cat_status_message_goes_to_stderr`, `test_cli_cat_does_not_interpret_brackets_as_markup`
+
 ## [4.3.0] - 2026-08-14
 
 ### Added

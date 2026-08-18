@@ -1394,7 +1394,7 @@ def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
     assert result.exit_code == 0
     assert "Matching bytecode artifacts correspond" in result.output
     update_files.assert_called_once_with(
-        mock.ANY, files, False, ["configota.mpy"]
+        mock.ANY, files, False, ["configota.mpy"], progress=True
     )
 
 
@@ -1440,7 +1440,36 @@ def test_update_keeps_startup_helper_when_its_cleanup_is_declined(monkeypatch):
     )
 
     assert result.exit_code == 0
-    update_files.assert_called_once_with(mock.ANY, files, False, [])
+    update_files.assert_called_once_with(
+        mock.ANY, files, False, [], progress=True
+    )
+
+
+def test_update_passes_no_progress_through_to_the_transfer(monkeypatch):
+    runner = CliRunner()
+    files = [("configota.py", Path("configota.py"))]
+    update_files = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._get_files_to_send", lambda *_args, **_kwargs: files
+    )
+    monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: False)
+    monkeypatch.setattr("otampy.cli._update_files", update_files)
+
+    result = runner.invoke(
+        cli, ["-p", "/dev/ttyFake", "upd", "--no-progress", "configota.py"]
+    )
+
+    assert result.exit_code == 0
+    update_files.assert_called_once_with(
+        mock.ANY, files, False, [], progress=False
+    )
+
+
+def test_upd_help_documents_the_progress_opt_out():
+    result = CliRunner().invoke(cli, ["upd", "--help"])
+
+    assert result.exit_code == 0
+    assert "--no-progress" in result.output
 
 
 def test_query_target_mpy_uses_ota_transport(monkeypatch):
@@ -2019,8 +2048,8 @@ def test_cli_update_full_transfer():
         assert "Initiating update handshake" in result.output
         assert "Device is READY. Handshake complete." in result.output
         assert "Sending manifest" in result.output
-        assert "Transferring main.py" in result.output
-        assert "Transferring lib/helper.py" in result.output
+        assert "[1/2] main.py" in result.output
+        assert "[2/2] lib/helper.py" in result.output
         assert "Update completed successfully!" in result.output
         assert (
             "Timing: transferred 2 files (37 bytes) in 2.00 s (18 bytes/s)."

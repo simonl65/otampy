@@ -16,6 +16,8 @@ from rich.console import Console
 import otampy.deploy as deploy
 import otampy.minify as source_minify
 
+from .progress import TransferProgress
+
 if TYPE_CHECKING:
     from urst import Urst
 
@@ -1927,6 +1929,11 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     is_flag=True,
     help="Do not set the device RTC from the host during update.",
 )
+@click.option(
+    "--no-progress",
+    is_flag=True,
+    help="Report one plain line per file instead of transfer progress.",
+)
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
@@ -1938,6 +1945,7 @@ def update(
     mpy_cross: str,
     all_files: bool,
     no_rtc: bool,
+    no_progress: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -2060,7 +2068,9 @@ def update(
                 else:
                     artifact.write_bytes(source.read_bytes())
                     staged.append((target_path, artifact))
-            _update_files(ctx, staged, no_rtc, delete_paths)
+            _update_files(
+                ctx, staged, no_rtc, delete_paths, progress=not no_progress
+            )
         return
 
     staging = (
@@ -2072,7 +2082,11 @@ def update(
         if minify:
             _print_minification_report(files_to_send, files_to_update)  # type: ignore
         _update_files(  # type: ignore
-            ctx, files_to_update, no_rtc, bytecode_cleanup_paths
+            ctx,
+            files_to_update,
+            no_rtc,
+            bytecode_cleanup_paths,
+            progress=not no_progress,
         )
 
 
@@ -2081,6 +2095,7 @@ def _update_files(
     files_to_send: list[tuple[str, Path]],
     no_rtc: bool = False,
     delete_paths: list[str] | None = None,
+    progress: bool = True,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
@@ -2200,42 +2215,60 @@ def _update_files(
                 f"{MAX_SINGLE_FRAME_TRANSFER_CHUNK_BYTES} bytes so encoded "
                 "URST messages fit in one frame.[/yellow]"
             )
-        for target_path, _local_path, size, sha256, content in manifest:
-            _console().print(f"Transferring {target_path} ({size} bytes)...")
-
-            # Send FILE_START
-            transport.send(f"FILE_START:{target_path}:{size}:{sha256}".encode())
-            resp = _read_reply(transport)
-            if resp != b"FILE_OK":
-                raise click.ClickException(
-                    f"Device failed to initialize file transfer for {target_path}: "
-                    f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+        reporter = TransferProgress(
+            _console(), len(manifest), total_bytes, enabled=progress
+        )
+        with reporter:
+            for index, (
+                target_path,
+                _local_path,
+                size,
+                sha256,
+                content,
+            ) in enumerate(manifest, start=1):
+                # Send FILE_START
+                transport.send(
+                    f"FILE_START:{target_path}:{size}:{sha256}".encode()
                 )
-
-            # Send chunks
-            num_chunks = (size + chunk_size - 1) // chunk_size
-            for i in range(num_chunks):
-                chunk_data = content[i * chunk_size : (i + 1) * chunk_size]
-                b64_chunk = (
-                    binascii.b2a_base64(chunk_data).strip().decode("utf-8")
-                )
-
-                transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
                 resp = _read_reply(transport)
-                if resp != f"CHUNK_ACK:{i}".encode():
+                if resp != b"FILE_OK":
                     raise click.ClickException(
-                        f"Chunk {i} transmission failed for {target_path}: "
+                        f"Device failed to initialize file transfer for {target_path}: "
                         f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
                     )
 
-            # Send FILE_END
-            transport.send(b"FILE_END")
-            resp = _read_reply(transport)
-            if resp != b"FILE_OK":
-                raise click.ClickException(
-                    f"Device verification failed for {target_path}: "
-                    f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
-                )
+                # Send chunks
+                num_chunks = (size + chunk_size - 1) // chunk_size
+                with reporter.file(index, target_path, size) as advance:
+                    for i in range(num_chunks):
+                        chunk_data = content[
+                            i * chunk_size : (i + 1) * chunk_size
+                        ]
+                        b64_chunk = (
+                            binascii.b2a_base64(chunk_data)
+                            .strip()
+                            .decode("utf-8")
+                        )
+
+                        transport.send(f"CHUNK:{i}:{b64_chunk}".encode())
+                        resp = _read_reply(transport)
+                        if resp != f"CHUNK_ACK:{i}".encode():
+                            raise click.ClickException(
+                                f"Chunk {i} transmission failed for {target_path}: "
+                                f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                            )
+                        # Only after the device has acked it: progress means
+                        # bytes the device took, not bytes we put on the wire.
+                        advance(len(chunk_data))
+
+                # Send FILE_END
+                transport.send(b"FILE_END")
+                resp = _read_reply(transport)
+                if resp != b"FILE_OK":
+                    raise click.ClickException(
+                        f"Device verification failed for {target_path}: "
+                        f"{resp.decode('utf-8', errors='replace') if resp else 'None'}"
+                    )
 
         for target_path in delete_paths or ():
             transport.send(f"DELETE:{target_path}".encode())

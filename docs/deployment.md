@@ -79,6 +79,15 @@ and all Python files under `lib/` from the saved device directory. Use
 non-Python assets. The CLI lists the files and requires confirmation before it
 contacts the device.
 
+While files transfer, `upd` reports progress per file. On a terminal that is
+a live bar showing the file's position in the manifest, percentage, rate and
+time remaining; when the output is captured or piped it becomes plain lines at
+25% steps, since a redrawn bar is meaningless once recorded. This matters most
+on the largest file in a manifest -- at the default 128-byte chunk size a
+~34 kB `main.py` is ~268 chunks, each an ack round-trip, which without
+progress looks like a hang. Use `upd --no-progress` for one plain line per
+file instead.
+
 This profile keeps OTAmpy and URST as editable `.py` files and is the
 recommended development profile.
 

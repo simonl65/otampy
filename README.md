@@ -177,7 +177,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `rm`         | `path [...]`                                     | Remove paths from the device (with confirmation - not recoverable). |
 | `rtc`        | —                                                | Display the current device RTC timestamp without rebooting.         |
 | `sr`         | `[--no-rtc]`                                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--no-rtc] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--no-rtc] [--no-progress] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
 
 <sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
 

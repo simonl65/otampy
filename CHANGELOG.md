@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [4.4.0] - 2026-08-18
+
+### Added
+
+- **`upd` now reports transfer progress within each file, not just at its start.** A single update is dominated by its largest file: at the 128-byte transfer chunk size a ~34 kB `main.py` is ~268 chunks, and every chunk is an ack round-trip over the link. Announcing a file and then saying nothing until the next one began made the longest part of an update indistinguishable from a hang -- in a terminal, and in anything capturing the output (a dashboard, a log, CI).
+  - On a terminal, a live progress bar per file, showing position in the manifest, percentage, transfer rate and time remaining.
+  - When the output is not a terminal, plain lines at 25% steps (`main.py: 50% (17152/34188 bytes)`). A redrawn bar is meaningless once captured, and its control codes are just litter in whatever reads it. Rich decides this from the real stream, so redirecting is enough to select it.
+  - The per-file announcement now carries its position in the manifest: `[2/13] main.py (34188 bytes)`.
+  - Progress is only advanced once the device has acked a chunk, so it reflects bytes the device took rather than bytes written to the wire.
+- **`upd --no-progress`** restores exactly the previous output: one plain `Transferring <path> (<n> bytes)...` line per file, no counter and no percentages. For scripts and captured runs where the extra lines are noise.
+
 ## [4.3.1] - 2026-08-17
 
 ### Fixed

@@ -392,18 +392,18 @@ def _cleanup_orphaned_ota(core, path="."):
 
 def run(core, callback=None):
     """
-    Check if the update request flag file exists, execute the callback to
-    perform the update, and remove the flag file.
+    Check if the update request flag-file exists, execute the callback to
+    perform the update, and remove the flag-file.
     """
     _apply_staged_rtc_update()
-    core.logger.debug("Checking for update request flag file...")
+    core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 
     if not flag:
-        core.logger.error("Missing filename for update request flag file")
+        core.logger.error("Missing filename for update request flag-file")
         return
 
-    # Check if the flag file exists
+    # Check if the flag-file exists
     has_flag = False
     try:
         _os.stat(flag)
@@ -412,7 +412,7 @@ def run(core, callback=None):
         pass
 
     if has_flag:
-        core.logger.debug("Update request flag FOUND")
+        core.logger.debug("FOUND update flag-file")
         core.transport.send(b"READY")
 
         if callback is not None:
@@ -428,15 +428,15 @@ def run(core, callback=None):
         else:
             _run_default_update_loop(core)
 
-        # Remove the flag file
+        # Remove the flag-file
         try:
-            core.logger.debug(f"Removing update request flag file: {flag}")
+            core.logger.debug(f"Removing update request flag-file: {flag}")
             _os.remove(flag)
         except OSError:
             try:
                 getattr(_os, "unlink", lambda _p: None)(flag)
             except Exception:
-                core.logger.debug(f"Could not remove update flag: {flag}")
+                core.logger.debug(f"Could not remove update flag-file: {flag}")
     else:
         core.logger.debug(f"{flag} not found")
         core.logger.debug("Cleanup started...")

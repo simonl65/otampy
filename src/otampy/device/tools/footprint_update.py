@@ -1,7 +1,7 @@
 """Controlled OTA update RAM probe for FP-01.
 
 This development-only script writes and removes ``/footprint-probe.txt`` and
-its staging/flag files. Run it only on a test device after explicit approval.
+its staging/flag-files. Run it only on a test device after explicit approval.
 It is not copied by ``otampy deploy``.
 """
 

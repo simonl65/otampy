@@ -268,11 +268,9 @@ def poll(core, callback=None):
                 with open(flag, "w") as f:
                     f.write("1")
             except OSError as e:
-                core.logger.error(f"Failed to write flag file: {e}")
+                core.logger.error(f"Failed to write flag-file: {e}")
         core.transport.reply(b"REBOOTING")
-        core.logger.info(
-            "Shutdown started: OTA update requested (rebooting into boot.py)"
-        )
+        core.logger.info("Shutdown started: OTA update requested")
         machine.reset()
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."

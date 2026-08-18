@@ -44,7 +44,7 @@ def test_boot_no_flag_file(tmp_path):
     assert core._transport is None
     assert (
         "debug",
-        "Checking for update request flag file...",
+        "Checking for update flag-file...",
     ) in logger.messages
 
 
@@ -69,11 +69,11 @@ def test_boot_with_flag_file_runs_callback_and_removes_flag(tmp_path):
     assert not flag_file.exists()
     assert (
         "debug",
-        "Checking for update request flag file...",
+        "Checking for update flag-file...",
     ) in logger.messages
     assert (
         "debug",
-        "Update request flag FOUND",
+        "FOUND update flag-file",
     ) in logger.messages
 
 

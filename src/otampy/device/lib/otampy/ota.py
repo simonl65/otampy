@@ -46,10 +46,15 @@ class OTA:
             del run
             gc.collect()
 
-    def poll(self, callback=None):
+    def poll(self, callback=None, heartbeat=None):
         """
         Call from main.py loop. Polls UART transport for incoming OTA commands.
+
+        `heartbeat`, if given, is called periodically during a large CAT/LS
+        response's fragment transfer, which can otherwise legitimately take
+        far longer than one `poll()` call normally would -- see
+        `manager.poll`'s own docstring for how it differs from `callback`.
         """
         from .manager import poll
 
-        poll(self._core, callback)
+        poll(self._core, callback, heartbeat=heartbeat)

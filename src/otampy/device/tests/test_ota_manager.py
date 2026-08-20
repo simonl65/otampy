@@ -307,6 +307,77 @@ def test_manager_streams_large_cat_as_one_bounded_response(tmp_path):
     assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
 
 
+def test_manager_calls_heartbeat_once_per_fragment_during_a_large_cat(
+    tmp_path,
+):
+    """A large CAT/LS response transfers entirely inside one poll() call,
+    one fragment at a time, each a reliable send-and-wait-for-ACK -- a
+    caller feeding a hardware watchdog only once per poll() call would
+    otherwise see no progress for the whole transfer. heartbeat must fire
+    at the same cadence as the fragments actually sent, not just once."""
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+    calls = []
+
+    manager.poll(core, heartbeat=lambda: calls.append(None))
+
+    fragments = core.transport.protocol.sent_fragments
+    assert len(calls) == len(fragments)
+    assert len(calls) > 1  # guards against a trivially-passing single-fragment case
+
+
+def test_manager_calls_heartbeat_during_a_large_ls(tmp_path):
+    """Same risk as CAT: a large directory listing also streams as one
+    bounded response inside a single poll() call."""
+    for i in range(200):
+        (tmp_path / f"file_{i}.txt").write_bytes(b"x")
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"LS:{tmp_path}".encode())
+    calls = []
+
+    manager.poll(core, heartbeat=lambda: calls.append(None))
+
+    fragments = core.transport.protocol.sent_fragments
+    assert len(calls) == len(fragments)
+    assert len(calls) > 1
+
+
+def test_manager_heartbeat_exceptions_do_not_abort_the_transfer(tmp_path):
+    """A caller's heartbeat (e.g. feeding a watchdog) must never be able to
+    break an in-progress transfer -- it's a side effect, not part of the
+    protocol."""
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+
+    def _boom():
+        raise RuntimeError("watchdog feed failed")
+
+    manager.poll(core, heartbeat=_boom)
+
+    assert core.transport.sent_messages == []
+    assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
+
+
+def test_manager_heartbeat_is_optional(tmp_path):
+    """Default (no heartbeat passed) must behave exactly as before this
+    parameter existed."""
+    content = b"x" * (16 * 1024)
+    source = tmp_path / "large.txt"
+    source.write_bytes(content)
+    core = OTACore(shared.FakeUART(), logger=shared.FakeLogger())
+    core.transport.incoming_queue.append(f"CAT:{source}".encode())
+
+    manager.poll(core)  # must not raise
+
+    assert _reassemble_fragments(core.transport) == b"CAT_OK:" + content
+
+
 def _flaky_send_reliable(core, fail_on_call):
     """Fail the Nth (1-indexed) fragment send; record the rest normally."""
     call_count = 0

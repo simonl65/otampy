@@ -47,7 +47,19 @@ def _stage_rtc_update(core, parts):
     core.transport.reply(b"RTC_STAGE_OK")
 
 
-def _send_response(transport, total_size, parts):
+def _call_heartbeat(heartbeat):
+    if heartbeat is None:
+        return
+    try:
+        heartbeat()
+    except Exception:
+        # A caller's heartbeat (e.g. feeding a hardware watchdog) must
+        # never be able to abort an in-progress transfer -- the transfer
+        # itself already has its own error handling below.
+        pass
+
+
+def _send_response(transport, total_size, parts, heartbeat=None):
     if total_size > _MAX_RESPONSE_SIZE:
         transport.reply(b"ERROR:Response too large")
         return
@@ -69,6 +81,16 @@ def _send_response(transport, total_size, parts):
     # low-memory devices), so it must independently echo the request's
     # Request ID (§5.8.3) and send ABORT on retry exhaustion (§5.7.2) --
     # neither of those come for free outside Urst.send().
+    #
+    # `heartbeat`, if given, is called once per fragment sent (same
+    # cadence as `collect()` above) -- this whole loop runs inside one
+    # `poll()` call, and each fragment is its own reliable send-and-wait
+    # for an ACK, so a response large enough to need many fragments can
+    # legitimately take far longer than a single `poll()` call normally
+    # would. A caller feeding a hardware watchdog only once per `poll()`
+    # call (i.e. once per completed round of its own main loop) would
+    # otherwise see no progress for the whole duration of one large CAT/LS
+    # response and could mistake it for a hang.
     request_id = transport.last_request_id
     total_fragments = (
         total_size + _MAX_FRAGMENT_DATA - 1
@@ -115,6 +137,7 @@ def _send_response(transport, total_size, parts):
                 fragment_number += 1
                 fragment = bytearray()
                 collect()
+                _call_heartbeat(heartbeat)
         if part_number & 7 == 7:
             collect()
 
@@ -141,6 +164,7 @@ def _send_response(transport, total_size, parts):
             return
         fragment = None
         collect()
+        _call_heartbeat(heartbeat)
 
 
 def _file_parts(source, size):
@@ -204,9 +228,16 @@ def _directory_parts(path):
         yield entry
 
 
-def poll(core, callback=None):
+def poll(core, callback=None, heartbeat=None):
     """
     Check the transport (UART) for any pending commands and dispatch them.
+
+    `heartbeat`, if given, is called periodically during a large CAT/LS
+    response's fragment transfer -- see `_send_response`'s own comment.
+    Distinct from `callback`, which is a one-shot hook called once, right
+    before a reboot (RB/UPDATE_REQUEST): `heartbeat` fires zero or more
+    times per `poll()` call and must be safe to call that way (e.g.
+    feeding a hardware watchdog), not "about to reset" cleanup.
     """
     packet = core.transport.read()
     if not packet:
@@ -290,6 +321,7 @@ def poll(core, callback=None):
                     core.transport,
                     total_size,
                     _directory_parts(path),
+                    heartbeat=heartbeat,
                 )
         except OSError as e:
             core.transport.reply(f"ERROR:{e}".encode())
@@ -314,6 +346,7 @@ def poll(core, callback=None):
                         core.transport,
                         len(b"CAT_OK:") + size,
                         _file_parts(source, size),
+                        heartbeat=heartbeat,
                     )
         except OSError as e:
             core.transport.reply(f"ERROR:{e}".encode())

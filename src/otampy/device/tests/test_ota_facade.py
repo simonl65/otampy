@@ -82,4 +82,18 @@ def test_facade_delegates_to_boot_and_manager():
         mock_boot_run.assert_called_once_with(ota._core, None)
 
         ota.poll()
-        mock_manager_poll.assert_called_once_with(ota._core, None)
+        mock_manager_poll.assert_called_once_with(
+            ota._core, None, heartbeat=None
+        )
+
+
+def test_poll_passes_heartbeat_through_to_manager():
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    heartbeat = object()
+
+    with patch("device_otampy.manager.poll") as mock_manager_poll:
+        ota.poll(heartbeat=heartbeat)
+        mock_manager_poll.assert_called_once_with(
+            ota._core, None, heartbeat=heartbeat
+        )

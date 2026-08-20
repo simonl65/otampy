@@ -14,8 +14,7 @@ config.py
 configota.py
 .agents
 .antigravity*
-TODO.md
-TODO.*
+TODO.old
 .coverage
 *.log
 typings*

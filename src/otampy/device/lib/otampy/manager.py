@@ -131,6 +131,21 @@ def _persist_replay_floor(core):
         core.logger.error(f"Failed to persist the command replay floor: {e}")
 
 
+def _path_allowed(core, path):
+    """Guard for commands that name a target file (F-14).
+
+    Replies and returns False when the path is refused, so callers only
+    need `if not _path_allowed(...): return`.
+    """
+    from .paths import FORBIDDEN_REPLY, allowed_for
+
+    if allowed_for(core, path):
+        return True
+    core.logger.warning(f"Refused a command targeting a forbidden path: {path}")
+    core.transport.reply(FORBIDDEN_REPLY)
+    return False
+
+
 def _do_callback(core, callback=None):
     if callback is not None:
         try:
@@ -459,6 +474,8 @@ def poll(core, callback=None, heartbeat=None):
             core.transport.reply(b"ERROR:Missing filename")
             return
         filename = parts[1]
+        if not _path_allowed(core, filename):
+            return
         try:
             try:
                 stat = _os.stat(filename)
@@ -484,6 +501,8 @@ def poll(core, callback=None, heartbeat=None):
             core.transport.reply(b"ERROR:Missing filename")
             return
         filename = parts[1]
+        if not _path_allowed(core, filename):
+            return
         try:
             _os.remove(filename)
             core.transport.reply(b"RM_OK")

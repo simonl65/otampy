@@ -272,6 +272,35 @@ def test_a_reset_still_happens_when_the_floor_write_fails(tmp_path, monkeypatch)
     machine.reset.assert_called_once()
 
 
+def test_an_envelope_built_by_the_host_signer_is_accepted_by_the_device(
+    tmp_path,
+):
+    """End-to-end: the CLI's wire format is what the device parses.
+
+    Everything else here builds envelopes with a local helper, which
+    would happily keep passing if the CLI and the device drifted apart.
+    This drives the real ``otampy.auth.CommandSigner`` -- the code the CLI
+    actually calls -- straight into ``manager.poll()``.
+    """
+    from otampy.auth import CommandSigner
+
+    signer = CommandSigner(KEY_HEX, str(tmp_path / "host-counter"))
+    core = _core(tmp_path)
+    core.transport.incoming_queue.append(signer.wrap(b"PING"))
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"PONG"]
+
+
+def test_a_host_signed_command_with_the_wrong_key_is_rejected(tmp_path):
+    from otampy.auth import CommandSigner
+
+    signer = CommandSigner("ab" * 32, str(tmp_path / "host-counter"))
+    core = _core(tmp_path)
+    core.transport.incoming_queue.append(signer.wrap(b"PING"))
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"ERROR:Unauthenticated"]
+
+
 def test_with_auth_off_a_reset_writes_no_floor(tmp_path):
     import device_otampy.replay as replay
 

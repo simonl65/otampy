@@ -3,7 +3,7 @@ auth.py -- device-side verification for authenticated channel-0 commands.
 
 The matching signer is the CLI's ``otampy/auth.py``; the two are pinned
 against each other, and against stdlib ``hmac``, by
-``device/tests/test_command_auth.py``.
+``device/tests/test_command_auth_contract.py``.
 
 HMAC-SHA256 is hand-rolled on ``hashlib.sha256`` rather than imported from
 ``hmac``, which MicroPython does not ship. Keeping the construction

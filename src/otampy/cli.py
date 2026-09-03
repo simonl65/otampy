@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib.resources
 import logging
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 
+import otampy.auth as auth
 import otampy.deploy as deploy
 import otampy.minify as source_minify
 
@@ -895,9 +897,27 @@ def _query(
 
     serial_timeout = float(get_config_value("serial_timeout_seconds"))
 
+    # Resolved once, before the retry loop below, so a misconfigured key is
+    # reported immediately instead of after three retries and their backoff.
+    # `signer` is None when signing is not configured -- the unchanged path.
+    try:
+        signer = _command_signer()
+    except auth.CommandAuthError as e:
+        raise click.ClickException(str(e)) from e
+
+    def outgoing() -> bytes:
+        """The bytes to put on the wire for one send attempt.
+
+        Called per attempt and never hoisted out of the retry loop: each
+        retry must carry a fresh counter, or a first attempt that reached
+        the device but lost its reply would leave every retry looking
+        like a replay and the command would fail permanently.
+        """
+        return command if signer is None else signer.wrap(command)
+
     # If transport provided, use it directly (single attempt)
     if transport is not None:
-        if not transport.send(command):
+        if not transport.send(outgoing()):
             raise click.ClickException("Failed to send command over transport.")
 
         response = _read_full_reply(transport)
@@ -959,7 +979,7 @@ def _query(
                 pass
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
-            if not new_transport.send(command):
+            if not new_transport.send(outgoing()):
                 raise click.ClickException(
                     "Failed to send command over transport."
                 )
@@ -1038,6 +1058,17 @@ def _read_reply(transport, retries: int | None = None) -> bytes | None:
         attempt += 1
         resp = transport.read()
     return resp
+
+
+@functools.lru_cache(maxsize=1)
+def _command_signer() -> auth.CommandSigner | None:
+    """The process-wide command signer, or None when signing is off.
+
+    Cached so a multi-command session (`cp` sends one CP_CHUNK per 256
+    bytes) reads the counter state file once rather than per command.
+    Tests reset it with `_command_signer.cache_clear()`.
+    """
+    return auth.signer_from_env()
 
 
 def _handle_device_error(device_error: DeviceError) -> None:

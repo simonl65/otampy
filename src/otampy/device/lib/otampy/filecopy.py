@@ -86,6 +86,15 @@ def _start(core, command):
         return
 
     target = fields[1]
+    # F-14: refuse before _make_dirs/open below, so a rejected copy
+    # cannot leave a staging file behind.
+    from .paths import FORBIDDEN_REPLY, allowed_for
+
+    if not allowed_for(core, target):
+        core.logger.warning(f"Refused a copy to a forbidden path: {target}")
+        core.transport.reply(FORBIDDEN_REPLY)
+        return
+
     staging = target + ".cp"
     try:
         try:

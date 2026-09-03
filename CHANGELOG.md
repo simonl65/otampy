@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [4.6.0] - 2026-09-03
+
+### Added
+
+- **Optional command authentication.** The command surface (`RB`, `SR`, `UPDATE_REQUEST`, `RM`, `CAT`, `LS`, `MEM`, `RTC*`, `CP_*`) was reachable by anything that could reach the device's UART. On a wired link that is the same trust boundary as physical access; on a radio link -- where OTAmpy is most useful -- it means any station in range can read, overwrite, delete or reboot the device with no credential.
+  - Setting `OTA_REQUIRE_AUTH = True` on the device makes it require every command to arrive as `AUTH:<counter>:<hex-mac>:<command>`, where the MAC is HMAC-SHA256 truncated to 8 bytes over a domain-separated, counter-prefixed copy of the command. The host signs when `OTAMPY_COMMAND_AUTH_KEY` is set. See `docs/protocol.md` section 1.2.
+  - The counter is strictly increasing and seeded from the wall clock, so a command captured off the air cannot be replayed -- including after a reboot, since an accepted `RB`/`SR`/`UPDATE_REQUEST` saves the counter as a boot floor first.
+  - A fresh counter is issued per *send attempt*, so the CLI's own retries are never mistaken for replays. Reusing one would have failed commands permanently on exactly the marginal links that retries exist for.
+  - The MAC is applied above URST, so URST's retransmission is unchanged and unaware of it.
+  - New settings: `OTA_REQUIRE_AUTH`, `COMMAND_AUTH_KEY`, `OTA_REPLAY_FLOOR_FILE` (device); `OTAMPY_COMMAND_AUTH_KEY`, `OTAMPY_COUNTER_FILE` (host).
+
+### Fixed
+
+- **`CP_START` accepted an unrestricted target path (arbitrary file write / path traversal).** `CP_START:<target>:<size>:<sha256>` took its target straight from the command with no directory restriction and no `..` rejection, and the SHA-256 field is attacker-supplied too, so the checksum gate constrained nothing. A crafted `CP_START:main.py:...` (or `boot.py`, or any `lib/` path) overwrote device code, which then ran on the next reboot -- persistent remote code execution for anyone who could reach the link.
+  - `..` is now **always** refused, for `CP_START`, `CAT` and `RM`. There is no legitimate traversal on a filesystem rooted at `/`.
+  - `OTA_ALLOWED_PATH_PREFIXES` optionally restricts those three commands to named prefixes. Unset, any non-traversing path is still allowed, so existing deployments are unaffected.
+  - The refusal happens before any directory or staging file is created, so a rejected copy leaves nothing behind.
+
+### Compatibility
+
+- **No behaviour changes by default.** Every setting above is opt-in: an existing device with an unchanged `configota.py`, driven by a CLI with no `OTAMPY_COMMAND_AUTH_KEY`, behaves exactly as it did in 4.5.0. The only unconditional change is the `..` refusal on `CP_START`/`CAT`/`RM`.
+- Enable the host key **before** the device flag. A device requiring authentication will reject a CLI that is not yet signing, and recovery is over USB.
+
 ## [4.4.0] - 2026-08-18
 
 ### Added

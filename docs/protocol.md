@@ -52,6 +52,59 @@ data = mux.poll_app()      # newest pending payload on your channel, or None
 
 This is exactly the pattern the shipped `boot.py`/`main.py` examples use.
 
+### 1.2 Authenticated commands (optional)
+
+The command surface in section 2 is reachable by anything that can reach
+the device's UART. On a wired link that is the same trust boundary as
+physical access, but on a radio link -- where OTAmpy is most useful -- it
+means any station in range can read, overwrite, delete or reboot the
+device with no credential.
+
+Setting `OTA_REQUIRE_AUTH = True` in `configota.py` makes the device
+require every command to arrive inside a signed envelope:
+
+```text
+AUTH:<counter>:<hex-mac>:<original command>
+```
+
+| Field | Meaning |
+| --- | --- |
+| `counter` | Host-issued, strictly increasing. Replay protection. |
+| `hex-mac` | `HMAC-SHA256(key, b"otampy-ch0\x00" + counter + b":" + command)`, truncated to 8 bytes and hex-encoded. |
+| `original command` | Any command from section 2, unchanged -- colons and all. |
+
+The device verifies the MAC, then checks the counter is strictly greater
+than the highest it has already accepted, then dispatches the inner
+command through the ordinary parser. A command that fails either check is
+answered with `ERROR:Unauthenticated` or `ERROR:Replayed` and is never
+dispatched.
+
+The host signs when `OTAMPY_COMMAND_AUTH_KEY` is set in the environment;
+it must be the same 64 hex characters as the device's `COMMAND_AUTH_KEY`.
+A fresh counter is issued per send attempt, so the CLI's own retries are
+not mistaken for replays.
+
+**Defaults are unchanged.** With `OTA_REQUIRE_AUTH` unset the device
+accepts bare commands exactly as before, and with no
+`OTAMPY_COMMAND_AUTH_KEY` the CLI sends them. Enabling this is a
+deliberate, two-sided act.
+
+**Enable the device last.** A device that requires authentication will
+reject a CLI that is not yet configured to sign, and recovery is over
+USB. Set `OTAMPY_COMMAND_AUTH_KEY` on the host, confirm a signed command
+works, and only then set `OTA_REQUIRE_AUTH = True` on the device.
+
+Related settings:
+
+| Setting | Where | Default | Meaning |
+| --- | --- | --- | --- |
+| `OTA_REQUIRE_AUTH` | `configota.py` | `False` | Require the envelope. With no usable key, rejects everything. |
+| `COMMAND_AUTH_KEY` | `configota.py` | unset | 64 hex characters (32 bytes). |
+| `OTA_REPLAY_FLOOR_FILE` | `configota.py` | `otampy-replay-floor` | Where the counter is saved before a commanded reset, so a captured `RB` cannot be replayed afterwards. |
+| `OTA_ALLOWED_PATH_PREFIXES` | `configota.py` | unset (all) | Restrict `CP_START`/`CAT`/`RM` targets. `..` is always refused, configured or not. |
+| `OTAMPY_COMMAND_AUTH_KEY` | host env | unset | The host's copy of the key. Unset means send bare commands. |
+| `OTAMPY_COUNTER_FILE` | host env | `~/.local/state/otampy/command-counter` | Where the host's counter persists across runs. |
+
 ---
 
 ## 2. Command & Response Reference

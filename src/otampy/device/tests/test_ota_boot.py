@@ -5,7 +5,7 @@ import os
 from unittest.mock import patch
 
 import shared
-from device_otampy import boot
+from device_otampy import boot, restore
 from device_otampy.core import OTACore
 
 
@@ -267,6 +267,53 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
 # =============================================================================
 # PHASE 5: FAULT-TOLERANCE & CLEANUP TESTS
 # =============================================================================
+
+
+def test_boot_repairs_finished_commit_with_missing_target(tmp_path):
+    """No flag, journal line 1 is 0, a target vanished -> repair restores it."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    main = tmp_path / "main.py"
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"good-main"
+
+
+def test_boot_reverses_interrupted_commit(tmp_path):
+    """No flag, journal line 1 'committing' -> whole set restored, line 1 -> 0."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "sensor.py"
+    main.write_bytes(b"half-new")
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    (tmp_path / "sensor.py.bck").write_bytes(b"good-sensor")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(
+        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+    )
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"good-main"
+    assert sensor.read_bytes() == b"good-sensor"
+    assert restore.read_journal(core)[1] is False
 
 
 def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):

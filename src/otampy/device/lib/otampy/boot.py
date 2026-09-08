@@ -386,6 +386,14 @@ def run(core, callback=None):
     perform the update, and remove the flag-file.
     """
     _apply_staged_rtc_update()
+
+    # Finish or reverse an interrupted retain-previous commit before anything
+    # else touches the filesystem -- runs on every boot, flagged or not.
+    # Local import so it stays GC-eligible alongside `boot` itself.
+    from .restore import repair
+
+    repair(core)
+
     core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 

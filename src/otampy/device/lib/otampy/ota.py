@@ -29,19 +29,20 @@ class OTA:
 
             ota_module_name = OTA.__module__
             package_name = ota_module_name[: ota_module_name.rfind(".")]
-            module_name = package_name + ".boot"
             package = sys.modules.get(package_name)
 
-            try:
-                del sys.modules[module_name]
-            except KeyError:
-                pass
-
-            if package is not None:
+            # `boot` imports `restore` locally in run(); release both so GC
+            # can reclaim their bytecode -- a later boot() re-imports them.
+            for submodule in ("boot", "restore"):
                 try:
-                    delattr(package, "boot")
-                except AttributeError:
+                    del sys.modules[package_name + "." + submodule]
+                except KeyError:
                     pass
+                if package is not None:
+                    try:
+                        delattr(package, submodule)
+                    except AttributeError:
+                        pass
 
             del run
             gc.collect()

@@ -235,7 +235,7 @@ adds **no new peak usage** during a transfer. The existing check
     no-op.
   - Done when: those tests pass.
 
-- [ ] **4. Wire `repair()` into `boot.run()`**
+- [x] **4. Wire `repair()` into `boot.run()`**
   - What changes: call `restore.repair(core)` in `boot.run()` immediately after
     `_apply_staged_rtc_update()`, before the flag `stat`. Keep the
     module-release dance in `ota.OTA.boot()` working (add `restore` to the same

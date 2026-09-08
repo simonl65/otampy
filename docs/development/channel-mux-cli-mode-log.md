@@ -87,5 +87,54 @@ Branch: `feature/channel-mux-cli-mode`.
 - Manual: `uv run otampy mux --show` → `Channel-mux: direct mode (from
   default)`; `otampy --help` and `otampy mux --help` list it.
 
-### Step 5 — documentation
-(next)
+### Step 5 — documentation — DONE
+
+- `docs/protocol.md` §1.3: new "Enabling mux mode on the host" subsection with a
+  settings table (`--mux/--no-mux`, `OTAMPY_MUX`, `mux` config key), the
+  resolution order, and `otampy mux --show`.
+- `README.md`: `OTAMPY_MUX` added to the env-override list; new "Shared-UART
+  (channel-mux) mode" feature bullet.
+- `docs/deployment.md`: `--mux` persistence note next to `--log-level`; `otampy
+  --mux --port … ping` added to the Verification example.
+- Gate: `pre_flight_check.py` exit 0.
+
+### Repair F-01 — `_pump` / `in_waiting` blocking — DONE (fixed, awaiting re-review)
+
+- `channel.py::_pump`: `pending = getattr(self._ser, "in_waiting", 0)` (no
+  `or 1`); only `read(pending)` when non-zero. `ChannelSerial` is now truly
+  non-blocking; URST's `read_frame` poll loop handles the waiting.
+- `tests/test_channel.py`: `test_pump_does_not_read_when_port_is_empty` (raw
+  `read` raises if called) + `test_pump_reads_only_what_is_pending`.
+- Gate: `pre_flight_check.py` exit 0; full suite green.
+- F-01 → `fixed` in `docs/development/findings.md`. Needs `/sl-findings review`
+  to close.
+
+### Repair F-03 — malformed `OTAMPY_MUX` lockout — DONE (fixed, awaiting re-review)
+
+- `get_mux_enabled` no longer raises on a bad token: warns to stderr, falls
+  through to config (`_parse_mux_token` + `_mux_from_config` helpers).
+  `_mux_state` notes `(env OTAMPY_MUX=… invalid, ignored)`.
+- Tests updated (`test_invalid_env_token_is_ignored_with_warning` replaces the
+  raises-test) + `TestMuxCommand::test_show_still_works_with_a_malformed_env_var`.
+- Verified: `OTAMPY_MUX=maybe otampy ping` / `otampy mux --clear` exit 0.
+- Gate: `pre_flight_check.py` exit 0. F-03 → `fixed`.
+
+### Repair F-02 — lazy `ChannelSerial` import — DONE (fixed, awaiting re-review)
+
+- Moved `from .channel import ChannelSerial` into `_open_transport`. `import
+  otampy.cli` no longer loads `urst`/`serial`. Test: `TestLazyImport` (subprocess).
+- Gate: `pre_flight_check.py` exit 0. F-02 → `fixed`.
+
+### `/sl-findings review` — F-01, F-02, F-03 all closed (2026-09-08)
+
+Re-reviewed each fix against its original evidence in the code as it now stands;
+full suite green (513). One new Risk recorded (`ChannelSerial` reads only via
+`in_waiting`, not `any()` — latent, no current call path). Ledger:
+`MERGE CLEAR`.
+
+## All build steps complete
+
+TODO sub-task 2 ready to tick. Follow-ups for a later TODO item:
+channel-id / `min_tx_gap_ms` CLI exposure (deferred — device defaults suffice);
+sub-task 3 (scaffold direct-by-default + separate mux example set) must keep the
+shared-UART `boot.py` on `SerialMux`.

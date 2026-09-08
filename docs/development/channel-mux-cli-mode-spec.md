@@ -221,7 +221,7 @@ module-level frozensets next to `CONFIG_SETTINGS` (`_MUX_TRUE_TOKENS`,
     the env source.
   - Done when: `uv run pytest -q tests/test_mux_cli.py::TestMuxCommand` passes.
 
-- [ ] **5. Documentation**
+- [x] **5. Documentation**
   - What changes:
     - `docs/protocol.md` §1.3 — new short "Enabling mux mode on the host"
       paragraph (the `--mux` flag, `OTAMPY_MUX`, `otampy mux`, default direct)
@@ -233,6 +233,37 @@ module-level frozensets next to `CONFIG_SETTINGS` (`_MUX_TRUE_TOKENS`,
       the Verification example for a shared-UART device.
   - Test: none — documentation.
   - Done when: the three sections exist and Simon has read them at the gate.
+
+- [x] **Repair F-01 — `ChannelSerial._pump` / `in_waiting` must not block**
+  - What changes: `src/otampy/channel.py` `_pump` reads only
+    `self._ser.in_waiting` bytes and does not read at all when that is 0 (no
+    blocking `read(1)` fallback). `ChannelSerial.read` / `in_waiting` then return
+    promptly (`b""` / current count) and let URST's own `read_frame` poll loop
+    do the waiting, matching how a real non-blocking `serial.in_waiting`
+    behaves.
+  - Test: `tests/test_channel.py::TestChannelSerial` — a fake serial whose
+    `read()` records calls / would block; assert `in_waiting` and `read` do not
+    call `self._ser.read` when `in_waiting == 0`, and still decode normally when
+    data is present.
+  - Done when: `uv run pytest -q tests/test_channel.py` passes and the new test
+    proves no read on an empty port; `docs/development/findings.md` F-01 →
+    `fixed`.
+
+- [x] **Repair F-03 — malformed `OTAMPY_MUX` must not lock out `otampy mux`**
+  - What changes: `get_mux_enabled` warns + falls through instead of raising on
+    an unrecognised token (`_parse_mux_token` / `_mux_from_config` helpers);
+    `_mux_state` notes the ignored env value.
+  - Test: `tests/test_mux_cli.py` — `get_mux_enabled` returns the config value
+    with a stderr warning; `otampy mux --show` exits 0 and reports it.
+  - Done when: `uv run pytest -q tests/test_mux_cli.py` passes; `OTAMPY_MUX=x
+    otampy mux --clear` exits 0; F-03 → `fixed`.
+
+- [x] **Repair F-02 — keep `ChannelSerial` import lazy**
+  - What changes: move `from .channel import ChannelSerial` from `cli.py` module
+    scope into `_open_transport`.
+  - Test: `tests/test_mux_cli.py::TestLazyImport` — subprocess `import
+    otampy.cli` leaves `urst` / `serial` out of `sys.modules`.
+  - Done when: that test passes; F-02 → `fixed`.
 
 ## Verification
 

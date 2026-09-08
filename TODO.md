@@ -21,6 +21,35 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
   - Fresh: yes
     - start clean.
 
+  Protocol decision (signed off 2026-09-08): no URST change. New application-layer
+  commands on channel 0 only (`ROLLBACK`, `CONFIRM`, `UPDATE_STATE`), retained-previous
+  via `rename` to `<target>.bck` (`.bak` is already used transiently by `filecopy._commit`),
+  a plain-text on-device journal. Split into four sub-tasks, each leaving the device safe
+  to power on; build in order.
+
+  - [ ] **1. Retain-previous commit + journal contract.** `UPDATE_COMMIT` becomes
+    all-or-nothing: it renames each replaced file to `<target>.bck` instead of deleting
+    it, and a plain-text journal carries a `committing` marker written before the first
+    rename and flipped to a boot-attempt counter (`0`) after the last. A failed or
+    power-interrupted commit is rolled back as a whole set from the `.bck` files by
+    `restore.commit()` or by `boot.py`'s `repair()` on the next boot - the device is
+    never left on a mixed-generation tree. The next `UPDATE_START` discards the prior
+    generation's journal and `.bck` files. Journal format and `.bck` naming are the
+    load-bearing contract for sub-tasks 2-4.
+    Spec: `docs/development/failsafe-update-retain-previous-spec.md`.
+  - [ ] **2. Trial boot, health confirmation, auto-restore.** `boot.py` increments the
+    journal attempt counter on each boot into an unconfirmed candidate; at
+    `OTA_TRIAL_BOOTS` it restores every `.bck` and resets. `CONFIRM` (host, after a
+    successful `PING`) and `ota.confirm()` (application) clear the journal and `.bck`.
+    `UPDATE_STATE` -> `STATE_OK:<trial|stable>:<attempt>`. `otampy upd` sends `CONFIRM`
+    after `COMMIT_OK` + a health `PING`.
+  - [ ] **3. `ROLLBACK` command + `otampy rollback` CLI.** User-initiated revert of a
+    candidate that booted and was confirmed but is wrong. Reuses sub-task 2's restore
+    primitive; needs `_persist_replay_floor` like `RB`.
+  - [ ] **4. Boot-time recovery listen window.** `boot.py` briefly accepts
+    `UPDATE_REQUEST`/`ROLLBACK` with no flag set (`OTA_BOOT_LISTEN_MS`), so a device
+    stranded by a faulty `main.py` or `boot.py` still has a remote recovery path.
+
 ## Deferred - do not run these
 
 [ ] **Run the `micropython-nasa-power-of-ten` skill against this repo (and `urst-mpy`).** Surfaced 2026-08-20 as a `Needs Review`/deferred item (D-1) in `diff-drive-robot`'s own NASA Power of Ten audit (`docs/development/NASA-Power-of-Ten-review.md`), which explicitly can't audit vendored code per its own `CLAUDE.md` convention -- `diff-drive-robot/robot/device/lib/otampy`/`lib/urst` are synced verbatim from here and from `urst-mpy`, not maintained in that repo. That audit's shallow grep pass (not a deep read) flagged four spots worth a proper look, evidence as of otampy 4.5.0/urst-mpy 3.2.0:

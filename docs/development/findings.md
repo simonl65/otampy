@@ -9,6 +9,51 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-06 — an interrupted `boot.py` commit strands the device: `repair()` lives in the file that got deleted
+
+- **Severity:** P0
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/` (`boot.run` / `restore` design;
+  the shipped `main.py` scaffold)
+- **Found:** 2026-09-08, HIL fault-injection of
+  `feature/failsafe-update-retain-previous` (doctored `restore.py` with a 25 s
+  wait loop on the last commit pair; Simon pulled power in the window).
+- **Evidence:** `otampy upd main.py boot.py` was interrupted mid-commit, after
+  `main.py` had fully committed and `boot.py` had been renamed to
+  `boot.py.bck` but its `.ota` was not yet renamed into place. On the next
+  boot, `otampy -p /dev/ttyUSB0 ls /` showed: **`boot.py` absent**,
+  `boot.py.bck` + `boot.py.ota` present, `otampy-update.journal` =
+  `committing` / `/main.py` / `/boot.py`, `update_requested.flag` still set.
+  `otampy ping` returned `PONG` (the newly-committed `main.py` runs), but the
+  `committing` state persisted across reboots — no self-repair.
+- **Root cause:** `restore.repair()` is only ever invoked from `boot.run()`,
+  i.e. from `boot.py`. `commit()` renames each target out to `<target>.bck`
+  before renaming the staged copy in, so an interrupt while `boot.py` is the
+  current pair leaves `boot.py` absent. MicroPython then boots straight to
+  `main.py`, `boot.run()` never executes, and the journal/flag/`.bck` state is
+  never resolved. The device is stuck on a mixed tree (new `main.py`, no
+  `boot.py`) with no remote recovery path — exactly the "never destroy the only
+  remote recovery path" invariant the Fail-safe Updates task exists to enforce.
+- **Impact:** A normal-path power loss during any update whose set includes
+  `boot.py` (every `otampy upd` with no args sends `boot.py`, `main.py`,
+  `configota.py`) can strand a field device. Runtime commands still work while
+  `main.py` runs, so recovery is possible over the radio via `otampy cp` — but
+  only by luck (if `main.py` committed or was untouched); if the interrupt
+  caught `main.py` instead, or `main.py` also fails, the device needs USB.
+- **Blocks:** merge (P0). HIL cannot proceed past this.
+- **Suggested fix (needs a design decision — see dev log 1-3-1):**
+  - **A (recommended):** the shipped `main.py` scaffold also runs
+    `restore.repair()` once at startup (or a new `OTA(...).recover()`). Since
+    `commit()` touches one file at a time, at any interrupt point at most one of
+    `boot.py`/`main.py` is absent, so the survivor heals the set. Smallest
+    change; scaffold contract gains one line; a custom `main.py` must include it.
+  - **B:** special-case `boot.py` in `commit()` to copy-into-place (never leave
+    `boot.py` absent). Keeps recovery in `boot.py`; risks a truncated `boot.py`
+    on a crash mid-write.
+  - **C:** freeze a minimal recovery `_boot.py` (runs before `boot.py`) into the
+    deployed image that calls `repair()` and chains on. Heaviest; needs a
+    manifest/freeze change at deploy time.
+
 ### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
 
 - **Severity:** P1

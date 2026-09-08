@@ -121,3 +121,65 @@ and F-05 stay `fixed` (not `closed`) until hardware confirms:
   `otampy cat /otampy-update.journal` lists only `/main.py` (no
   `/_otampy_set_rtc.py`).
 - Then Phases 3–5 as originally planned.
+
+## 2026-09-08 — HIL round 2: F-06 (P0), and the test device went dark
+
+Fault-injection HIL for the interrupted-commit path. A doctored `restore.py`
+(scratchpad `restore_HIL.py`) added a 25 s `time.sleep` wait loop on the last
+commit pair, after `target -> .bck` and before `staging -> target`, so the
+`otampy upd` CLI hangs at the worst-case interrupt point. (`core.logger` is
+`NullLogger` on this device — no `--with-logger` — so the countdown messages
+went nowhere; the CLI hang is the only cue.)
+
+`otampy upd main.py boot.py` was interrupted (power) during the window. Result
+on the device (`otampy -p /dev/ttyUSB0 ls /` / `cat`):
+
+```
+main.py            <- new (committed)         main.py.bck   <- old
+boot.py  ABSENT                               boot.py.bck   <- old
+boot.py.ota        <- staged, never placed
+otampy-update.journal:  committing / /main.py / /boot.py
+update_requested.flag   still set
+```
+
+**F-06 (P0).** `repair()` never ran because it lives in `boot.run()` /
+`boot.py`, and `boot.py` is the file the interrupt deleted. MicroPython booted
+straight to the new `main.py` (hence `otampy ping` -> PONG), the `committing`
+state persisted across reboots, and the device had no remote self-recovery.
+See findings.md F-06 and the 1-3-1 below.
+
+### Recovery attempt + device went unresponsive
+
+Over the radio while `main.py` was still serving runtime commands:
+1. `otampy cp .../restore.py:lib/otampy/restore.py` — **succeeded** (real
+   6346-byte version back on device; doctored `restore_HIL` gone).
+2. `otampy cp .../examples/boot.py:boot.py` — **"Failed to send command over
+   transport"**, and the device stopped answering the radio entirely from that
+   point. `/dev/ttyACM0` still enumerates as "MicroPython Board in FS mode"
+   (Pico is powered, MicroPython running) — it is a radio / `main.py` liveness
+   issue, not a dead board. Not power-cycled or USB-inspected from this session
+   (physical access + the reset/settle discipline are Simon's). Repeated radio
+   pokes stopped here deliberately.
+
+Device state when last seen: `boot.py` absent, `restore.py` = real version,
+journal `committing`, flag set. Recovery steps handed to Simon.
+
+### 1-3-1 — where does `repair()` run when `boot.py` can be the casualty?
+
+**Problem:** `restore.repair()` is only reachable from `boot.py`, which is
+exactly the file an interrupted `commit()` can leave absent.
+
+**Options:**
+- **A. `main.py` also calls `repair()` at startup** (or `OTA(...).recover()`).
+  `commit()` renames one file at a time, so at any interrupt at most one of
+  `boot.py`/`main.py` is missing — the survivor heals the set. One line in the
+  scaffold; a custom `main.py` must opt in.
+- **B. Special-case `boot.py` in `commit()`** — copy-into-place so `boot.py` is
+  never absent. Recovery stays in `boot.py`; risk of a truncated `boot.py`.
+- **C. Frozen minimal `_boot.py`** that runs `repair()` before `boot.py`.
+  Robust; needs a freeze/manifest change at deploy time.
+
+**Recommendation: A.** Smallest change, sound given the one-file-at-a-time
+property, and it mirrors the existing `boot()`/`poll()` split in the facade.
+Fold in as spec step 11, or split to its own sub-task alongside sub-task 4's
+recovery theme — Simon's call.

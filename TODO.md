@@ -8,6 +8,10 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
+[ ] **Fail-safe Updates** The current solution overwrites working code once it's been verified but this leaves the chance that the new firmware might "brick" the device. I want to understand what options we have to ensure that we can always get back to a known working firmware. I'd prefer not to make any changes to the underlying URST package if possible, but may consider it if it has advantages.
+
+## Deferred - do not run these
+
 [ ] **Run the `micropython-nasa-power-of-ten` skill against this repo (and `urst-mpy`).** Surfaced 2026-08-20 as a `Needs Review`/deferred item (D-1) in `diff-drive-robot`'s own NASA Power of Ten audit (`docs/development/NASA-Power-of-Ten-review.md`), which explicitly can't audit vendored code per its own `CLAUDE.md` convention -- `diff-drive-robot/robot/device/lib/otampy`/`lib/urst` are synced verbatim from here and from `urst-mpy`, not maintained in that repo. That audit's shallow grep pass (not a deep read) flagged four spots worth a proper look, evidence as of otampy 4.5.0/urst-mpy 3.2.0:
 
 - `device/lib/otampy/boot.py:112` -- `while True:` in `_run_default_update_loop`. Likely fine on inspection: it has its own `OTA_TIMEOUT_MS`-based inactivity timeout (`_ticks_diff(...) >= timeout_ms` -> sends `UPDATE_ABORTED` and breaks), confirmed while investigating an unrelated `diff-drive-robot` watchdog issue the same day -- but that was one read, not a full audit pass.

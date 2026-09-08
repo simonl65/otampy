@@ -72,5 +72,20 @@ Branch: `feature/channel-mux-cli-mode`.
   with them collected the patch is required.
 - Gate: `pre_flight_check.py` exit 0; `uv run pytest -q` → 502 passed.
 
-### Step 4 — `otampy mux` management command
+### Step 4 — `otampy mux` management command — DONE
+
+- `cli.py`: `_mux_state() -> (bool, str)` (value + source for display) and
+  `@cli.command("mux")` `mux_cmd(show, enable, disable, clear)` modelled on
+  `log_level_cmd`. `--show` prints e.g. `Channel-mux: direct mode (from
+  default)` / `mux mode (from project config)` / `... (from env OTAMPY_MUX)`;
+  `--enable`/`--disable` persist to project config + clear the session
+  override; `--clear` removes session + project + global; bare invocation
+  confirms the flip then prompts `(p=permanent, s=session, c=cancel)`.
+- `tests/test_mux_cli.py::TestMuxCommand` (6): default→direct, enable→project,
+  disable, clear, env source reported, interactive session choice.
+- Gate: `pre_flight_check.py` exit 0; full `uv run pytest -q` → 508 passed.
+- Manual: `uv run otampy mux --show` → `Channel-mux: direct mode (from
+  default)`; `otampy --help` and `otampy mux --help` list it.
+
+### Step 5 — documentation
 (next)

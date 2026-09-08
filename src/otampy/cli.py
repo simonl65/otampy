@@ -2595,6 +2595,108 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
         _console().print("Cancelled.")
 
 
+def _mux_state() -> tuple[bool, str]:
+    """Return ``(enabled, source)`` for display by ``otampy mux --show``."""
+    import os
+
+    if os.environ.get(MUX_ENV) is not None:
+        return get_mux_enabled(), f"env {MUX_ENV}"
+    for scope_name, scope in (
+        ("session config", _read_json(_session_config_path())),
+        ("project config", _read_project_config()),
+        ("global config", _read_global_config()),
+    ):
+        if isinstance(scope.get("mux"), bool):
+            return scope["mux"], scope_name
+    return False, "default"
+
+
+@cli.command(name="mux")
+@click.option("--show", is_flag=True, help="Show the current mux setting.")
+@click.option(
+    "--enable", is_flag=True, help="Enable channel-mux mode permanently."
+)
+@click.option(
+    "--disable", is_flag=True, help="Disable channel-mux mode permanently."
+)
+@click.option(
+    "--clear",
+    is_flag=True,
+    help="Remove the saved mux setting (session, project and global).",
+)
+def mux_cmd(show: bool, enable: bool, disable: bool, clear: bool) -> None:
+    """Show or manage channel-mux mode (docs/protocol.md §1.3).
+
+    Channel-mux mode wraps every URST frame in a COBS outer frame so one UART
+    can carry OTAmpy traffic alongside the device's own application stream. It
+    must be enabled on the device too. Override for one command with
+    'otampy --mux <cmd>' / 'otampy --no-mux <cmd>'.
+    """
+    if enable and disable:
+        raise click.ClickException("Use only one of --enable / --disable.")
+
+    def _describe(enabled: bool, source: str) -> str:
+        return f"{'mux' if enabled else 'direct'} mode (from {source})"
+
+    if show:
+        enabled, source = _mux_state()
+        _console().print(
+            f"Channel-mux: [green]{_describe(enabled, source)}[/green]"
+        )
+        return
+
+    if clear:
+        set_mux_enabled(None)
+        set_mux_enabled(None, session=True)
+        _write_global_config({"mux": None})
+        _console().print(
+            "[green]Saved mux setting cleared (will default to direct).[/green]"
+        )
+        return
+
+    if enable or disable:
+        set_mux_enabled(enable)
+        set_mux_enabled(None, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if enable else 'off'} (permanent).[/green]"
+        )
+        return
+
+    # Interactive
+    current, source = _mux_state()
+    _console().print(f"Channel-mux: [bold]{_describe(current, source)}[/bold]")
+    target = not current
+    if not click.confirm(
+        f"Turn channel-mux mode {'on' if target else 'off'}?", default=False
+    ):
+        _console().print("Cancelled.")
+        return
+
+    choice = (
+        click.prompt(
+            "Save as? (p=permanent, s=session, c=cancel) [p/s/c]", default="p"
+        )
+        .strip()
+        .lower()
+    )
+    if choice == "p":
+        set_mux_enabled(target)
+        set_mux_enabled(None, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if target else 'off'} (permanent).[/green]"
+        )
+    elif choice == "s":
+        set_mux_enabled(target, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if target else 'off'} (session).[/green]"
+        )
+    else:
+        _console().print("Cancelled.")
+
+
 @cli.command(name="device-dir")
 @click.option(
     "--show", is_flag=True, help="Show the current default device directory."

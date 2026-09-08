@@ -242,3 +242,50 @@ class TestMuxWiring:
                 "Failed to send command over transport",
             )
         )
+
+
+class TestMuxCommand:
+    def _run(self, tmp_path, args, env=None, stdin=None):
+        with _isolated_config(tmp_path, env=env):
+            return CliRunner().invoke(cli, ["mux", *args], input=stdin)
+
+    def test_show_default_reports_direct(self, tmp_path):
+        result = self._run(tmp_path, ["--show"])
+        assert result.exit_code == 0
+        assert "direct" in result.output.lower()
+
+    def test_enable_then_show_reports_project(self, tmp_path):
+        assert self._run(tmp_path, ["--enable"]).exit_code == 0
+        result = self._run(tmp_path, ["--show"])
+        assert result.exit_code == 0
+        out = result.output.lower()
+        assert "mux" in out and "project" in out
+
+    def test_disable(self, tmp_path):
+        self._run(tmp_path, ["--enable"])
+        assert self._run(tmp_path, ["--disable"]).exit_code == 0
+        with _isolated_config(tmp_path):
+            assert get_mux_enabled() is False
+
+    def test_clear(self, tmp_path):
+        self._run(tmp_path, ["--enable"])
+        assert self._run(tmp_path, ["--clear"]).exit_code == 0
+        with _isolated_config(tmp_path):
+            config_file = tmp_path / ".config" / "otampy" / "config.json"
+            data = (
+                json.loads(config_file.read_text())
+                if config_file.exists()
+                else {}
+            )
+        assert "mux" not in data.get("projects", {}).get(str(tmp_path), {})
+
+    def test_show_reports_env_source(self, tmp_path):
+        result = self._run(tmp_path, ["--show"], env={"OTAMPY_MUX": "1"})
+        assert result.exit_code == 0
+        assert "OTAMPY_MUX" in result.output
+
+    def test_interactive_session_choice(self, tmp_path):
+        result = self._run(tmp_path, [], stdin="y\ns\n")
+        assert result.exit_code == 0
+        session_file = tmp_path / "otampy_session_7777.json"
+        assert json.loads(session_file.read_text())["mux"] is True

@@ -208,7 +208,7 @@ module-level frozensets next to `CONFIG_SETTINGS` (`_MUX_TRUE_TOKENS`,
   - Done when: `uv run pytest -q tests/test_mux_cli.py` passes and full
     `uv run pytest -q` is green.
 
-- [ ] **4. `otampy mux` management command**
+- [x] **4. `otampy mux` management command**
   - What changes: `cli.py` — `@cli.command(name="mux")` `mux_cmd(show, enable,
     disable, clear)` modelled on `log_level_cmd`: `--show` prints the resolved
     value and its source; `--enable`/`--disable` persist to project config and

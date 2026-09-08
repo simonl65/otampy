@@ -8,44 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Channel-mux mode: opt-in on both ends.** Since `6f2bd1b` the shipped `boot.py`/`main.py` scaffold wires `SerialMux` + `OTA(mux.ota_port)`, which double-wraps every URST frame in an outer channel-COBS frame. The host CLI speaks plain URST with no such layer, so it routes to an unknown channel and every command — including `otampy ping` — times out silently. Deployed straight from `otampy deploy --device-dir src/otampy/device/examples`, `otampy ping` never returns `PONG`. Fix both halves: (a) make the example scaffold **direct-mode by default** (OTA owns the UART) and ship a **separate shared-UART example set** for the mux; (b) give the CLI a **matching, opt-in channel codec** (`--mux` flag / config key) so mux mode works end to end. Formalise the outer-frame format in `protocol.md` as an optional, versioned transport layer. Update `protocol.md`, `architecture.md` (its Integration Guide still shows the pre-`6f2bd1b` direct-mode examples), README and CHANGELOG.
-
-  - Model: Sonnet
-    - two-sided framing fix with a load-bearing wire contract; mechanical once the contract is pinned.
-  - Spec : yes
-    - `docs/development/channel-mux-opt-in-spec.md`; sub-task 1 specced first.
-  - Fresh: yes.
-
-  Protocol decision (signed off 2026-09-08): no URST change. URST stays point-to-point
-  and channel-unaware. The channel mux is a framing layer *below* URST on both ends:
-  `COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`, channel 0 = OTA/URST (reliable),
-  channel 1 = application (best-effort), unknown channels dropped — byte-identical to
-  what device `mux.py` emits today, so no wire change for existing mux users. Direct
-  mode (no outer frame) stays the default on both device and CLI; mux mode is a
-  deliberate two-sided choice and a one-sided mismatch produces the same silent
-  timeout. Channel ids are named constants, configurable on both ends, must match.
-  `deploy` stays direct-mode only (raw-port human provisioning). Build in order:
-
-  - [x] **1. Frame contract + host codec.** Done — `docs/protocol.md` §1.3
-    documents the outer frame; `src/otampy/channel.py` has `ChannelCodec` +
-    `ChannelSerial` (ported from device `mux.py`'s frame core — `mux_host.py`
-    is absent from this checkout); `tests/test_channel.py` +
-    `tests/test_channel_conformance.py` pin it against the device frame bytes.
-    No CLI wiring. See `docs/development/channel-mux-opt-in-log.md`.
-  - [x] **2. CLI mux mode.** Done — `--mux/--no-mux` global flag, `OTAMPY_MUX`
-    env + `mux` config key (project/global), `otampy mux` command; all four
-    `Urst(ser)` sites routed through a new `_open_transport` helper that wraps
-    the port in `ChannelSerial` when mux mode is on. `docs/protocol.md` §1.3,
-    README and `docs/deployment.md` updated. `deploy` stays direct.
-    See `docs/development/channel-mux-cli-mode-log.md`.
-  - [ ] **3. Scaffold direct-by-default + separate mux example set.** Revert
-    `examples/boot.py`/`main.py` to direct mode; add `examples/shared-uart/` with the
-    `SerialMux` pattern (its `boot.py` must keep `SerialMux`); `otampy init` offers
-    both; fix `architecture.md` Integration Guide, README, CHANGELOG (cover the whole
-    channel-mux feature: sub-tasks 1+2+3).
-  - Deferred (out of scope, tracked in `diff-drive-robot/TODO.md`): consolidating that
-    project's `gateway/src/mux_host.py` onto this host codec once released.
-
 [ ] **Fail-safe Updates** The current solution overwrites working code once it's been verified but this leaves the chance that the new firmware might "brick" the device. I want to understand what options we have to ensure that we can always get back to a known working firmware. I'd prefer not make any changes to the underlying URST package if possible, but may consider it if it has advantages.
 
   Truly remote-safe updates need rollback: retain the previous application, reboot into the candidate, require a health confirmation, and restore the previous version if startup fails. Without that, a validly transferred but faulty boot.py, main.py or configota.py can still strand the device. For OTAmpy's actual purpose, "never destroy the only remote recovery path" should be a core invariant, enforced on the device — not merely a CLI precaution.

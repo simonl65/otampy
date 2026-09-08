@@ -6,6 +6,7 @@ import configota as config  # type: ignore
 import machine  # type: ignore
 import utime as time  # type: ignore
 from Blink import Blink  # type: ignore
+from otampy.mux import SerialMux  # type: ignore
 
 from otampy import OTA, NullLogger  # type: ignore
 
@@ -39,13 +40,18 @@ uart = machine.UART(
     rx=machine.Pin(config.OTA_RX_PIN),
 )
 
+# `uart` is shared between OTAmpy and the application. SerialMux gives each
+# side an isolated channel over that one physical UART -- do NOT read/write
+# `uart` directly anywhere else, or you'll steal bytes the other side needs.
+mux = SerialMux(uart)
+
 
 # =============================================================================
 # APPLICATION FUNCTIONS
 # =============================================================================
 def do_application_stuff():
     """Placeholder function for main application logic."""
-    data = uart.read()
+    data = mux.poll_app()
     if data:
         logger.debug(f"data: {data}")
 
@@ -61,10 +67,11 @@ def prepare_for_shutdown():
 # MAIN FUNCTION
 # =============================================================================
 def main():
-    # Instantiate OTA with our UART (and optionally config and logger)
-    ota = OTA(uart, config=config, logger=logger)
+    # Instantiate OTA with the mux's virtual OTA port -- not the raw UART.
+    ota = OTA(mux.ota_port, config=config, logger=logger)
 
     # Cache attributes/methods to eliminate loop lookup overhead
+    mux_service = mux.service
     ota_poll = ota.poll
     do_app = do_application_stuff
     blink_func = blink.blink
@@ -75,6 +82,11 @@ def main():
     try:
         while True:
             """Main application loop"""
+
+            # Pumps the real UART. Must run before ota_poll/do_app -- both
+            # of them only ever see bytes already routed into their own
+            # mux channel by this call.
+            mux_service()
 
             do_app()
 

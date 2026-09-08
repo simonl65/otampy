@@ -108,7 +108,7 @@ Device-facing, but scaffold code only — no library hot path changes.
 
 ## Build steps
 
-- [ ] **1. Split the scaffold: direct default + `shared-uart/` set**
+- [x] **1. Split the scaffold: direct default + `shared-uart/` set**
   - What changes:
     - `src/otampy/device/examples/boot.py`, `main.py` → restore to
       `git show 6f2bd1b~1:…` content (direct mode).
@@ -127,7 +127,7 @@ Device-facing, but scaffold code only — no library hot path changes.
     `grep -l "SerialMux" src/otampy/device/examples/shared-uart/{boot,main}.py`
     lists both.
 
-- [ ] **2. `otampy init --mux` selects the shared-UART set**
+- [x] **2. `otampy init --mux` selects the shared-UART set**
   - What changes:
     - `src/otampy/cli.py` `init`: add `--mux/--no-mux` flag (default `None`);
       resolve to a boolean (flag → prompt if TTY → `False`); when true, source
@@ -144,7 +144,7 @@ Device-facing, but scaffold code only — no library hot path changes.
     the file through `importlib.resources` (packaged path), not a repo-relative
     path.
 
-- [ ] **3. Documentation + CHANGELOG**
+- [x] **3. Documentation + CHANGELOG**
   - What changes:
     - `docs/protocol.md`: confirm §1.1 / §1.3 read correctly now that the
       default scaffold is direct (the text already claims this — verify, adjust

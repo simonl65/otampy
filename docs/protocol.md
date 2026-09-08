@@ -153,6 +153,21 @@ This outer frame is an `otampy` transport option, versioned by `otampy`'s
 own releases. It does not change URST's `PROTOCOL_VERSION` — URST itself is
 unchanged and stays channel-unaware.
 
+**Enabling mux mode on the host.** The CLI is direct by default. Turn the
+outer frame on with the `--mux` flag for a single command, or save it:
+
+| Setting | Where | Default | Meaning |
+| --- | --- | --- | --- |
+| `--mux` / `--no-mux` | CLI option (before the subcommand) | off | Force mux / direct for this one command, ignoring the saved setting. |
+| `OTAMPY_MUX` | host env | unset | `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`. Overrides the saved setting. |
+| `mux` | `~/.config/otampy/config.json` (project, then global) | unset | Persistent default. Set with `otampy mux --enable` / `--disable` / `--clear`, or the interactive `otampy mux`. |
+
+Resolution order: `OTAMPY_MUX` → session config → project config → global
+config → direct. `otampy mux --show` prints the resolved value and where it
+came from. `deploy` ignores all of the above. The device must be running
+`otampy.mux.SerialMux` (§1.1) for any of this to connect — a `--mux` CLI
+against a direct device is the one-sided mismatch above.
+
 ---
 
 ## 2. Command & Response Reference

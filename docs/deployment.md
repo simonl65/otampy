@@ -208,6 +208,12 @@ retain that level for the shell session or permanently. Permanent host CLI
 settings are stored in `~/.config/otampy/config.json`; session-only settings
 use the operating system's temporary directory.
 
+If the device shares its OTA UART with application code through
+`otampy.mux.SerialMux`, add `--mux` to every command (or persist it with
+`otampy mux --enable`, which saves the same way as the log level). Without it
+the CLI speaks plain URST and every command times out. `deploy` is always
+direct-mode. See `docs/protocol.md` §1.3.
+
 ## Verification
 
 After deployment, verify the OTA UART through its host-side adapter:
@@ -218,4 +224,5 @@ otampy --port /dev/ttyUSB0 ping
 
 A working deployment prints `Success: Received PONG from device.` The USB
 deployment port and OTA UART adapter are commonly different devices, as in the
-examples above.
+examples above. For a shared-UART (channel-mux) device, use
+`otampy --mux --port /dev/ttyUSB0 ping`.

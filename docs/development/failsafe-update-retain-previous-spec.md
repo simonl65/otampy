@@ -275,7 +275,7 @@ adds **no new peak usage** during a transfer. The existing check
     journal) removes it; a `.bck` listed in the journal is kept.
   - Done when: that test passes.
 
-- [ ] **8. Docs + changelog**
+- [x] **8. Docs + changelog**
   - What changes: `docs/protocol.md` §2.4 — `UPDATE_COMMIT` is now all-or-nothing
     (whole-set rollback on failure), retains `<target>.bck`, and writes
     `OTA_JOURNAL_FILE`; `UPDATE_START` discards the prior generation. Replace the

@@ -18,3 +18,28 @@ into `core.py` next to `_get_config`; `boot.py` now does
 `from .core import _get_config, _resolve_path`, which keeps the module-level
 name `boot._resolve_path` that the existing tests monkeypatch. One copy, no
 cycle.
+
+### Build progress
+
+- **Step 1** (`046bffc`) — `restore.py` journal helpers + `test_restore.py`.
+  One test assertion was wrong (expected re-resolved journalled paths); the
+  code stores paths verbatim, so the test was corrected.
+- **Step 2** (`00caaf7`) — `restore.commit()`. The in-progress pair must be
+  recorded in the rollback list *before* the staging rename: if that rename
+  fails, the target has already moved to `.bck` and must be rolled back too.
+  Caught by `test_commit_rolls_back_whole_set_on_rename_failure`.
+- **Step 3** (`5c7da3e`) — `restore.repair()`, two modes.
+- **Step 4** (`b9b14e8`) — `boot.run()` calls `repair()` after the staged-RTC
+  step via a local `from .restore import repair`; `ota.OTA.boot()` teardown
+  releases `restore` alongside `boot`.
+- **Step 5** (`ce3f0cc`) — `clear_journal()` at the top of `UPDATE_START`.
+- **Step 6** (`d5a8003`) — `UPDATE_COMMIT` now just calls `commit()`;
+  `COMMIT_ERR` is a documented response.
+- **Step 7** (`0a3fece`) — `_cleanup_orphaned_ota` sweeps `<x>.bck` not in the
+  journal; journalled backups threaded through recursion as `kept_backups`.
+- **Step 8** — docs, changelog, both `configota` examples, `TODO.md`.
+
+Pyright reports "Import '.restore' could not be resolved" for the in-function
+imports in `boot.py`. Editor-only LSP artefact — the device lib is not on
+pyright's path. The import works at runtime (every device test exercises it)
+and pre-flight (ruff + full pytest, mirrors CI) is green at every step.

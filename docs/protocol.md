@@ -161,12 +161,12 @@ These commands handle the transition from runtime (`main.py`) to bootloader (`bo
 | ------------------------------------- | ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `UPDATE_REQUEST`                      | Host   | `REBOOTING`<br>`BUSY`          | Request device to enter update mode. Device calls application safe callback, sets flag, and reboots.                                |
 | `READY`                               | Device | (None)                         | Broadcasted by `boot.py` after reboot to signal it is ready for the update payload.                                                 |
-| `UPDATE_START:file_count:total_bytes` | Host   | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA transfer session. Device checks disk space.                                                                       |
+| `UPDATE_START:file_count:total_bytes` | Host   | `SPACE_OK`<br>`SPACE_ERR`      | Initiates the OTA transfer session. Device discards the previously retained generation (journal + `.bck` files), then checks disk space. |
 | `FILE_START:path:size:sha256`         | Host   | `FILE_OK`<br>`FILE_ERR`        | Announce upcoming file. Device prepares target path (`path.ota`).                                                                   |
 | `CHUNK:seq:data`                      | Host   | `CHUNK_ACK:seq`<br>`CHUNK_ERR` | Send a file chunk. OTAmpy defaults to 128 raw bytes and caps chunks at 132 bytes so the encoded message fits in one URST frame.     |
 | `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                                                            |
 | `UPDATE_ABORT`                        | Host   | `UPDATE_ABORTED`               | Cancel before commit. Device closes the active file, removes session staging files and the update flag, then continues normal boot. |
-| `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`                    | Complete update. Device renames all `.ota` files, clears flag, and reboots to run the new application.                              |
+| `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`<br>`COMMIT_ERR`    | Complete update. All-or-nothing: device renames each target to `<target>.bck`, moves the `.ota` into place, and writes `OTA_JOURNAL_FILE`. On any failure the whole set is rolled back from `.bck` and `COMMIT_ERR` is returned. Then clears flag and reboots. |
 
 ---
 
@@ -237,10 +237,25 @@ Host CLI                           Device (main.py)              Device (boot.py
    │ ── FILE_END ─────────────────────────────────────────────────────> │ (Verifies checksum)
    │ <─ FILE_OK ─────────────────────────────────────────────────────── │
    │                                                                    │
-   │ ── UPDATE_COMMIT ────────────────────────────────────────────────> │ (Renames .ota files,
-   │ <─ COMMIT_OK ───────────────────────────────────────────────────── │  clears flag, reboots)
+   │ ── UPDATE_COMMIT ────────────────────────────────────────────────> │ (Retains .bck, renames
+   │ <─ COMMIT_OK ───────────────────────────────────────────────────── │  .ota in, clears flag, reboots)
 ```
 
 Before `UPDATE_COMMIT`, staged files never replace their targets. If the CLI detects a transfer error or is interrupted, it sends `UPDATE_ABORT`; the device discards the staged files and continues its normal boot. If the link is unavailable, `boot.py` performs the same recovery after `OTA_TIMEOUT_MS` without a packet (5 seconds by default).
 
-The commit operation is per-file rather than an all-filesystem atomic swap. An interruption during `UPDATE_COMMIT` can still leave a mixed-version deployment; applications requiring power-loss-safe commits need a dual-slot deployment layout or a persistent rollback journal.
+`UPDATE_COMMIT` is all-or-nothing. Before the first rename the device writes
+`OTA_JOURNAL_FILE` with a `committing` marker and the target list, renames each
+target to `<target>.bck` and the staged `.ota` into place, then flips the marker
+to `0`. If a rename fails, the whole set is rolled back from the `.bck` files and
+`COMMIT_ERR` is returned — the device stays entirely on the previous generation.
+If power is lost mid-commit, the marker survives and `boot.py`'s `repair()`
+restores every journalled `.bck` on the next boot. The device is therefore never
+left on a mixed-version tree within a single commit.
+
+This is still a sequence of ordinary `rename` calls, not one filesystem-atomic
+transaction: recovery is best-effort and converges over reboots. A hard
+power-loss-atomic guarantee needs a dual-slot deployment layout. `OTA_JOURNAL_FILE`
+must point at a dedicated scratch path, never a real source file.
+
+`UPDATE_START` discards the previously retained generation (its journal and
+`.bck` files), so at most one previous generation is kept for manual recovery.

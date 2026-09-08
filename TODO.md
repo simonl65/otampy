@@ -27,7 +27,7 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
   a plain-text on-device journal. Split into four sub-tasks, each leaving the device safe
   to power on; build in order.
 
-  - [ ] **1. Retain-previous commit + journal contract.** `UPDATE_COMMIT` becomes
+  - [x] **1. Retain-previous commit + journal contract.** `UPDATE_COMMIT` becomes
     all-or-nothing: it renames each replaced file to `<target>.bck` instead of deleting
     it, and a plain-text journal carries a `committing` marker written before the first
     rename and flipped to a boot-attempt counter (`0`) after the last. A failed or

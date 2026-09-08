@@ -30,3 +30,6 @@ OTA_TIMEOUT_MS = 5000
 #       DO NOT EDIT BELOW THIS LINE UNLESS YOU KNOW WHAT YOU ARE DOING
 # =============================================================================
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
+# Retain-previous commit journal. Must be a dedicated scratch path -- a commit
+# clobbers whatever this points at.
+OTA_JOURNAL_FILE = "otampy-update.journal"

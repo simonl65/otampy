@@ -279,3 +279,41 @@ cleanup, with no delay. Tests added:
 `test_recover_survives_a_missing_flag_file`.
 
 HIL still to do: Phases 2 (F-04/F-05 on hardware), 4, 5.
+
+### HIL — F-06 fully confirmed (device `/ota.log`)
+
+```
+[boot.py] UPDATE COMMIT
+[boot.py] HIL 30s -- PULL POWER
+[boot.py] HIL 29s -- PULL POWER          <- power cut here
+--- reboot; NO "[boot.py] Checking for update flag-file" => boot.py absent ---
+[main.py] MAIN start-up...
+[main.py] repair: restored /main.py from backup
+[main.py] repair: restored /boot.py from backup
+[main.py] Application main loop started
+... app runs (UART data logged) ...
+[main.py] Reboot commanded (RB)
+--- reboot ---
+[boot.py] Checking for update flag-file...
+[boot.py] update_requested.flag not found
+[boot.py] Cleanup started...
+[boot.py] Removing orphaned file: /./boot.py.ota
+[boot.py] Cleanup complete
+[boot.py] Loading MAIN...
+[main.py] Application main loop started
+```
+
+Confirms, on real hardware with a real power loss:
+- **F-06:** `boot.py` was the file caught mid-rename → absent on reboot →
+  `main.py`'s `recover()` restored it from `boot.py.bck`. No USB.
+- **Whole-set rollback:** `repair()` restored *both* journalled files
+  (`/main.py` and `/boot.py`), not just the missing one.
+- **F-04:** the `.bck` files survived to be used by `repair()` — they were not
+  swept. (`_canonical` fix; the sweep's log line still shows the raw
+  `/./boot.py.ota` path, which is cosmetic — `.ota` removal is a suffix match.)
+- **F-05:** `_otampy_set_rtc.py` was in the manifest but never appears in the
+  journal or as a `.bck`.
+- Full convergence on the next boot: flag gone, `.ota` swept, clean.
+
+Still on hardware: Phase 2 (an explicit *successful* `otampy upd` then reboot,
+confirming `main.py.bck` is **kept** by the orphan sweep), Phases 4–5.

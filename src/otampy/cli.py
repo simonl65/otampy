@@ -3086,6 +3086,9 @@ def init(
 
     Creates boot.py, main.py, and configota.py in the specified directory.
     If no directory is given, prompts for one (remembering the last used path).
+
+    Scaffolds direct mode by default (OTA owns the UART). Use --mux for the
+    shared-UART (channel-mux) set; the host CLI then needs --mux to match.
     """
     console = _console()
 

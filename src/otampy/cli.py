@@ -84,6 +84,16 @@ _CONFIG_DISPLAY_TO_KEY = {
     setting["display"]: key for key, setting in CONFIG_SETTINGS.items()
 }
 
+# Channel-mux mode: an opt-in transport layer that wraps every URST frame in a
+# COBS outer frame so one UART can be shared with application traffic. Must
+# match the device (docs/protocol.md §1.3). Off by default.
+MUX_ENV = "OTAMPY_MUX"
+_MUX_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+_MUX_FALSE_TOKENS = frozenset({"0", "false", "no", "off", ""})
+_MUX_TOKEN_HELP = ", ".join(
+    sorted(_MUX_TRUE_TOKENS | (_MUX_FALSE_TOKENS - {""}))
+)
+
 
 class DeviceError(Exception):
     """Exception raised for device errors."""
@@ -491,6 +501,65 @@ def set_default_port(port: str | None, session: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Channel-mux mode (project-scoped, same precedence as the default port)
+# ---------------------------------------------------------------------------
+
+
+def get_mux_enabled() -> bool:
+    """Resolve whether channel-mux mode is on.
+
+    Precedence, highest first: ``OTAMPY_MUX`` env -> session config -> project
+    config -> global config -> ``False``. Mirrors ``get_default_port``.
+    """
+    import os
+
+    env_value = os.environ.get(MUX_ENV)
+    if env_value is not None:
+        token = env_value.strip().lower()
+        if token in _MUX_TRUE_TOKENS:
+            return True
+        if token in _MUX_FALSE_TOKENS:
+            return False
+        raise click.ClickException(
+            f"{MUX_ENV} must be one of {_MUX_TOKEN_HELP} (got {env_value!r})."
+        )
+
+    for scope in (
+        _read_json(_session_config_path()),
+        _read_project_config(),
+        _read_global_config(),
+    ):
+        value = scope.get("mux")
+        if isinstance(value, bool):
+            return value
+
+    return False
+
+
+def set_mux_enabled(enabled: bool | None, session: bool = False) -> None:
+    """Persist the mux setting. ``None`` removes it from the chosen scope."""
+    if session:
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if enabled is None:
+                data.pop("mux", None)
+            else:
+                data["mux"] = enabled
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session mux setting: {e}"
+            ) from e
+        return
+
+    try:
+        _write_project_config({"mux": enabled})
+    except Exception as e:
+        raise click.ClickException(f"Failed to save mux setting: {e}") from e
+
+
+# ---------------------------------------------------------------------------
 # Log level (global only — not project-specific)
 # ---------------------------------------------------------------------------
 
@@ -731,6 +800,14 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     is_flag=True,
     help="Temporarily print elapsed-time metrics for the command.",
 )
+@click.option(
+    "--mux/--no-mux",
+    "mux",
+    default=None,
+    help="Speak the channel-mux outer frame for this command (docs/protocol.md "
+    "§1.3). Overrides the saved setting; omit to use it. Use 'otampy mux' to "
+    "view or save the default.",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -738,6 +815,7 @@ def cli(
     baud: int,
     log_level: str,
     timing: bool,
+    mux: bool | None,
 ) -> None:
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
     log_level = log_level.upper()
@@ -748,6 +826,7 @@ def cli(
     ctx.obj["baud"] = baud
     ctx.obj["log_level"] = log_level
     ctx.obj["timing"] = timing
+    ctx.obj["mux"] = mux if mux is not None else get_mux_enabled()
     if timing:
         ctx.obj["command_started_at"] = MONOTONIC()
 

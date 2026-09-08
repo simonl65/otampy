@@ -267,7 +267,7 @@ adds **no new peak usage** during a transfer. The existing check
   - Done when: `test_ota_boot.py` passes, including the updated full-session
     test.
 
-- [ ] **7. `.bck` orphan cleanup on normal boot**
+- [x] **7. `.bck` orphan cleanup on normal boot**
   - What changes: extend `_cleanup_orphaned_ota` (or add a sibling called from
     the same no-flag path in `boot.run()`) to remove `<x>.bck` files whose
     target is not in the current journal.

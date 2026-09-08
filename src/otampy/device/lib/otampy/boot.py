@@ -341,7 +341,14 @@ def _run_default_update_loop(core):
             break
 
 
-def _cleanup_orphaned_ota(core, path="."):
+def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
+    if kept_backups is None:
+        # Backups still referenced by the retain-previous journal must be
+        # kept; every other <x>.bck is an orphan from a crashed commit whose
+        # journal never landed.
+        from .restore import _BACKUP_SUFFIX, read_journal
+
+        kept_backups = {p + _BACKUP_SUFFIX for p in read_journal(core)[2]}
     resolved_path = _resolve_path(path)
     try:
         # Cache standard methods & check logger levels
@@ -358,12 +365,12 @@ def _cleanup_orphaned_ota(core, path="."):
                 stat = stat_func(resolved_item)
                 is_dir = stat[0] & 0x4000
                 if is_dir:
-                    _cleanup_orphaned_ota(core, item_path)
-                elif item.endswith(".ota"):
+                    _cleanup_orphaned_ota(core, item_path, kept_backups)
+                elif item.endswith(".ota") or (
+                    item.endswith(".bck") and resolved_item not in kept_backups
+                ):
                     if log_level_debug:
-                        logger_debug(
-                            f"Removing orphaned staging file: {resolved_item}"
-                        )
+                        logger_debug(f"Removing orphaned file: {resolved_item}")
                     remove_func(resolved_item)
             except OSError:
                 pass

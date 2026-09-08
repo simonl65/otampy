@@ -413,3 +413,47 @@ def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
 
     # Valid files must be kept
     assert valid_source.exists()
+
+
+def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
+    """Normal boot: a .bck not in the journal is an orphan and goes; a .bck
+    the journal still references is kept."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    journal = tmp_path / "otampy-update.journal"
+
+    orphan_bck = tmp_path / "stale.py.bck"
+    orphan_bck.touch()
+    kept_target = tmp_path / "keep.py"
+    kept_bck = tmp_path / "keep.py.bck"
+    kept_target.write_bytes(b"live")
+    kept_bck.write_bytes(b"previous")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(kept_target)])
+
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        if path.startswith("/"):
+            path = path[1:]
+        return str(tmp_path / path)
+
+    with (
+        patch(
+            "device_otampy.boot._resolve_path",
+            side_effect=mock_resolve_path,
+        ),
+        patch("device_otampy.boot._os.listdir", side_effect=os.listdir),
+        patch("device_otampy.boot._os.remove", side_effect=os.remove),
+        patch("device_otampy.boot._os.stat", side_effect=os.stat),
+    ):
+        boot.run(core, callback=None)
+
+    assert not orphan_bck.exists()
+    assert kept_bck.exists()

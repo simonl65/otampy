@@ -341,6 +341,20 @@ def _run_default_update_loop(core):
             break
 
 
+def _canonical(path):
+    # Collapse the "./" / "/./" traversal artefacts so a swept item's path
+    # compares equal to the "/dir/file" form read_journal() stores. Without
+    # this, "./main.py.bck" (host) / "/./main.py.bck" (MicroPython) never
+    # matched the journal's "/main.py.bck" and retained backups were deleted
+    # on the first boot after a commit (F-04).
+    path = path.replace("/./", "/")
+    if path.startswith("./"):
+        path = path[1:]
+    if not path.startswith("/"):
+        path = "/" + path
+    return path
+
+
 def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
     if kept_backups is None:
         # Backups still referenced by the retain-previous journal must be
@@ -348,7 +362,9 @@ def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
         # journal never landed.
         from .restore import _BACKUP_SUFFIX, read_journal
 
-        kept_backups = {p + _BACKUP_SUFFIX for p in read_journal(core)[2]}
+        kept_backups = {
+            _canonical(p + _BACKUP_SUFFIX) for p in read_journal(core)[2]
+        }
     resolved_path = _resolve_path(path)
     try:
         # Cache standard methods & check logger levels
@@ -367,7 +383,8 @@ def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
                 if is_dir:
                     _cleanup_orphaned_ota(core, item_path, kept_backups)
                 elif item.endswith(".ota") or (
-                    item.endswith(".bck") and resolved_item not in kept_backups
+                    item.endswith(".bck")
+                    and _canonical(resolved_item) not in kept_backups
                 ):
                     if log_level_debug:
                         logger_debug(f"Removing orphaned file: {resolved_item}")

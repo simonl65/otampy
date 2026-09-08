@@ -292,20 +292,22 @@ adds **no new peak usage** during a transfer. The existing check
     reflect the new behaviour; no stale claim that commit deletes the target or
     leaves a mixed-version tree.
 
-- [ ] **9. Repair F-04 — orphan sweep deletes freshly-committed `.bck` files**
+- [x] **9. Repair F-04 — orphan sweep deletes freshly-committed `.bck` files**
   - Found in HIL: after a normal `otampy upd`, the device's next boot logs
     `Removing orphaned file: /./main.py.bck` and the backup is gone. Root cause:
     `_cleanup_orphaned_ota(core, path=".")` builds candidates as
     `_resolve_path("./x.bck")` → `"/./x.bck"` on MicroPython, which never
     matches the journal's `"/x.bck"`, so every retained backup is swept.
-  - What changes: `_cleanup_orphaned_ota` traverses from `"/"` instead of `"."`
-    so `item_path` is always `/dir/file` — the same form `read_journal` returns.
-  - Test: `test_ota_boot.py` — a new test that does **not** patch
-    `_resolve_path` (uses the real `core._resolve_path`, identity on host for
-    relative paths) so the `.`-vs-`/` mismatch is exercised: a journalled
-    `main.py.bck` at the fake root survives cleanup, an un-journalled
-    `stale.py.bck` is removed. Fails with `path="."`, passes with `path="/"`.
-    Existing `_cleanup_orphaned_ota` tests still pass.
+  - What changes: new `boot._canonical(path)` collapses `/./` and a leading
+    `./` and forces a leading `/`, applied to both the journal-derived
+    `kept_backups` set and each candidate before the membership test. (Traversal
+    root stays `"."` — flipping it to `"/"` made the no-flag boot tests that
+    don't mock `_os.listdir` walk the real filesystem.)
+  - Test: `test_ota_boot.py::test_cleanup_keeps_journalled_bck_with_real_resolve_path`
+    — does **not** patch `_resolve_path`, so the `.`-vs-`/` prefix mismatch is
+    exercised: a journalled `main.py.bck` survives, an un-journalled
+    `stale.py.bck` is removed. Fails with the raw `not in kept_backups`, passes
+    with `_canonical`. Existing `_cleanup_orphaned_ota` tests still pass.
   - Done when: that test passes and `test_ota_boot.py` is green.
 
 - [ ] **10. Repair F-05 — transient RTC helper retained + resurrected**

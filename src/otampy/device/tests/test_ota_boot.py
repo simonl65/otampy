@@ -457,3 +457,39 @@ def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
 
     assert not orphan_bck.exists()
     assert kept_bck.exists()
+
+
+def test_cleanup_keeps_journalled_bck_with_real_resolve_path(tmp_path):
+    """F-04 regression. `_cleanup_orphaned_ota` must compare candidates in the
+    same `/dir/file` form the journal stores. This test does NOT patch
+    `_resolve_path`, so the `.`-vs-`/` prefix mismatch that deleted
+    `/./main.py.bck` on the device is actually exercised (on the host the real
+    resolver is identity for relative paths, which is enough to expose it)."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    journal = tmp_path / "otampy-update.journal"
+    config = {"OTA_JOURNAL_FILE": str(journal)}
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, ["/main.py"])
+
+    # Virtual root: main.py + its journalled backup + an un-journalled orphan.
+    entries = {"main.py", "main.py.bck", "stale.py.bck"}
+    removed = []
+
+    def fake_listdir(p):
+        if p in ("/", ".", ""):
+            return sorted(entries)
+        raise OSError("not a dir")
+
+    def fake_stat(p):
+        return (0o100644, 0, 0, 0, 0, 0, 10, 0, 0, 0)  # regular file
+
+    with (
+        patch("device_otampy.boot._os.listdir", side_effect=fake_listdir),
+        patch("device_otampy.boot._os.stat", side_effect=fake_stat),
+        patch("device_otampy.boot._os.remove", side_effect=removed.append),
+    ):
+        boot._cleanup_orphaned_ota(core)
+
+    assert not any(r.endswith("main.py.bck") for r in removed), removed
+    assert any(r.endswith("stale.py.bck") for r in removed), removed

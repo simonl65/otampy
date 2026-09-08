@@ -12,7 +12,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
 
 - **Severity:** P1
-- **Status:** open
+- **Status:** fixed
 - **Area:** `src/otampy/device/lib/otampy/boot.py` (`_cleanup_orphaned_ota`)
 - **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous` (Simon, Phase 2)
 - **Evidence:** After `otampy upd main.py` and the device's post-commit reboot,
@@ -37,6 +37,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   the journal stores (`_resolve_path("/x")` is identity on both host and
   device). Add a regression test that uses the real `core._resolve_path` (not a
   mock) so the `.`-vs-`/` mismatch is actually exercised.
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 9.
+  Traversal root left at `"."` (flipping to `"/"` made the no-flag boot tests
+  that don't mock `_os.listdir` walk the real filesystem — one hung). Instead,
+  new `boot._canonical(path)` collapses `/./`, strips a leading `./`, and forces
+  a leading `/`; it is applied to both the journal-derived `kept_backups` set
+  and each `.bck` candidate before the membership test. `resolved_item` is still
+  passed unchanged to `_os.remove`. Test:
+  `test_ota_boot.py::test_cleanup_keeps_journalled_bck_with_real_resolve_path`
+  (no `_resolve_path` mock — exercises the real `.`-vs-`/` mismatch).
+- **Awaiting:** re-review (`/sl-findings review`) and HIL re-run (Phase 2 must
+  show `main.py.bck` present after the post-commit reboot).
 
 ### F-05 — `commit()` retains the transient RTC helper; `repair()` then resurrects it
 

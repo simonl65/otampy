@@ -35,5 +35,24 @@ Branch: `feature/channel-mux-cli-mode`.
 - Gate: `pre_flight_check.py` exit 0; `uv run pytest -q tests/test_mux_cli.py`
   → 17 passed.
 
-### Step 2 — extract `_open_transport(ctx)` (pure refactor)
+### Step 2 — extract `_open_transport(ctx)` (pure refactor) — DONE
+
+- New `_open_transport(ctx, *, clear_queue=True) -> (serial.Serial, Urst)`
+  just above `_query`. Holds the open + DTR/RTS + buffer-reset + `Urst` +
+  queue-clear block. `import serial` added to the `TYPE_CHECKING` block for the
+  return annotation (`from __future__ import annotations` keeps it unevaluated).
+- All four sites now call it: `_query` retry loop, `_recursive_rm_with_connection`,
+  `copy_files`, `_update_files` READY loop. Site 4 passes `clear_queue=False` —
+  it never cleared the queue before, and step 2 must be a true no-op.
+- Each site's early `port = …; baud = …; if not port:` guard collapsed to
+  `if not ctx.obj.get("port"):` (the same `ClickException`, same message) since
+  `port`/`baud`/`serial_timeout` are now only used inside `_open_transport`.
+- Net: `cli.py` +57 / −84.
+- **Zero test edits.** `uv run pytest -q tests/test_cli.py tests/test_mux_cli.py`
+  → 132 passed. Full `pre_flight_check.py` exit 0. The existing `test_cli.py`
+  assertions (`mock_serial.assert_called_once_with("/dev/ttyFake",
+  baudrate=57600, timeout=2.0)`, the 3-retry count, `send.assert_called_once_with`)
+  all still pass unchanged — the refactor is behaviour-preserving.
+
+### Step 3 — wire mux into `_open_transport`
 (next)

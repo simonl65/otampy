@@ -21,6 +21,7 @@ import otampy.minify as source_minify
 from .progress import TransferProgress
 
 if TYPE_CHECKING:
+    import serial
     from urst import Urst
 
 logger = logging.getLogger(__name__)
@@ -952,6 +953,52 @@ def _read_full_reply(transport):
     return response
 
 
+def _open_transport(
+    ctx: click.Context, *, clear_queue: bool = True
+) -> tuple[serial.Serial, Urst]:
+    """Open the serial port and wrap it in a URST transport.
+
+    Centralises the open/configure/construct block the four device-facing
+    call sites share: raw ``serial.Serial``, DTR/RTS held low, input and
+    output buffers reset, ``Urst`` constructed, and (unless
+    ``clear_queue=False``) any stale receive-queue frames discarded.
+
+    Returns ``(raw_serial, transport)``; callers close ``raw_serial``.
+    """
+    import serial
+    from urst import Urst
+
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
+        )
+
+    serial_timeout = float(get_config_value("serial_timeout_seconds"))
+    ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
+    try:
+        ser.dtr = False
+        ser.rts = False
+    except Exception:
+        pass
+
+    # Step 3 wraps this in ChannelSerial when mux mode is on; until then the
+    # transport talks to the raw port exactly as before.
+    port_obj = ser
+    port_obj.reset_input_buffer()
+    port_obj.reset_output_buffer()
+    transport = Urst(port_obj)
+
+    if clear_queue:
+        try:
+            transport.protocol._recv_queue.clear()
+        except Exception:
+            pass
+
+    return ser, transport
+
+
 def _query(
     ctx: click.Context,
     command: bytes,
@@ -964,17 +1011,10 @@ def _query(
     If transport was provided, returns (data, None) - caller manages connection.
     If transport was created, returns (data, transport) - caller should close it.
     """
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
-
-    import serial
-    from urst import Urst
-
-    serial_timeout = float(get_config_value("serial_timeout_seconds"))
 
     # Resolved once, before the retry loop below, so a misconfigured key is
     # reported immediately instead of after three retries and their backoff.
@@ -1041,21 +1081,7 @@ def _query(
     for attempt in range(query_retries):
         ser = None
         try:
-            ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            new_transport = Urst(ser)
-
-            # Clear any unsolicited messages (e.g. boot notifications) from the receive queue
-            try:
-                new_transport.protocol._recv_queue.clear()
-            except Exception:
-                pass
+            ser, new_transport = _open_transport(ctx)
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not new_transport.send(outgoing()):
@@ -1476,12 +1502,7 @@ def _validate_remote_only_arguments(
 
 def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     """Recursively remove directory using a persistent connection."""
-    import serial
-    from urst import Urst
-
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
@@ -1489,21 +1510,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     ser = None
     try:
         # Establish persistent connection
-        serial_timeout = float(get_config_value("serial_timeout_seconds"))
-        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-        try:
-            ser.dtr = False
-            ser.rts = False
-        except Exception:
-            pass
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        transport = Urst(ser)
-
-        try:
-            transport.protocol._recv_queue.clear()
-        except Exception:
-            pass
+        ser, transport = _open_transport(ctx)
 
         def remove_directory(directory: str) -> None:
             resp, _ = _query(
@@ -1874,18 +1881,13 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     """Copy files or directories without rebooting the device."""
     files_to_send = _get_files_to_send(args, python_only=False)
 
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
     import binascii
     import hashlib
-
-    import serial
-    from urst import Urst
 
     staging = (
         source_minify.staged_minified_files(files_to_send)
@@ -1895,23 +1897,8 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     with staging as files_to_copy:
         if minify:
             _print_minification_report(files_to_send, files_to_copy)  # type: ignore
-        serial_timeout = float(get_config_value("serial_timeout_seconds"))
-        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
+        ser, transport = _open_transport(ctx)
         try:
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            transport = Urst(ser)
-
-            try:
-                transport.protocol._recv_queue.clear()
-            except Exception:
-                pass
-
             reboot_targets = []
             transfer_active = False
             try:
@@ -2247,18 +2234,13 @@ def _update_files(
     )
 
     # 2. Wait for device to boot up and broadcast READY
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
     import binascii
     import time
-
-    import serial
-    from urst import Urst
 
     time.sleep(0.5)
 
@@ -2270,18 +2252,9 @@ def _update_files(
     while time.time() - start_time < timeout:
         try:
             if ser is None:
-                serial_timeout = float(
-                    get_config_value("serial_timeout_seconds")
-                )
-                ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-                try:
-                    ser.dtr = False
-                    ser.rts = False
-                except Exception:
-                    pass
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
-                transport = Urst(ser)
+                # clear_queue=False: this site historically did not clear the
+                # receive queue before the READY loop -- keep that.
+                ser, transport = _open_transport(ctx, clear_queue=False)
 
             resp = transport.read()  # type: ignore
             if resp == b"READY":

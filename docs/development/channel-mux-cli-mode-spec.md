@@ -173,7 +173,7 @@ module-level frozensets next to `CONFIG_SETTINGS` (`_MUX_TRUE_TOKENS`,
     and `otampy --mux ping` / `otampy --no-mux ping` parse (still direct — no
     wiring yet).
 
-- [ ] **2. Extract `_open_transport(ctx)` — pure refactor**
+- [x] **2. Extract `_open_transport(ctx)` — pure refactor**
   - What changes: `cli.py` — add `_open_transport(ctx)` per "Data and
     contracts" (direct mode only in this step; `ctx.obj["mux"]` not read yet).
     Replace the duplicated open/configure/`Urst`/clear-queue block at all four

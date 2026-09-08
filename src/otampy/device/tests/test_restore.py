@@ -170,3 +170,61 @@ def test_commit_applies_delete_paths_and_their_backups(tmp_path):
 
     assert not goner.exists()
     assert not goner_bck.exists()
+
+
+# =============================================================================
+# repair() -- finish or reverse an interrupted commit
+# =============================================================================
+
+
+def test_repair_committing_restores_whole_set(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "lib" / "sensor.py"
+    sensor.parent.mkdir()
+    # main got a half-written new version; sensor never made it across.
+    main.write_bytes(b"half-new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"good-sensor")
+    restore.write_journal(
+        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+    )
+
+    restore.repair(core)
+
+    assert main.read_bytes() == b"good-main"
+    assert sensor.read_bytes() == b"good-sensor"
+    assert restore.read_journal(core) == (0, False, [str(main), str(sensor)])
+
+
+def test_repair_finished_restores_only_missing_target(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    restore.write_journal(core, 3, [str(main)])
+
+    restore.repair(core)
+
+    assert main.read_bytes() == b"good-main"
+    # Counter written back unchanged.
+    assert restore.read_journal(core) == (3, False, [str(main)])
+
+
+def test_repair_finished_is_noop_when_target_present(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"live-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, 0, [str(main)])
+
+    restore.repair(core)
+
+    assert main.read_bytes() == b"live-main"
+
+
+def test_repair_no_journal_is_noop(tmp_path):
+    core = _core(tmp_path)
+
+    restore.repair(core)
+
+    assert not (tmp_path / "otampy-update.journal").exists()

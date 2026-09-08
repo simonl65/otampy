@@ -30,7 +30,7 @@ _COMMIT_IN_PROGRESS = "committing"
 
 def _journal_path(core):
     return _resolve_path(
-        _get_config(core.config, "OTA_JOURNAL_FILE", _DEFAULT_JOURNAL)
+        str(_get_config(core.config, "OTA_JOURNAL_FILE", _DEFAULT_JOURNAL))
     )
 
 
@@ -146,6 +146,45 @@ def commit(core, files, delete_paths):
 
     write_journal(core, _ATTEMPT_LINE_DEFAULT, targets)
     return True
+
+
+def repair(core):
+    """Finish or reverse an interrupted commit. Never raises.
+
+    ``committing`` (or an unrecognised) line 1 means a commit was partway
+    through: restore **every** journalled path whose ``.bck`` exists, then
+    flip line 1 to ``0``. An integer line 1 means the commit finished: only
+    restore paths whose target vanished but whose ``.bck`` survived, and write
+    line 1 back unchanged (sub-task 2 will increment it).
+    """
+    attempt, in_progress, paths = read_journal(core)
+    if not paths:
+        return
+
+    for target in paths:
+        backup = target + _BACKUP_SUFFIX
+        if not _exists(backup):
+            continue
+        if in_progress:
+            try:
+                _os.remove(target)
+            except OSError:
+                pass
+            try:
+                _os.rename(backup, target)
+                core.logger.info(f"repair: restored {target} from backup")
+            except OSError:
+                pass
+        elif not _exists(target):
+            try:
+                _os.rename(backup, target)
+                core.logger.info(f"repair: restored missing {target}")
+            except OSError:
+                pass
+
+    write_journal(
+        core, _ATTEMPT_LINE_DEFAULT if in_progress else attempt, paths
+    )
 
 
 def _rollback(done):

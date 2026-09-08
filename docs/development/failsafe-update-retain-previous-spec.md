@@ -224,7 +224,7 @@ adds **no new peak usage** during a transfer. The existing check
     `False`.
   - Done when: those tests pass.
 
-- [ ] **3. `restore.repair()` — finish or fix an interrupted commit**
+- [x] **3. `restore.repair()` — finish or fix an interrupted commit**
   - What changes: add `repair(core)` to `restore.py` with the two modes from
     its contract row.
   - Test: `test_restore.py` — (a) line 1 `committing`, two paths, both `.bck`

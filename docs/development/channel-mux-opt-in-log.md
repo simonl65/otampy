@@ -49,5 +49,24 @@ wire format only, nothing user-configurable.
 and auto-stages them. Reverted those; they are pre-existing formatting drift and
 want their own commit, not bundling into this feature. Flagged to Simon.
 
-### Step 2 — `ChannelCodec`
+### Step 2 — `ChannelCodec` in `src/otampy/channel.py` — DONE
+
+- New `src/otampy/channel.py`: module constants (`OTA_CHANNEL`, `APP_CHANNEL`,
+  `FRAME_DELIM`, `MAX_OUTER_FRAME_BYTES`, `OTA_BUFFER_BYTES`,
+  `DEFAULT_MIN_TX_GAP_MS`) + `ChannelCodec` (`encode`, `feed`, `frames`,
+  `reset`, `frames_dropped`). Imports `cobs_encode` / `cobs_decode` from
+  `urst.codec_layer` (`# type: ignore`, matching device `mux.py`).
+- `frames()` is a bounded generator — no `while True` (spec risk note re
+  `mux.py:179`). Each pass consumes ≥1 delimiter from a finite buffer and
+  returns as soon as `find(FRAME_DELIM)` fails; the no-delimiter overflow clear
+  runs after the loop.
+- Deframe logic ported from device `mux.py::service()`; encode from
+  `_write_channel`.
+- `tests/test_channel.py::TestChannelCodec` — 9 tests, all green. Reference
+  frame `_outer()` built independently of `ChannelCodec.encode` so the
+  round-trip tests aren't circular.
+- Gate: `pre_flight_check.py` exit 0; `uv run pytest -q tests/test_channel.py`
+  → 9 passed.
+
+### Step 3 — `ChannelSerial`
 (next)

@@ -187,7 +187,7 @@ Single-threaded and synchronous by design — no locks (unlike `mux_host._Virtua
   - Done when: the section exists, describes the exact byte format in the Data and
     contracts table above, and Simon has read it at the review gate.
 
-- [ ] **2. `ChannelCodec` in `src/otampy/channel.py`**
+- [x] **2. `ChannelCodec` in `src/otampy/channel.py`**
   - What changes: new `src/otampy/channel.py` with the module constants and
     `ChannelCodec` (`encode`, `feed`, `frames`, `reset`, `frames_dropped`). Imports
     `cobs_encode` / `cobs_decode` from `urst.codec_layer`.

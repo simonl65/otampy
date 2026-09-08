@@ -212,7 +212,7 @@ adds **no new peak usage** during a transfer. The existing check
   - Done when: `uv run pytest src/otampy/device/tests/test_restore.py` passes;
     `uv run ruff check .` clean.
 
-- [ ] **2. `restore.commit()` — all-or-nothing rename with `.bck`**
+- [x] **2. `restore.commit()` — all-or-nothing rename with `.bck`**
   - What changes: add `commit(core, files, delete_paths)` to `restore.py`
     implementing the numbered `commit()` sequence above — `committing` marker
     first, per-pair renames, whole-set best-effort rollback on any `OSError`,

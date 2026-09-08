@@ -87,3 +87,76 @@ def clear_journal(core):
         _os.remove(_journal_path(core))
     except OSError:
         pass
+
+
+def _exists(path):
+    try:
+        _os.stat(path)
+        return True
+    except OSError:
+        return False
+
+
+def commit(core, files, delete_paths):
+    """All-or-nothing commit of a staged update set. Never raises.
+
+    ``files`` is the flat ``[target, staging, target, staging, ...]`` list the
+    boot update loop already builds. Writes the journal with a ``committing``
+    marker and every target, then for each pair renames ``target`` to
+    ``<target>.bck`` and ``staging`` into place. On any ``OSError`` the whole
+    set is rolled back from the ``.bck`` files and ``False`` is returned; the
+    journal stays ``committing`` so a later ``repair()`` can finish reversing
+    it. On full success line 1 is flipped to ``0`` and ``True`` returned.
+    """
+    targets = [
+        files[i] for i in range(0, len(files), 2) if _exists(files[i + 1])
+    ]
+    write_journal(core, _COMMIT_IN_PROGRESS, targets)
+
+    done = []
+    for i in range(0, len(files), 2):
+        target = files[i]
+        staging = files[i + 1]
+        if not _exists(staging):
+            continue
+        backup = target + _BACKUP_SUFFIX
+        try:
+            _os.remove(backup)
+        except OSError:
+            pass
+        had_target = _exists(target)
+        try:
+            if had_target:
+                _os.rename(target, backup)
+            # Recorded before the staging rename: if that step fails, the
+            # target has already moved to .bck and must be rolled back too.
+            done.append((target, backup, had_target))
+            _os.rename(staging, target)
+        except OSError as err:
+            core.logger.error(f"Commit failed for {target}: {err}")
+            _rollback(done)
+            return False
+
+    for path in delete_paths:
+        for candidate in (path, path + _BACKUP_SUFFIX):
+            try:
+                _os.remove(candidate)
+            except OSError:
+                pass
+
+    write_journal(core, _ATTEMPT_LINE_DEFAULT, targets)
+    return True
+
+
+def _rollback(done):
+    """Best-effort restore of pairs already committed by ``commit()``."""
+    for target, backup, had_target in done:
+        try:
+            _os.remove(target)
+        except OSError:
+            pass
+        if had_target:
+            try:
+                _os.rename(backup, target)
+            except OSError:
+                pass

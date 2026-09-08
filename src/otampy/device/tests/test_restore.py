@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import shared
 from device_otampy import restore
 from device_otampy.core import OTACore
@@ -98,3 +100,73 @@ def test_write_journal_returns_false_on_oserror(tmp_path):
     core = _core(tmp_path, OTA_JOURNAL_FILE=str(tmp_path / "nodir" / "j"))
 
     assert restore.write_journal(core, 0, []) is False
+
+
+# =============================================================================
+# commit() -- all-or-nothing rename with .bck
+# =============================================================================
+
+
+def _staged_pair(tmp_path, name, old, new):
+    target = tmp_path / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(old)
+    staging = tmp_path / (name + ".ota")
+    staging.write_bytes(new)
+    return str(target), str(staging)
+
+
+def test_commit_success_multi_file(tmp_path):
+    core = _core(tmp_path)
+    t1, s1 = _staged_pair(tmp_path, "main.py", b"old-main", b"new-main")
+    t2, s2 = _staged_pair(
+        tmp_path, "lib/sensor.py", b"old-sensor", b"new-sensor"
+    )
+
+    assert restore.commit(core, [t1, s1, t2, s2], []) is True
+
+    assert Path(t1).read_bytes() == b"new-main"
+    assert Path(t2).read_bytes() == b"new-sensor"
+    assert Path(t1 + ".bck").read_bytes() == b"old-main"
+    assert Path(t2 + ".bck").read_bytes() == b"old-sensor"
+    assert not (tmp_path / "main.py.ota").exists()
+    assert restore.read_journal(core) == (0, False, [t1, t2])
+
+
+def test_commit_rolls_back_whole_set_on_rename_failure(tmp_path, monkeypatch):
+    core = _core(tmp_path)
+    t1, s1 = _staged_pair(tmp_path, "main.py", b"old-main", b"new-main")
+    t2, s2 = _staged_pair(
+        tmp_path, "lib/sensor.py", b"old-sensor", b"new-sensor"
+    )
+
+    real_rename = restore._os.rename
+
+    def flaky_rename(src, dst):
+        if src == s2:
+            raise OSError("boom")
+        return real_rename(src, dst)
+
+    monkeypatch.setattr(restore._os, "rename", flaky_rename)
+
+    assert restore.commit(core, [t1, s1, t2, s2], []) is False
+
+    # Every already-renamed target is back to its original content.
+    assert Path(t1).read_bytes() == b"old-main"
+    assert Path(t2).read_bytes() == b"old-sensor"
+    # Journal stays "committing" so a later repair() finishes the reversal.
+    assert restore.read_journal(core)[1] is True
+
+
+def test_commit_applies_delete_paths_and_their_backups(tmp_path):
+    core = _core(tmp_path)
+    t1, s1 = _staged_pair(tmp_path, "main.py", b"old", b"new")
+    goner = tmp_path / "obsolete.py"
+    goner.write_bytes(b"x")
+    goner_bck = tmp_path / ("obsolete.py" + restore._BACKUP_SUFFIX)
+    goner_bck.write_bytes(b"x")
+
+    assert restore.commit(core, [t1, s1], [str(goner)]) is True
+
+    assert not goner.exists()
+    assert not goner_bck.exists()

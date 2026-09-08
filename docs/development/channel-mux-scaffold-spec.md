@@ -127,7 +127,7 @@ Device-facing, but scaffold code only — no library hot path changes.
     `grep -l "SerialMux" src/otampy/device/examples/shared-uart/{boot,main}.py`
     lists both.
 
-- [ ] **2. `otampy init --mux` selects the shared-UART set**
+- [x] **2. `otampy init --mux` selects the shared-UART set**
   - What changes:
     - `src/otampy/cli.py` `init`: add `--mux/--no-mux` flag (default `None`);
       resolve to a boolean (flag → prompt if TTY → `False`); when true, source

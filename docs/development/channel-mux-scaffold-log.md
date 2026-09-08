@@ -17,3 +17,19 @@ CLI `--mux` mode) are already merged on `develop`.
   has no `SerialMux`/`mux.`; shared-uart set has `SerialMux` + `mux.ota_port`;
   shared-uart set is complete.
 - Gate: `pre_flight_check.py` exit 0 (ruff reflowed the new test only).
+
+## Step 2 — `otampy init --mux` — DONE
+
+- `cli.py init`: new `--mux/--no-mux` flag (default `None`). When unset and
+  stdin is a terminal, `click.confirm("Shared UART (channel-mux) mode?")`;
+  otherwise direct. Added `_stdin_is_interactive()` helper (also the test seam —
+  patching `sys.stdin` directly collides with `CliRunner`'s stdin isolation).
+- When mux is chosen, the package resource path gains a `shared-uart` segment;
+  same three filenames, `configota.example.py` still lands as `configota.py`.
+  Prints `Scaffold: direct` / `shared-uart (channel-mux)`.
+- `tests/test_cli.py`: `_run_init` helper + 4 tests — default is direct,
+  `--mux` yields `SerialMux`, `--no-mux` beats a TTY, interactive `y` prompt
+  yields `SerialMux`.
+- Wheel check: `uv build --wheel` → `otampy/device/examples/shared-uart/{boot,
+  main,configota.example}.py` present in the archive.
+- Gate: `pre_flight_check.py` exit 0.

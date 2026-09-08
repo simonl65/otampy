@@ -3048,6 +3048,16 @@ def deploy_cmd(
         raise click.ClickException(str(error)) from error
 
 
+def _stdin_is_interactive() -> bool:
+    """True when stdin is a terminal we can prompt on."""
+    import sys
+
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 @cli.command(name="init")
 @click.argument(
     "path",
@@ -3061,14 +3071,28 @@ def deploy_cmd(
     is_flag=True,
     help="Overwrite existing files without prompting.",
 )
+@click.option(
+    "--mux/--no-mux",
+    "mux",
+    default=None,
+    help="Scaffold the shared-UART (channel-mux) example set instead of the "
+    "direct-mode default. Prompts when neither is given interactively.",
+)
 @click.pass_context
-def init(ctx: click.Context, path: str | None, force: bool) -> None:
+def init(
+    ctx: click.Context, path: str | None, force: bool, mux: bool | None
+) -> None:
     """Initialize a new project with example configuration files.
 
     Creates boot.py, main.py, and configota.py in the specified directory.
     If no directory is given, prompts for one (remembering the last used path).
     """
     console = _console()
+
+    if mux is None:
+        mux = _stdin_is_interactive() and click.confirm(
+            "Shared UART (channel-mux) mode?", default=False
+        )
 
     if path is None:
         saved = get_default_device_dir()
@@ -3084,12 +3108,17 @@ def init(ctx: click.Context, path: str | None, force: bool) -> None:
 
     # Example files to copy
     examples = ["boot.py", "main.py", "configota.example.py"]
+    scaffold = "shared-uart (channel-mux)" if mux else "direct"
 
     try:
-        # Get the examples package resource
+        # Get the examples package resource. The shared-UART set lives in a
+        # subdirectory; the direct-mode default is the flat examples/ dir.
         pkg_files = importlib.resources.files("otampy").joinpath(  # type: ignore
             "device", "examples"
         )
+        if mux:
+            pkg_files = pkg_files.joinpath("shared-uart")
+        console.print(f"[dim]Scaffold: {scaffold}[/dim]")
 
         for example_file in examples:
             src = pkg_files.joinpath(example_file)

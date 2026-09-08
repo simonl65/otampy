@@ -24,7 +24,7 @@ View the latest version at [https://otampy.codeability.co.uk/](https://otampy.co
 - **Remote reboot and reset** — trigger a hard reboot (`rb`) or MicroPython soft reset (`sr`) over the air.
 - **Diagnostic commands** — `ping` health checks and `mem` RAM/flash queries.
 - **Port management** — `ports` lists and selects adapters; `OTAMPY_PORT` and persistent `~/.config/otampy/config.json` settings avoid repeating `--port` on every command.
-- **Shared-UART (channel-mux) mode** — `--mux` (or `otampy mux --enable`) wraps every URST frame in a channel-mux outer frame so one UART can carry OTAmpy traffic alongside the device's own stream. Off by default; must match the device's `SerialMux`. See `docs/protocol.md` §1.3.
+- **Shared-UART (channel-mux) mode** — `--mux` (or `otampy mux --enable`) wraps every URST frame in a channel-mux outer frame so one UART can carry OTAmpy traffic alongside the device's own stream. Off by default; must match the device's `SerialMux` (scaffold it with `otampy init --mux`). See `docs/protocol.md` §1.3.
 - **Target-matched bytecode deployment** — `--bytecode` compiles OTAmpy and optional user/logger code to `.mpy` using the connected device's exact `.mpy` format and small-int width; URST remains device-native source.
 - **Fail-safe CLI** — destructive commands display a confirmation prompt before contacting the device.
 
@@ -41,7 +41,7 @@ otampy/
 │   ├── utils/            # Host-side logging helpers
 │   └── device/           # MicroPython device library (bundled in releases)
 │       ├── lib/otampy/   # Device-side OTA library
-│       └── examples/     # Example boot.py, main.py, config files
+│       └── examples/     # Direct-mode scaffold; shared-uart/ = channel-mux set
 ├── docs/                 # Deployment, release, architecture, and protocol guides
 ├── tests/                # Host-side pytest suite
 └── scripts/              # Automated release gate
@@ -64,6 +64,8 @@ otampy init
 During development you can use `pipx install git+https://github.com/simonl65/otampy.git@develop --force` to install the latest development version.
 
 `init` creates `boot.py`, `main.py`, and `configota.py` in your project at the location (`device-dir`) of your choosing. Edit `configota.py` to set the UART pins, baud rate, and timeout for your board. `init` will not overwrite existing files but will prompt you; use `--force` only when intentionally replacing all three.
+
+By default these are **direct-mode** scaffolds — OTAmpy owns the UART. Pass `otampy init --mux` to scaffold the shared-UART (channel-mux) set instead; use it only when your application shares the OTA UART, and note the host CLI then needs `--mux` too (see `docs/protocol.md` §1.3).
 
 Preview then perform the initial USB deployment:
 
@@ -168,7 +170,7 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `cp`         | `source[:dest] [...]`                            | Copy files or folders to the device without rebooting.              |
 | `deploy`     | _(see below)_                                    | Erase and deploy the full device library over USB.                  |
 | `device-dir` | —                                                | Show or manage the saved project directory for deploy and updates.  |
-| `init`       | `[directory]`                                    | Scaffold `boot.py`, `main.py`, and `configota.py`.                  |
+| `init`       | `[directory] [--mux]`                            | Scaffold `boot.py`, `main.py`, `configota.py` (`--mux` = shared-UART set). |
 | `log-level`  |                                                  | Show or manage the saved CLI log level.                             |
 | `ls`         | `[path]`                                         | List device directory contents.                                     |
 | `mem`        | —                                                | Query device RAM and flash utilisation.                             |

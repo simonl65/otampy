@@ -17,6 +17,13 @@ MicroPython code to be placed on the device to enable OTA functionality.
 2. For an installed OTAmpy package, run `otampy init` in the application
    project and edit `device/configota.py`. In this repository, copy
    `examples/config.example.py` to `examples/configota.py` instead.
+
+   `otampy init` scaffolds the **direct-mode** set (`examples/`), where OTA
+   owns the UART. Add `--mux` to scaffold the shared-UART set
+   (`examples/shared-uart/`) instead — pick that only when the application
+   shares the OTA UART via `otampy.mux.SerialMux`, and run the host CLI with
+   `--mux` to match. The two `configota.example.py` templates track each
+   other; keep them in step if you edit one.
 3. Install OTAmpy and `urst-mpy` along with the example `boot.py` and `main.py`:
 
    ```bash

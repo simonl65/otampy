@@ -54,9 +54,10 @@ mux.send_app(payload)      # write on your application's channel
 data = mux.poll_app()      # newest pending payload on your channel, or None
 ```
 
-This is the pattern the shared-UART example set uses. It changes the bytes
-on the wire (see §1.3), so the host CLI must be told to speak the same
-framing — a mux device paired with a plain-URST host times out silently.
+This is the pattern the shared-UART example set uses — scaffold it with
+`otampy init --mux` (the default `otampy init` is direct mode). It changes
+the bytes on the wire (see §1.3), so the host CLI must be told to speak the
+same framing — a mux device paired with a plain-URST host times out silently.
 
 ### 1.2 Authenticated commands (optional)
 
@@ -114,9 +115,9 @@ Related settings:
 ### 1.3 Channel-mux framing (optional)
 
 By **default there is no outer frame**: URST frames go straight onto the
-UART, and this is what the CLI and the shipped `boot.py`/`main.py` scaffold
-both do. You only need this section if your project shares the UART with its
-own traffic via `otampy.mux.SerialMux` (§1.1).
+UART, and this is what the CLI and the default `otampy init` scaffold both
+do. You only need this section if your project shares the UART with its own
+traffic via `otampy.mux.SerialMux` (the `otampy init --mux` scaffold, §1.1).
 
 When mux mode is used, every URST frame is wrapped in one outer frame:
 

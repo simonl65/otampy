@@ -33,3 +33,19 @@ CLI `--mux` mode) are already merged on `develop`.
 - Wheel check: `uv build --wheel` → `otampy/device/examples/shared-uart/{boot,
   main,configota.example}.py` present in the archive.
 - Gate: `pre_flight_check.py` exit 0.
+
+## Step 3 — docs + CHANGELOG — DONE
+
+- `README.md`: shared-UART feature bullet + tree line + `init` section (direct
+  default, `--mux` for shared) + command table row.
+- `docs/architecture.md`: new Integration Guide §4 "Sharing the UART with
+  application code" pointing at `otampy init --mux`, §1.1/§1.3.
+- `docs/protocol.md` §1.1 + §1.3: name `otampy init --mux` / the default direct
+  scaffold (wording was already ahead of the code — now true).
+- `src/otampy/device/README.md`: two example sets, template-drift note.
+- `CHANGELOG.md`: new `## [Unreleased]` covering the whole feature (wire
+  contract, host codec, CLI opt-in, scaffolds) + Changed + Compatibility
+  (recovery path for a `6f2bd1b` mux device on a plain CLI).
+- `TODO.md`: "Channel-mux mode: opt-in on both ends" removed (all 3 sub-tasks
+  done).
+- Gate: `pre_flight_check.py` exit 0.

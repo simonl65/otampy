@@ -144,7 +144,7 @@ Device-facing, but scaffold code only — no library hot path changes.
     the file through `importlib.resources` (packaged path), not a repo-relative
     path.
 
-- [ ] **3. Documentation + CHANGELOG**
+- [x] **3. Documentation + CHANGELOG**
   - What changes:
     - `docs/protocol.md`: confirm §1.1 / §1.3 read correctly now that the
       default scaffold is direct (the text already claims this — verify, adjust

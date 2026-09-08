@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [Unreleased]
+
+### Added
+
+- **Shared-UART (channel-mux) mode, end to end.** A project whose own code needs the same physical UART as OTAmpy can now wrap it in `otampy.mux.SerialMux` on the device and have the host CLI speak the matching framing, so one radio link carries OTAmpy traffic alongside the application's own stream.
+  - **Wire contract.** An optional outer frame *below* URST: `COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`. Channel `0x00` = OTA/URST (reliable), `0x01` = application (best-effort), other ids dropped on receive. URST itself is unchanged and stays point-to-point and channel-unaware; `PROTOCOL_VERSION` does not move. Byte-identical to what the device `mux.py` already emitted, so existing mux users are unaffected. Documented in `docs/protocol.md` §1.3.
+  - **Host codec.** `otampy.channel.ChannelCodec` / `ChannelSerial` encode and decode the outer frame; `tests/test_channel.py` and `tests/test_channel_conformance.py` pin them against the device frame bytes.
+  - **CLI opt-in.** `--mux` / `--no-mux` global flag, `OTAMPY_MUX` env var, and a persistent `mux` config key (`otampy mux --enable` / `--disable` / `--clear` / interactive). Resolution order: `OTAMPY_MUX` → session → project → global config → direct. `otampy mux --show` reports the resolved value and its source. All four `Urst(ser)` call sites route through `_open_transport`, which wraps the port in `ChannelSerial` only when mux mode is on. `deploy` ignores all of it (raw-port provisioning stays direct).
+  - **Scaffolds.** `otampy init` scaffolds **direct mode** by default (OTA owns the UART). `otampy init --mux` scaffolds the separate `examples/shared-uart/` set (`SerialMux` pattern); it prompts when neither flag is given interactively.
+
+### Changed
+
+- **The shipped `boot.py` / `main.py` example scaffold is direct mode again.** Since `6f2bd1b` the scaffold wired `SerialMux` unconditionally, which double-wrapped every URST frame; a plain host CLI then routed to an unknown channel and every command — including `otampy ping` — timed out silently. The default scaffold no longer uses `SerialMux`; the mux pattern moved to `examples/shared-uart/`.
+
+### Compatibility
+
+- **A device deployed from the `6f2bd1b`..this range's mux scaffold, driven by a CLI with no `--mux`, was silently timing out.** After upgrading, recover it either by running the CLI with `otampy --mux …` (or `otampy mux --enable`), or by re-running `otampy init` (no `--mux`) + `otampy deploy` to move the device to direct mode.
+- Everything above is opt-in. A device and CLI that never touch `SerialMux` / `--mux` behave exactly as before.
+
 ## [4.6.0] - 2026-09-03
 
 ### Added

@@ -187,6 +187,17 @@ while True:
     time.sleep(0.1)
 ```
 
+### 4. Sharing the UART with application code
+
+The examples above are **direct mode**: OTA owns the raw UART. If your
+application needs the *same* physical UART (a control/telemetry stream over
+one radio link), scaffold the shared-UART set with `otampy init --mux`
+instead. Its `boot.py`/`main.py` wrap the UART in `otampy.mux.SerialMux`,
+giving OTA and the application isolated channels, and the host CLI must then
+run with `--mux` (or `otampy mux --enable`) to speak the matching outer
+frame. This is a deliberate two-sided choice — a one-sided mismatch times out
+silently. See `docs/protocol.md` §1.1 and §1.3.
+
 ---
 
 ## Test Environment Architecture

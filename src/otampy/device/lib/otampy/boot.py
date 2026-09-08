@@ -75,6 +75,8 @@ def _run_default_update_loop(core):
 
     import machine
 
+    from .restore import clear_journal
+
     # Caching Attributes for speed. `reply`, not `send`: every call in this
     # loop answers the packet most recently read (§5.8.3) -- `READY` above,
     # sent unprompted to kick off the session, is the one exception and
@@ -165,6 +167,11 @@ def _run_default_update_loop(core):
             except ValueError:
                 send(b"ERROR:Invalid numbers")
                 continue
+
+            # Discard the previous generation's journal + .bck set now: the
+            # code currently running becomes this update's retained backup,
+            # and the space check should not count the older generation.
+            clear_journal(core)
 
             free_bytes = _get_free_space()
             delete_paths = []

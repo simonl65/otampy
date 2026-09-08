@@ -248,7 +248,7 @@ adds **no new peak usage** during a transfer. The existing check
     `test_boot_no_flag_file` and `test_boot_cleans_orphaned_ota_*` still pass.
   - Done when: full `test_ota_boot.py` passes.
 
-- [ ] **5. `UPDATE_START` clears the prior generation**
+- [x] **5. `UPDATE_START` clears the prior generation**
   - What changes: `restore.clear_journal(core)` at the top of the
     `UPDATE_START` branch, before `_get_free_space()`. (Ordered before step 6 so
     it lands as a harmless no-op first — nothing writes a journal until step 6.)

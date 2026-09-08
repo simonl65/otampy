@@ -269,6 +269,35 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
 # =============================================================================
 
 
+def test_update_start_clears_prior_generation(tmp_path):
+    """A pre-existing journal + .bck from a past update is gone after
+    UPDATE_START is processed."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+    journal = tmp_path / "otampy-update.journal"
+    old_backup = tmp_path / "main.py.bck"
+    old_backup.write_bytes(b"previous-generation")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+        "OTA_TIMEOUT_MS": 1,
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(tmp_path / "main.py")])
+
+    core.transport.incoming_queue.append(b"UPDATE_START:1:10")
+    ticks = iter((0, 0, 5, 5))
+    with patch.object(boot, "_ticks_ms", side_effect=lambda: next(ticks)):
+        boot.run(core, callback=None)
+
+    assert not journal.exists()
+    assert not old_backup.exists()
+    assert b"SPACE_OK" in core.transport.sent_messages
+
+
 def test_boot_repairs_finished_commit_with_missing_target(tmp_path):
     """No flag, journal line 1 is 0, a target vanished -> repair restores it."""
     uart = shared.FakeUART()

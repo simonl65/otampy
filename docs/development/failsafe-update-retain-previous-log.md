@@ -89,3 +89,35 @@ every measurement to be appended here before `git flow feature finish`.
   re-signed — no scope change.
 - `pre_flight_check.py` green after the merge (ruff + full pytest, now
   including channel-mux's suite).
+
+## 2026-09-08 — HIL round 1: two defects, both fixed
+
+Phase 1 bootstrap (`otampy deploy`) succeeded — `restore.py` on device, new
+`boot.py`. Phase 2 (`otampy upd main.py`) exposed:
+
+- **F-04 (P1, fixed `9659bc1`).** After the post-commit reboot, `otampy ls /`
+  showed the journal but **no `main.py.bck`**. Device `ota.log`:
+  `Removing orphaned file: /./main.py.bck`. `_cleanup_orphaned_ota` compared
+  `_resolve_path("./main.py.bck")` (= `"/./main.py.bck"` on MicroPython)
+  against the journal's `"/main.py.bck"` — never equal, so every retained
+  backup was swept on the first boot after a commit. Retain-previous's whole
+  guarantee was void on hardware. The unit test missed it because CPython
+  collapses the `./` that device string-concat does not. Fix: `boot._canonical`
+  normalises both sides before the membership test. New regression test does
+  not mock `_resolve_path`.
+- **F-05 (P2, fixed `81c70c7`).** The journal also listed `/_otampy_set_rtc.py`
+  — the one-shot RTC helper the host ships in every `otampy upd` manifest.
+  `commit()` was backing it up and journalling it; once F-04 was fixed,
+  `repair()` would resurrect the stale-dated helper from `.bck` on the boot
+  after each update. Fix: `UPDATE_COMMIT` places the helper with a plain rename
+  and passes only real targets to `commit()`. (Masked by F-04 until now — the
+  `.bck` was being deleted before `repair()` could use it.)
+
+Full device suite (281) + `pre_flight_check.py` green after both fixes.
+
+**HIL round 2 pending** (Simon): re-bootstrap and re-run Phase 2 onward. F-04
+and F-05 stay `fixed` (not `closed`) until hardware confirms:
+- Phase 2: `main.py.bck` is **present** after the post-commit reboot;
+  `otampy cat /otampy-update.journal` lists only `/main.py` (no
+  `/_otampy_set_rtc.py`).
+- Then Phases 3–5 as originally planned.

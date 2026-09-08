@@ -68,5 +68,64 @@ want their own commit, not bundling into this feature. Flagged to Simon.
 - Gate: `pre_flight_check.py` exit 0; `uv run pytest -q tests/test_channel.py`
   → 9 passed.
 
-### Step 3 — `ChannelSerial`
-(next)
+### Step 3 — `ChannelSerial` in `src/otampy/channel.py` — DONE
+
+- Added `ChannelSerial(ser, codec=None, min_tx_gap_ms=0)`: `write` (frames on
+  `OTA_CHANNEL`, returns `len(data)`), `flush` (delegates + records the
+  last-write timestamp), `read`/`in_waiting` (pump raw → `codec.feed` →
+  drain `codec.frames()` → decoded channel-0 buffer bounded by
+  `OTA_BUFFER_BYTES`), `reset_input_buffer` (raw reset + `codec.reset()` +
+  clear decoded), `reset_output_buffer`/`close` (delegate).
+- `min_tx_gap_ms` gap is measured from the previous **`flush()`** return
+  (matches URST `write_frame` = write-then-flush). No flush ⇒ no gap
+  enforcement — documented in the class.
+- Module `_now_ms` / `_sleep_ms` are the monkeypatch seams for the gap test
+  (mirrors device `mux._ticks_ms` / `_sleep_ms`).
+- `tests/test_channel.py::TestChannelSerial` (7) + `TestChannelSerialUrstRoundtrip`
+  (1). Roundtrip uses a **thread-based dual real-`Urst` loopback** over an
+  in-memory cross-pipe, both ends wrapped in `ChannelSerial`: `host.send(b"PING")`
+  / background `dev.read()`+`dev.reply(b"PONG")` / `host.read()` → `b"PONG"`.
+  This exercises the real URST CONNECT handshake + reliable ACKs through the
+  mux frame in both directions — stronger than priming canned bytes, and it
+  sidesteps hand-deriving the inner-frame layout.
+- **`from urst import Urst` is shadowed** by the device-test conftest's
+  `FakeUrst` once the device suite is collected (`sys.modules["urst"]` swap).
+  The real class is still reachable as `from urst.core_handler import Urst`
+  (that submodule is not swapped) — the roundtrip test uses that, with a
+  comment.
+
+### Step 4 — cross-implementation conformance test — DONE
+
+- `tests/test_channel_conformance.py` (4 tests). Replicates device
+  `test_mux.py::outer_frame` and pins it against **hard-coded byte sequences**
+  captured once (`010105555253540100` for `outer_frame(0x00, b"\x00URST\x00")`),
+  so a COBS/framing drift on either side is a byte mismatch, not a hidden
+  shared-path pass.
+  - (a) `ChannelCodec().encode(0x00, inner) == outer_frame(0x00, inner)` for
+    `b"\x00URST\x00"` and a 768-byte payload full of embedded `0x00`.
+  - (b) feeding `outer_frame(0x00, inner)` yields `(0x00, inner)`.
+  - (c) `outer_frame(0x01, …)` yields `(0x01, …)`; a channel-99 frame yields
+    nothing.
+- Does **not** import `device_otampy` — host `tests/` only. Confirmed the host
+  `tests/` run does not depend on the device conftest for these
+  (`uv run pytest -q tests/test_channel*.py` passes standalone: 22 tests;
+  full suite 481 passed).
+
+### RESOLVED — inner-frame byte layout (for sub-task 2)
+
+The spec's open question: does URST's inner frame carry a leading `0x00`?
+**Answer: it does not need hand-deriving and sub-task 2 must not assume either
+way.** `ChannelSerial` treats channel-0 payload as an opaque passthrough of
+whatever URST's `CodecLayer` writes / reads — the roundtrip test proves a real
+URST exchange survives the wrap unmodified. The device `mux.py` does the same
+(opaque `ota_port`). No layout assumption is baked into `channel.py`.
+
+### Notes carried forward to sub-task 2
+
+- Wire `ChannelSerial` into the 4 `Urst(ser)` sites (`cli.py:973, 1422, 1829,
+  2205`); add `--mux` flag + `otampy.toml` key; move the `reset_input_buffer()`
+  call (`cli.py:971`) onto the wrapper (or call both).
+- Document `--mux`, channel-id and `min_tx_gap_ms` settings in `protocol.md`
+  §1.3 (currently wire-format only).
+- `ChannelCodec` takes `ota_channel` / `app_channel` args (default 0/1) so the
+  configurable-channel-id requirement is already supported at the codec level.

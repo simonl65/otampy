@@ -199,7 +199,7 @@ Single-threaded and synchronous by design — no locks (unlike `mux_host._Virtua
     cleared.
   - Done when: `uv run pytest -q tests/test_channel.py::TestChannelCodec` passes.
 
-- [ ] **3. `ChannelSerial` in `src/otampy/channel.py`**
+- [x] **3. `ChannelSerial` in `src/otampy/channel.py`**
   - What changes: add `ChannelSerial` (table above) to the same module.
   - Test: `tests/test_channel.py::TestChannelSerial` against a fake serial —
     `write` puts a correctly framed channel-0 frame on the fake; `read` returns only
@@ -212,7 +212,7 @@ Single-threaded and synchronous by design — no locks (unlike `mux_host._Virtua
     response (canned bytes from step 4's helper).
   - Done when: `uv run pytest -q tests/test_channel.py` passes.
 
-- [ ] **4. Cross-implementation conformance test**
+- [x] **4. Cross-implementation conformance test**
   - What changes: `tests/test_channel_conformance.py`. Reuse the exact frame the device
     suite builds — replicate `device/tests/test_mux.py::outer_frame(channel, payload)`
     (or import the constant bytes) and assert:

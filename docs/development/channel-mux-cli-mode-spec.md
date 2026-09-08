@@ -187,7 +187,7 @@ module-level frozensets next to `CONFIG_SETTINGS` (`_MUX_TRUE_TOKENS`,
     the 3-retry count test, etc.) must pass with **zero edits**.
   - Done when: `uv run pytest -q` is green with no changes to any existing test.
 
-- [ ] **3. Wire mux into `_open_transport`**
+- [x] **3. Wire mux into `_open_transport`**
   - What changes: `cli.py` — `from otampy.channel import ChannelSerial` (module
     top). In `_open_transport`, when `ctx.obj.get("mux")` is true: wrap `ser` in
     `ChannelSerial` after setting `dtr`/`rts`, run the buffer resets and `Urst`

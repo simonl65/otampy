@@ -18,6 +18,7 @@ import otampy.auth as auth
 import otampy.deploy as deploy
 import otampy.minify as source_minify
 
+from .channel import ChannelSerial
 from .progress import TransferProgress
 
 if TYPE_CHECKING:
@@ -983,9 +984,10 @@ def _open_transport(
     except Exception:
         pass
 
-    # Step 3 wraps this in ChannelSerial when mux mode is on; until then the
-    # transport talks to the raw port exactly as before.
-    port_obj = ser
+    # Mux mode wraps the raw port so every URST frame gets the channel-mux
+    # outer frame (docs/protocol.md §1.3). DTR/RTS are set on the raw port
+    # above; ChannelSerial does not expose them.
+    port_obj = ChannelSerial(ser) if ctx.obj.get("mux") else ser
     port_obj.reset_input_buffer()
     port_obj.reset_output_buffer()
     transport = Urst(port_obj)

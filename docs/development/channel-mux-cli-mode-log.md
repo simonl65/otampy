@@ -54,5 +54,23 @@ Branch: `feature/channel-mux-cli-mode`.
   baudrate=57600, timeout=2.0)`, the 3-retry count, `send.assert_called_once_with`)
   all still pass unchanged — the refactor is behaviour-preserving.
 
-### Step 3 — wire mux into `_open_transport`
+### Step 3 — wire mux into `_open_transport` — DONE
+
+- `cli.py`: module-top `from .channel import ChannelSerial`;
+  `port_obj = ChannelSerial(ser) if ctx.obj.get("mux") else ser` in
+  `_open_transport` (5-line change). DTR/RTS still set on the raw `ser` before
+  the wrap.
+- `tests/test_mux_cli.py::TestMuxWiring` (4): mux-on → `Urst` gets a
+  `ChannelSerial` wrapping the mock serial; mux-off → raw serial; **end-to-end**
+  `--mux ping` → `Received PONG` via a background real-`Urst` mux device over
+  `test_channel._cross_pipe`; one-sided mismatch (`--mux` host, unframed device)
+  → clean non-zero exit, no traceback.
+- **Gotcha:** the device test-suite conftest swaps `sys.modules["urst"]` for a
+  fake `Urst`. The two integration tests must `mock.patch("urst.Urst",
+  real_Urst)` (real class from `urst.core_handler`) or they silently exercise
+  the fake and time out. Without device tests collected they pass either way;
+  with them collected the patch is required.
+- Gate: `pre_flight_check.py` exit 0; `uv run pytest -q` → 502 passed.
+
+### Step 4 — `otampy mux` management command
 (next)

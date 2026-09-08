@@ -199,7 +199,7 @@ adds **no new peak usage** during a transfer. The existing check
 
 ## Build steps
 
-- [ ] **1. Journal format + helpers**
+- [x] **1. Journal format + helpers**
   - What changes: new `src/otampy/device/lib/otampy/restore.py` with
     `_BACKUP_SUFFIX`, `_DEFAULT_JOURNAL`, `_journal_path`, `read_journal`,
     `write_journal`, `clear_journal`. `_resolve_path` / `_get_config` reused

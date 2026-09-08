@@ -3,7 +3,7 @@ try:
 except ImportError:
     import os as _os
 
-from .core import _get_config
+from .core import _get_config, _resolve_path
 
 
 def _apply_staged_rtc_update():
@@ -43,16 +43,6 @@ def _ticks_diff(new, old):
         return utime.ticks_diff(new, old)
     except ImportError:
         return new - old
-
-
-def _resolve_path(path):
-    if path.startswith("/"):
-        return path
-    import sys
-
-    if sys.implementation.name != "micropython":
-        return path
-    return "/" + path
 
 
 def _get_free_space():

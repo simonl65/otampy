@@ -326,7 +326,9 @@ def test_manager_calls_heartbeat_once_per_fragment_during_a_large_cat(
 
     fragments = core.transport.protocol.sent_fragments
     assert len(calls) == len(fragments)
-    assert len(calls) > 1  # guards against a trivially-passing single-fragment case
+    assert (
+        len(calls) > 1
+    )  # guards against a trivially-passing single-fragment case
 
 
 def test_manager_calls_heartbeat_during_a_large_ls(tmp_path):

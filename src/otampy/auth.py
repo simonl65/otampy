@@ -164,8 +164,7 @@ class CommandSigner:
         candidate = max(self._last + 1, int(time.time()))
         if candidate > _U32_MAX:
             raise CommandAuthError(
-                "command counter space exhausted -- remove "
-                f"{self._state_path}"
+                f"command counter space exhausted -- remove {self._state_path}"
             )
         self._last = candidate
         self._persist_counter()

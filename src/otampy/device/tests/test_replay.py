@@ -96,7 +96,9 @@ def test_an_out_of_u32_floor_loads_as_zero(floor_path):
     assert replay.load_floor(floor_path) == 0
 
 
-def test_a_floor_file_that_raises_oserror_loads_as_zero(monkeypatch, floor_path):
+def test_a_floor_file_that_raises_oserror_loads_as_zero(
+    monkeypatch, floor_path
+):
     def boom(*_args, **_kwargs):
         raise OSError("flash is unhappy")
 

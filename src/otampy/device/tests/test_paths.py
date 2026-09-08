@@ -88,7 +88,13 @@ PREFIXES = ("data", "lib/user")
 
 @pytest.mark.parametrize(
     "path",
-    ["data", "data/x.csv", "/data/x.csv", "data/deep/nested/x", "lib/user/m.py"],
+    [
+        "data",
+        "data/x.csv",
+        "/data/x.csv",
+        "data/deep/nested/x",
+        "lib/user/m.py",
+    ],
 )
 def test_a_path_inside_an_allowed_prefix_is_allowed(path):
     assert paths.is_allowed(path, PREFIXES) is True

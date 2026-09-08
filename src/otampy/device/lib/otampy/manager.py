@@ -90,9 +90,7 @@ def _authenticate(core, cmd_str):
         counter = int(fields[1])
         mac = binascii.unhexlify(fields[2])
     except ValueError:
-        core.logger.warning(
-            "Rejected a command with a malformed auth envelope"
-        )
+        core.logger.warning("Rejected a command with a malformed auth envelope")
         core.transport.reply(_UNAUTHENTICATED)
         return None
 

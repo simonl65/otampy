@@ -44,7 +44,9 @@ def _core(tmp_path, **kwargs):
     machine.reset.reset_mock()
     machine.soft_reset.reset_mock()
     return OTACore(
-        shared.FakeUART(), config=_config(tmp_path, **kwargs), logger=shared.FakeLogger()
+        shared.FakeUART(),
+        config=_config(tmp_path, **kwargs),
+        logger=shared.FakeLogger(),
     )
 
 
@@ -86,7 +88,9 @@ def test_with_auth_off_no_replay_state_is_created(tmp_path):
     ("command", "expected"),
     [(b"PING", b"PONG"), (b"MEM", b"MEM_OK:"), (b"RTC", b"RTC_OK:")],
 )
-def test_a_signed_command_reaches_its_existing_handler(tmp_path, command, expected):
+def test_a_signed_command_reaches_its_existing_handler(
+    tmp_path, command, expected
+):
     core = _core(tmp_path)
     core.transport.incoming_queue.append(_envelope(command, 1000))
     manager.poll(core)
@@ -96,7 +100,9 @@ def test_a_signed_command_reaches_its_existing_handler(tmp_path, command, expect
 def test_a_signed_command_keeps_every_colon_in_its_arguments(tmp_path):
     # The envelope splits with maxsplit=3, so `CAT:a:b` must arrive whole.
     core = _core(tmp_path)
-    core.transport.incoming_queue.append(_envelope(b"CAT:does/not/exist:x", 1000))
+    core.transport.incoming_queue.append(
+        _envelope(b"CAT:does/not/exist:x", 1000)
+    )
     manager.poll(core)
     # Reaches CAT and fails on the filesystem, not on parsing.
     assert core.transport.sent_messages[0].startswith(b"ERROR:")
@@ -199,7 +205,9 @@ def test_a_rejected_forgery_does_not_advance_the_replay_guard(tmp_path):
     # accepts, or one forged high counter locks the real host out.
     core = _core(tmp_path)
     wrong = auth.derive_key_blocks(bytes(32))
-    core.transport.incoming_queue.append(_envelope(b"PING", 10**9, blocks=wrong))
+    core.transport.incoming_queue.append(
+        _envelope(b"PING", 10**9, blocks=wrong)
+    )
     manager.poll(core)
     core.transport.incoming_queue.append(_envelope(b"PING", 1000))
     manager.poll(core)
@@ -234,7 +242,9 @@ def test_a_bad_key_is_reported_loudly(tmp_path):
     ("command", "reset_fn"),
     [(b"RB", "reset"), (b"SR", "soft_reset"), (b"UPDATE_REQUEST", "reset")],
 )
-def test_a_signed_reset_persists_the_floor_then_resets(tmp_path, command, reset_fn):
+def test_a_signed_reset_persists_the_floor_then_resets(
+    tmp_path, command, reset_fn
+):
     import device_otampy.replay as replay
 
     core = _core(tmp_path)
@@ -258,7 +268,9 @@ def test_the_persisted_floor_blocks_a_replay_after_a_reboot(tmp_path):
     assert rebooted.transport.sent_messages == [b"ERROR:Replayed"]
 
 
-def test_a_reset_still_happens_when_the_floor_write_fails(tmp_path, monkeypatch):
+def test_a_reset_still_happens_when_the_floor_write_fails(
+    tmp_path, monkeypatch
+):
     core = _core(tmp_path)
     core.transport.incoming_queue.append(_envelope(b"RB", 4242))
 

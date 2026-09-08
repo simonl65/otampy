@@ -4,6 +4,7 @@ Example boot.py
 
 import configota as config  # type: ignore
 from machine import UART, Pin  # type: ignore
+from otampy.mux import SerialMux  # type: ignore
 
 from otampy import OTA, NullLogger  # type: ignore
 
@@ -24,12 +25,17 @@ else:
         or NullLogger()
     )
 
+# `uart` is shared between OTAmpy and the application (see main.py's
+# do_application_stuff()). SerialMux gives each side an isolated channel
+# over that one physical UART, so the application can never steal bytes
+# meant for OTA framing (or vice versa).
 uart = UART(
     config.OTA_PORT,
     baudrate=config.OTA_BAUDRATE,
     tx=Pin(config.OTA_TX_PIN),
     rx=Pin(config.OTA_RX_PIN),
 )
+mux = SerialMux(uart)
 print(uart)
 
 
@@ -41,7 +47,7 @@ logger.debug("BOOTING...")
 
 
 # Check for an update request flag before continuing to the main application.
-OTA(uart, config=config, logger=logger).boot()
+OTA(mux.ota_port, config=config, logger=logger).boot()
 
 
 led.off()

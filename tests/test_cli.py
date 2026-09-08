@@ -61,6 +61,50 @@ def test_init_slash_path_is_project_relative(tmp_path):
     assert (project_root / "device" / "boot.py").is_file()
 
 
+def _run_init(tmp_path, extra_args, stdin_tty=False, cli_input=None):
+    runner = CliRunner()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=12345),
+        mock.patch(
+            "otampy.cli._detect_project_root", return_value=project_root
+        ),
+        mock.patch("otampy.cli._stdin_is_interactive", return_value=stdin_tty),
+    ):
+        result = runner.invoke(
+            cli, ["init", "/device", *extra_args], input=cli_input
+        )
+    return result, project_root / "device" / "boot.py"
+
+
+def test_init_default_is_direct_mode(tmp_path):
+    result, boot = _run_init(tmp_path, [])
+    assert result.exit_code == 0
+    assert "SerialMux" not in boot.read_text()
+
+
+def test_init_mux_flag_scaffolds_shared_uart(tmp_path):
+    result, boot = _run_init(tmp_path, ["--mux"])
+    assert result.exit_code == 0
+    assert "SerialMux" in boot.read_text()
+    assert "mux.ota_port" in boot.read_text()
+
+
+def test_init_no_mux_flag_forces_direct_even_on_a_tty(tmp_path):
+    result, boot = _run_init(tmp_path, ["--no-mux"], stdin_tty=True)
+    assert result.exit_code == 0
+    assert "SerialMux" not in boot.read_text()
+
+
+def test_init_prompts_for_mux_when_interactive(tmp_path):
+    result, boot = _run_init(tmp_path, [], stdin_tty=True, cli_input="y\n")
+    assert result.exit_code == 0
+    assert "SerialMux" in boot.read_text()
+
+
 def test_deploy_device_dir_is_project_relative(tmp_path):
     runner = CliRunner()
     project_root = tmp_path / "project"

@@ -33,7 +33,7 @@ build-backend = "uv_build"
 where = ["src"]
 
 [tool.setuptools.package-data]
-otampy = ["device/examples/*.py"]
+otampy = ["device/examples/*.py", "device/examples/shared-uart/*.py"]
 
 
 [dependency-groups]

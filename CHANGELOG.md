@@ -6,8 +6,17 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ## [Unreleased]
 
+### Added
+
+- **Shared-UART (channel-mux) mode, end to end.** A project whose own code needs the same physical UART as OTAmpy can now wrap it in `otampy.mux.SerialMux` on the device and have the host CLI speak the matching framing, so one radio link carries OTAmpy traffic alongside the application's own stream.
+  - **Wire contract.** An optional outer frame *below* URST: `COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`. Channel `0x00` = OTA/URST (reliable), `0x01` = application (best-effort), other ids dropped on receive. URST itself is unchanged and stays point-to-point and channel-unaware; `PROTOCOL_VERSION` does not move. Byte-identical to what the device `mux.py` already emitted, so existing mux users are unaffected. Documented in `docs/protocol.md` §1.3.
+  - **Host codec.** `otampy.channel.ChannelCodec` / `ChannelSerial` encode and decode the outer frame; `tests/test_channel.py` and `tests/test_channel_conformance.py` pin them against the device frame bytes.
+  - **CLI opt-in.** `--mux` / `--no-mux` global flag, `OTAMPY_MUX` env var, and a persistent `mux` config key (`otampy mux --enable` / `--disable` / `--clear` / interactive). Resolution order: `OTAMPY_MUX` → session → project → global config → direct. `otampy mux --show` reports the resolved value and its source. All four `Urst(ser)` call sites route through `_open_transport`, which wraps the port in `ChannelSerial` only when mux mode is on. `deploy` ignores all of it (raw-port provisioning stays direct).
+  - **Scaffolds.** `otampy init` scaffolds **direct mode** by default (OTA owns the UART). `otampy init --mux` scaffolds the separate `examples/shared-uart/` set (`SerialMux` pattern); it prompts when neither flag is given interactively.
+
 ### Changed
 
+- **The shipped `boot.py` / `main.py` example scaffold is direct mode again.** Since `6f2bd1b` the scaffold wired `SerialMux` unconditionally, which double-wrapped every URST frame; a plain host CLI then routed to an unknown channel and every command — including `otampy ping` — timed out silently. The default scaffold no longer uses `SerialMux`; the mux pattern moved to `examples/shared-uart/`.
 - **Boot-time `UPDATE_COMMIT` is now all-or-nothing and retains the previous generation.** Previously the commit deleted each target and renamed its `.ota` into place one file at a time, so an interruption could brick the device (a target gone, its replacement not yet renamed) or leave a mixed-version tree.
   - Before the first rename the device writes `OTA_JOURNAL_FILE` (default `otampy-update.journal`) with a `committing` marker and the target list. Each target is renamed to `<target>.bck` and the staged `.ota` moved into place; the marker is then flipped to `0`.
   - A failed rename rolls the whole set back from the `.bck` files and answers `COMMIT_ERR` — the device stays entirely on the previous generation.
@@ -15,6 +24,11 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   - `UPDATE_START` discards the previously retained generation (journal + `.bck` files), so at most one previous generation is kept. This makes manual recovery from a bad update possible; automatic trial-boot rollback is a later sub-task.
   - New setting `OTA_JOURNAL_FILE` (device). It must be a dedicated scratch path — a commit clobbers what it points at.
   - Recovery is best-effort and converges over reboots; it is not a power-loss-atomic filesystem transaction.
+
+### Compatibility
+
+- **A device deployed from the `6f2bd1b`..this range's mux scaffold, driven by a CLI with no `--mux`, was silently timing out.** After upgrading, recover it either by running the CLI with `otampy --mux …` (or `otampy mux --enable`), or by re-running `otampy init` (no `--mux`) + `otampy deploy` to move the device to direct mode.
+- Everything above is opt-in. A device and CLI that never touch `SerialMux` / `--mux` behave exactly as before.
 
 ## [4.6.0] - 2026-09-03
 

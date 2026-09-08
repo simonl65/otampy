@@ -14,13 +14,17 @@ This document defines the communication protocol between the OTAmpy Host CLI and
 │                Reliable Transport Layer                 │
 │         URST (Packet Delivery / CRC / Retries)          │
 ├─────────────────────────────────────────────────────────┤
+│           Channel-mux Framing (optional — §1.3)         │
+│      COBS(channel_id ‖ URST frame) — off by default      │
+├─────────────────────────────────────────────────────────┤
 │                    Physical Layer                       │
 │               UART Serial Interface (8N1)               │
 └─────────────────────────────────────────────────────────┘
 ```
 
 - **Physical Layer**: Standard UART connection, recommended at `57600` baud rate for XBee modules.
-- **Transport Layer (URST)**: Handles frame boundaries, CRC checksums, sequencing, and packet retries. The application layer assumes **guaranteed error-free packet delivery**.
+- **Transport Layer (URST)**: Handles frame boundaries, CRC checksums, sequencing, and packet retries. The application layer assumes **guaranteed error-free packet delivery**. URST is point-to-point and channel-unaware.
+- **Channel-mux Framing (optional)**: An extra outer frame that lets one UART carry URST traffic alongside the project's own application stream. **Absent by default** — see §1.3. When enabled it must be enabled on **both** ends.
 - **Application Layer**: Message payloads are UTF-8 encoded strings formatted as colon-separated fields:
   ```
   COMMAND[:ARG1[:ARG2[:...]]]
@@ -50,7 +54,10 @@ mux.send_app(payload)      # write on your application's channel
 data = mux.poll_app()      # newest pending payload on your channel, or None
 ```
 
-This is exactly the pattern the shipped `boot.py`/`main.py` examples use.
+This is the pattern the shared-UART example set uses — scaffold it with
+`otampy init --mux` (the default `otampy init` is direct mode). It changes
+the bytes on the wire (see §1.3), so the host CLI must be told to speak the
+same framing — a mux device paired with a plain-URST host times out silently.
 
 ### 1.2 Authenticated commands (optional)
 
@@ -104,6 +111,63 @@ Related settings:
 | `OTA_ALLOWED_PATH_PREFIXES` | `configota.py` | unset (all) | Restrict `CP_START`/`CAT`/`RM` targets. `..` is always refused, configured or not. |
 | `OTAMPY_COMMAND_AUTH_KEY` | host env | unset | The host's copy of the key. Unset means send bare commands. |
 | `OTAMPY_COUNTER_FILE` | host env | `~/.local/state/otampy/command-counter` | Where the host's counter persists across runs. |
+
+### 1.3 Channel-mux framing (optional)
+
+By **default there is no outer frame**: URST frames go straight onto the
+UART, and this is what the CLI and the default `otampy init` scaffold both
+do. You only need this section if your project shares the UART with its own
+traffic via `otampy.mux.SerialMux` (the `otampy init --mux` scaffold, §1.1).
+
+When mux mode is used, every URST frame is wrapped in one outer frame:
+
+```
+frame  = COBS_encode( channel_id ‖ payload ) ‖ 0x00
+```
+
+| Element | Meaning |
+| --- | --- |
+| `channel_id` | One byte. `0x00` = OTA/URST (reliable). `0x01` = application stream (best-effort). Other ids are **dropped on receive**. |
+| `payload` | For channel `0x00`, exactly the bytes URST would otherwise have written to / read from the raw UART — its own inner COBS frame, delimiters included, untouched. |
+| `COBS_encode` | The same implementation URST uses internally (`urst.codec_layer.cobs_encode` / `cobs_decode`). |
+| `0x00` | Outer-frame delimiter. A leading/empty delimiter between frames is tolerated (the empty frame is skipped). |
+
+Channel ids are configurable on both ends but **must match**. The reference
+values live in named constants — device: `mux.DEFAULT_OTA_CHANNEL` /
+`DEFAULT_APP_CHANNEL`; host: `otampy.channel.OTA_CHANNEL` / `APP_CHANNEL`
+(both `0x00` / `0x01`). A receiver drops any outer frame that fails COBS
+decode (resyncing on the next `0x00`), exceeds `MAX_OUTER_FRAME_BYTES`
+(1024), or names an unknown channel.
+
+**Mux mode is a deliberate two-sided choice.** Direct mode (no outer frame)
+is the default on both the device and the CLI. If only one end uses the
+outer frame, every command — including `PING` — **times out with no error**:
+the plain-URST end reads the other end's COBS/channel byte as the start of a
+URST frame, never completes it, and never replies. This mirrors the "enable
+the device last" caution for authenticated commands (§1.2): bring the two
+ends into agreement deliberately, and verify with a `PING` before relying on
+it.
+
+`deploy` (raw-port provisioning) is always direct mode.
+
+This outer frame is an `otampy` transport option, versioned by `otampy`'s
+own releases. It does not change URST's `PROTOCOL_VERSION` — URST itself is
+unchanged and stays channel-unaware.
+
+**Enabling mux mode on the host.** The CLI is direct by default. Turn the
+outer frame on with the `--mux` flag for a single command, or save it:
+
+| Setting | Where | Default | Meaning |
+| --- | --- | --- | --- |
+| `--mux` / `--no-mux` | CLI option (before the subcommand) | off | Force mux / direct for this one command, ignoring the saved setting. |
+| `OTAMPY_MUX` | host env | unset | `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`. Overrides the saved setting. |
+| `mux` | `~/.config/otampy/config.json` (project, then global) | unset | Persistent default. Set with `otampy mux --enable` / `--disable` / `--clear`, or the interactive `otampy mux`. |
+
+Resolution order: `OTAMPY_MUX` → session config → project config → global
+config → direct. `otampy mux --show` prints the resolved value and where it
+came from. `deploy` ignores all of the above. The device must be running
+`otampy.mux.SerialMux` (§1.1) for any of this to connect — a `--mux` CLI
+against a direct device is the one-sided mismatch above.
 
 ---
 

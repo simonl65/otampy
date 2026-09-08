@@ -292,6 +292,37 @@ adds **no new peak usage** during a transfer. The existing check
     reflect the new behaviour; no stale claim that commit deletes the target or
     leaves a mixed-version tree.
 
+- [ ] **9. Repair F-04 — orphan sweep deletes freshly-committed `.bck` files**
+  - Found in HIL: after a normal `otampy upd`, the device's next boot logs
+    `Removing orphaned file: /./main.py.bck` and the backup is gone. Root cause:
+    `_cleanup_orphaned_ota(core, path=".")` builds candidates as
+    `_resolve_path("./x.bck")` → `"/./x.bck"` on MicroPython, which never
+    matches the journal's `"/x.bck"`, so every retained backup is swept.
+  - What changes: `_cleanup_orphaned_ota` traverses from `"/"` instead of `"."`
+    so `item_path` is always `/dir/file` — the same form `read_journal` returns.
+  - Test: `test_ota_boot.py` — a new test that does **not** patch
+    `_resolve_path` (uses the real `core._resolve_path`, identity on host for
+    relative paths) so the `.`-vs-`/` mismatch is exercised: a journalled
+    `main.py.bck` at the fake root survives cleanup, an un-journalled
+    `stale.py.bck` is removed. Fails with `path="."`, passes with `path="/"`.
+    Existing `_cleanup_orphaned_ota` tests still pass.
+  - Done when: that test passes and `test_ota_boot.py` is green.
+
+- [ ] **10. Repair F-05 — transient RTC helper retained + resurrected**
+  - `otampy upd` ships `_otampy_set_rtc.py` in the manifest; `commit()` backs it
+    up and journals it. It self-deletes on the next boot, then `repair()`
+    restores it from `.bck` (once F-04 is fixed), re-running the stale-dated
+    helper. Masked by F-04 today.
+  - What changes: `_run_default_update_loop`'s `UPDATE_COMMIT` branch splits
+    `_otampy_set_rtc.py` out of `files` before `commit()` and places it with a
+    plain `rename` — never `.bck`, never journalled. Named constant in
+    `boot.py`.
+  - Test: `test_ota_boot.py` — a full update session whose manifest includes
+    `_otampy_set_rtc.py`: after commit the helper is in place, but
+    `_otampy_set_rtc.py.bck` does not exist and the journal does not list it;
+    the other files are backed up and journalled as before.
+  - Done when: that test passes; `test_restore.py` + `test_ota_boot.py` green.
+
 ## Verification
 
 - **Host:** `python3 .agents/scripts/pre_flight_check.py` (ruff + full pytest,

@@ -9,7 +9,65 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
-_(none — F-01..F-03 closed, see below)_
+### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
+
+- **Severity:** P1
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_cleanup_orphaned_ota`)
+- **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous` (Simon, Phase 2)
+- **Evidence:** After `otampy upd main.py` and the device's post-commit reboot,
+  `otampy ls /` showed the journal (`0` / `/main.py` / `/_otampy_set_rtc.py`)
+  but **no `main.py.bck`**. `ota.log` on the device:
+  `Cleanup started... / Removing orphaned file: /./main.py.bck / Cleanup complete`.
+  `commit()` creates `/main.py.bck` correctly; on the next boot
+  `boot.run()` → `_cleanup_orphaned_ota(core, path=".")` builds the candidate as
+  `_resolve_path("./main.py.bck")`, which on MicroPython is `"/" + "./main.py.bck"`
+  = `"/./main.py.bck"`. The journal's kept-set is `{"/main.py.bck"}`, so
+  `"/./main.py.bck" not in kept_backups` is true and the backup is removed.
+  littlefs resolves `/./` transparently, so the delete succeeds.
+- **Impact:** Retain-previous's core guarantee — the previous version physically
+  survives an update — is **void on hardware**. Every committed `.bck` is
+  deleted on the first reboot after the commit. `repair()` after a real power
+  loss then finds no `.bck` to restore from. The unit test
+  `test_boot_removes_orphan_bck_but_keeps_journalled_one` passed because it
+  patches `_resolve_path` with a mock and CPython's `pathlib`/string handling
+  collapses the `./` that bare concatenation on the device does not.
+- **Suggested fix:** start the `_cleanup_orphaned_ota` traversal from `"/"`
+  instead of `"."`, so every `item_path` is built in the same `/dir/file` form
+  the journal stores (`_resolve_path("/x")` is identity on both host and
+  device). Add a regression test that uses the real `core._resolve_path` (not a
+  mock) so the `.`-vs-`/` mismatch is actually exercised.
+
+### F-05 — `commit()` retains the transient RTC helper; `repair()` then resurrects it
+
+- **Severity:** P2
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_default_update_loop` /
+  `restore.commit`)
+- **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous`
+  (journal on device listed `/_otampy_set_rtc.py`)
+- **Evidence:** `otampy upd` appends the one-shot RTC helper
+  `_otampy_set_rtc.py` to the transfer manifest unless `--no-rtc`
+  (`src/otampy/cli.py:2235`). It arrives via `FILE_START`/`CHUNK`/`FILE_END`
+  like any file, so `commit()` backs it up to `_otampy_set_rtc.py.bck` and adds
+  `/_otampy_set_rtc.py` to the journal. The helper self-deletes on the next
+  boot (`deploy.rtc_helper_content()` ends `finally: os.remove(...)`). Once F-04
+  is fixed and the `.bck` survives, `repair()` on the boot after that sees
+  `/_otampy_set_rtc.py` missing but `/_otampy_set_rtc.py.bck` present and
+  renames the `.bck` back into place — so the stale-dated helper runs a second
+  time (setting the RTC to the *update's* wall-clock time, not now) before
+  self-deleting again. The journal permanently lists a path that normally does
+  not exist.
+- **Impact:** One spurious, stale `machine.RTC().datetime(...)` call on the
+  boot after every `otampy upd` (without `--no-rtc`). RTC feeds log timestamps
+  and seeds the command-auth replay counter, so a backwards jump is not purely
+  cosmetic. Currently *masked* by F-04 (the `.bck` is deleted before `repair()`
+  can use it) — fixing F-04 unmasks it, so both must land together.
+- **Suggested fix:** in `_run_default_update_loop`'s `UPDATE_COMMIT` branch,
+  split `_otampy_set_rtc.py` out of `files` before calling `commit()` and place
+  it with a plain `rename(staging, target)` — never backed up, never journalled.
+  Named constant in `boot.py` (it already knows the module name in
+  `_apply_staged_rtc_update`).
 
 ## Closed
 

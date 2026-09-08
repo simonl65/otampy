@@ -9,9 +9,214 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
-_(none — F-01..F-03 closed, see below)_
+### F-08 — a power loss while updating `restore.py` itself strands the device with no radio recovery
+
+- **Severity:** P2
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/` (`boot.run` and `ota.recover` both
+  `from .restore import repair`)
+- **Found:** 2026-09-08, `/sl-findings review` of the F-06 fix
+- **Evidence:** F-06's fix (Option A) routes recovery through `main.py` so a
+  lost `boot.py` self-heals. But the recovery *logic* is `restore.py`, imported
+  lazily by both `boot.run()` (`boot.py`, local `from .restore import repair`)
+  and `ota.recover()` (`ota.py`). `commit()` renames one file at a time, so an
+  interrupt while `restore.py` is the current pair leaves
+  `/lib/otampy/restore.py` absent with `restore.py.bck` present. On the next
+  boot `boot.py`'s import raises `ImportError` (boot.py crashes, MicroPython
+  proceeds to `main.py`); `main.py`'s `recover()` hits the same `ImportError`
+  and crashes too. Device drops to the REPL — the `.bck` holds the code but
+  nothing can rename it back.
+- **Impact:** USB-only recovery if power is lost in the commit window *and* the
+  update set includes `restore.py` — i.e. a library update (`otampy upd
+  lib/otampy/...` or a full re-deploy), never a normal app update, so the
+  trigger is narrow. Strictly smaller than the pre-retain-previous exposure,
+  where any interrupted commit could brick the device and no `.bck` existed.
+- **Suggested fix:** freeze `restore.py` into the deployed image, or F-06
+  Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Belongs
+  with sub-task 4 (boot-time recovery), not this sub-task.
+
+### F-07 — `repair()` rewrites the journal on every call, now twice per boot
+
+- **Severity:** P3
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/restore.py` (`repair`)
+- **Found:** 2026-09-08, `/sl-findings review` of the F-06 fix
+- **Evidence:** `restore.repair()` ends with an unconditional
+  `write_journal(core, ..., paths)` whenever the journal has any entries, even
+  when it restored nothing and the marker did not change. After a successful
+  update the journal persists as `0\n/main.py\n...` until the next
+  `UPDATE_START` clears it, so it is rewritten on every boot. The F-06 fix
+  added a second caller (`main.py`'s `recover()` → `repair()`), so a normal
+  boot now rewrites that file twice.
+- **Impact:** Two small flash writes per boot instead of one, indefinitely
+  after any update. Negligible at a normal reboot cadence (littlefs
+  wear-levels a tiny file); only visible on a crash/watchdog-looping device,
+  where it is the least of the problems. No behavioural effect.
+- **Suggested fix:** `repair()` writes the journal only when it changed
+  something — flipped the marker, or restored at least one file.
 
 ## Closed
+
+### F-06 — an interrupted `boot.py` commit strands the device: `repair()` lives in the file that got deleted
+
+- **Severity:** P0
+- **Status:** closed
+- **Area:** `src/otampy/device/lib/otampy/` (`boot.run` / `restore` design;
+  the shipped `main.py` scaffold)
+- **Found:** 2026-09-08, HIL fault-injection of
+  `feature/failsafe-update-retain-previous` (doctored `restore.py` with a 25 s
+  wait loop on the last commit pair; Simon pulled power in the window).
+- **Evidence:** `otampy upd main.py boot.py` was interrupted mid-commit, after
+  `main.py` had fully committed and `boot.py` had been renamed to
+  `boot.py.bck` but its `.ota` was not yet renamed into place. On the next
+  boot, `otampy -p /dev/ttyUSB0 ls /` showed: **`boot.py` absent**,
+  `boot.py.bck` + `boot.py.ota` present, `otampy-update.journal` =
+  `committing` / `/main.py` / `/boot.py`, `update_requested.flag` still set.
+  `otampy ping` returned `PONG` (the newly-committed `main.py` runs), but the
+  `committing` state persisted across reboots — no self-repair.
+- **Root cause:** `restore.repair()` is only ever invoked from `boot.run()`,
+  i.e. from `boot.py`. `commit()` renames each target out to `<target>.bck`
+  before renaming the staged copy in, so an interrupt while `boot.py` is the
+  current pair leaves `boot.py` absent. MicroPython then boots straight to
+  `main.py`, `boot.run()` never executes, and the journal/flag/`.bck` state is
+  never resolved. The device is stuck on a mixed tree (new `main.py`, no
+  `boot.py`) with no remote recovery path — exactly the "never destroy the only
+  remote recovery path" invariant the Fail-safe Updates task exists to enforce.
+- **Impact:** A normal-path power loss during any update whose set includes
+  `boot.py` (every `otampy upd` with no args sends `boot.py`, `main.py`,
+  `configota.py`) can strand a field device. Runtime commands still work while
+  `main.py` runs, so recovery is possible over the radio via `otampy cp` — but
+  only by luck (if `main.py` committed or was untouched); if the interrupt
+  caught `main.py` instead, or `main.py` also fails, the device needs USB.
+- **Blocks:** merge (P0). HIL cannot proceed past this.
+- **Suggested fix (needs a design decision — see dev log 1-3-1):**
+  - **A (recommended):** the shipped `main.py` scaffold also runs
+    `restore.repair()` once at startup (or a new `OTA(...).recover()`). Since
+    `commit()` touches one file at a time, at any interrupt point at most one of
+    `boot.py`/`main.py` is absent, so the survivor heals the set. Smallest
+    change; scaffold contract gains one line; a custom `main.py` must include it.
+  - **B:** special-case `boot.py` in `commit()` to copy-into-place (never leave
+    `boot.py` absent). Keeps recovery in `boot.py`; risks a truncated `boot.py`
+    on a crash mid-write.
+  - **C:** freeze a minimal recovery `_boot.py` (runs before `boot.py`) into the
+    deployed image that calls `repair()` and chains on. Heaviest; needs a
+    manifest/freeze change at deploy time.
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 11
+  (Option A). New `OTA.recover()` (`ota.py`) — a local-import
+  `restore.repair(self._core)` plus removal of the stale update flag. Both
+  `main.py` scaffolds call `ota.recover()` once after `ota = OTA(...)`, before
+  the poll loop. `commit()` renames one file at a time, so at any interrupt at
+  most one of `boot.py`/`main.py` is absent — the survivor heals the set; a lost
+  `boot.py` is restored from `boot.py.bck` by `main.py`'s call. Tests:
+  `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+  `::test_recover_clears_the_stale_update_flag`,
+  `tests/test_examples.py::test_main_scaffold_calls_recover`.
+- **HIL confirmed:** 2026-09-08. Doctored `restore.py` (30 s window),
+  `otampy upd main.py boot.py`, power pulled while committing `boot.py`. On
+  power-up (no USB): device state was `boot.py` **present** (restored from
+  `.bck`), `otampy-update.journal` line 1 `0`, no `.bck` files — `main.py`'s
+  `recover()` had run `repair()`. (First HIL attempt was an operator error —
+  the `recover()` line was deleted while adding a test marker; re-run with it
+  intact self-healed.) Stale-flag removal added after observing
+  `update_requested.flag` + `boot.py.ota` survive the first successful heal.
+- **Closed:** 2026-09-08, `/sl-findings review`. Re-read `ota.py` `recover()` and
+  `boot.run()`: `repair()` runs from both entry points, and `commit()` is
+  strictly one pair at a time, so at most one of `boot.py`/`main.py` is ever
+  absent. The flag removal is safe — a set flag while `main.py` runs means
+  `boot.run()` did not execute. HIL trace (dev log) shows a real power loss
+  self-healing over the radio, no USB. Two lesser wrinkles filed separately:
+  F-07 (P3, redundant journal write the fix doubled) and F-08 (P2, `restore.py`
+  itself as the interrupted file).
+
+### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
+
+- **Severity:** P1
+- **Status:** closed
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_cleanup_orphaned_ota`)
+- **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous` (Simon, Phase 2)
+- **Evidence:** After `otampy upd main.py` and the device's post-commit reboot,
+  `otampy ls /` showed the journal (`0` / `/main.py` / `/_otampy_set_rtc.py`)
+  but **no `main.py.bck`**. `ota.log` on the device:
+  `Cleanup started... / Removing orphaned file: /./main.py.bck / Cleanup complete`.
+  `commit()` creates `/main.py.bck` correctly; on the next boot
+  `boot.run()` → `_cleanup_orphaned_ota(core, path=".")` builds the candidate as
+  `_resolve_path("./main.py.bck")`, which on MicroPython is `"/" + "./main.py.bck"`
+  = `"/./main.py.bck"`. The journal's kept-set is `{"/main.py.bck"}`, so
+  `"/./main.py.bck" not in kept_backups` is true and the backup is removed.
+  littlefs resolves `/./` transparently, so the delete succeeds.
+- **Impact:** Retain-previous's core guarantee — the previous version physically
+  survives an update — is **void on hardware**. Every committed `.bck` is
+  deleted on the first reboot after the commit. `repair()` after a real power
+  loss then finds no `.bck` to restore from. The unit test
+  `test_boot_removes_orphan_bck_but_keeps_journalled_one` passed because it
+  patches `_resolve_path` with a mock and CPython's `pathlib`/string handling
+  collapses the `./` that bare concatenation on the device does not.
+- **Suggested fix:** start the `_cleanup_orphaned_ota` traversal from `"/"`
+  instead of `"."`, so every `item_path` is built in the same `/dir/file` form
+  the journal stores (`_resolve_path("/x")` is identity on both host and
+  device). Add a regression test that uses the real `core._resolve_path` (not a
+  mock) so the `.`-vs-`/` mismatch is actually exercised.
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 9.
+  Traversal root left at `"."` (flipping to `"/"` made the no-flag boot tests
+  that don't mock `_os.listdir` walk the real filesystem — one hung). Instead,
+  new `boot._canonical(path)` collapses `/./`, strips a leading `./`, and forces
+  a leading `/`; it is applied to both the journal-derived `kept_backups` set
+  and each `.bck` candidate before the membership test. `resolved_item` is still
+  passed unchanged to `_os.remove`. Test:
+  `test_ota_boot.py::test_cleanup_keeps_journalled_bck_with_real_resolve_path`
+  (no `_resolve_path` mock — exercises the real `.`-vs-`/` mismatch).
+- **Closed:** 2026-09-08, `/sl-findings review`. `_canonical()` is a pure
+  function applied to both the journal-derived `kept_backups` and each `.bck`
+  candidate; `.ota` removal (suffix match) and the path handed to `_os.remove`
+  are unchanged. Regression test uses the real `_resolve_path`. HIL trace shows
+  the `.bck` files surviving for `repair()` to consume. No new defect. (The raw
+  `/./` path still appears in the sweep's debug log — cosmetic, tracked in
+  Risks.)
+
+### F-05 — `commit()` retains the transient RTC helper; `repair()` then resurrects it
+
+- **Severity:** P2
+- **Status:** closed
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_default_update_loop` /
+  `restore.commit`)
+- **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous`
+  (journal on device listed `/_otampy_set_rtc.py`)
+- **Evidence:** `otampy upd` appends the one-shot RTC helper
+  `_otampy_set_rtc.py` to the transfer manifest unless `--no-rtc`
+  (`src/otampy/cli.py:2235`). It arrives via `FILE_START`/`CHUNK`/`FILE_END`
+  like any file, so `commit()` backs it up to `_otampy_set_rtc.py.bck` and adds
+  `/_otampy_set_rtc.py` to the journal. The helper self-deletes on the next
+  boot (`deploy.rtc_helper_content()` ends `finally: os.remove(...)`). Once F-04
+  is fixed and the `.bck` survives, `repair()` on the boot after that sees
+  `/_otampy_set_rtc.py` missing but `/_otampy_set_rtc.py.bck` present and
+  renames the `.bck` back into place — so the stale-dated helper runs a second
+  time (setting the RTC to the *update's* wall-clock time, not now) before
+  self-deleting again. The journal permanently lists a path that normally does
+  not exist.
+- **Impact:** One spurious, stale `machine.RTC().datetime(...)` call on the
+  boot after every `otampy upd` (without `--no-rtc`). RTC feeds log timestamps
+  and seeds the command-auth replay counter, so a backwards jump is not purely
+  cosmetic. Currently *masked* by F-04 (the `.bck` is deleted before `repair()`
+  can use it) — fixing F-04 unmasks it, so both must land together.
+- **Suggested fix:** in `_run_default_update_loop`'s `UPDATE_COMMIT` branch,
+  split `_otampy_set_rtc.py` out of `files` before calling `commit()` and place
+  it with a plain `rename(staging, target)` — never backed up, never journalled.
+  Named constant in `boot.py` (it already knows the module name in
+  `_apply_staged_rtc_update`).
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 10.
+  New `boot._RTC_HELPER_FILE` constant. The `UPDATE_COMMIT` branch now walks
+  `files`, places any pair whose target basename is `_RTC_HELPER_FILE` with a
+  plain `remove`+`rename`, and passes only the `retained` pairs to
+  `commit()`. `_apply_staged_rtc_update` derives its import name from the same
+  constant (DRY). Test:
+  `test_ota_boot.py::test_commit_does_not_retain_the_transient_rtc_helper` —
+  full session with the helper in the manifest; asserts it is placed but has no
+  `.bck` and is absent from the journal, while `main.py` is backed up normally.
+- **Closed:** 2026-09-08, `/sl-findings review`. The `UPDATE_COMMIT` branch
+  filters `_RTC_HELPER_FILE` by basename before `commit()`, places it with a
+  plain `remove`+`rename`, and never journals it; a failed rename just leaves
+  it unplaced (harmless — it self-deletes / is re-sent next update). HIL: the
+  post-recovery journal listed only `/main.py` and `/boot.py`. No new defect.
 
 ### F-01 — `ChannelSerial.in_waiting` and `_pump` block on an empty serial port
 
@@ -125,6 +330,16 @@ _(none — F-01..F-03 closed, see below)_
 ## Risks
 
 Concerns worth keeping but not confirmed defects. No ID, block nothing.
+
+- **`_cleanup_orphaned_ota` logs/removes the raw `/./x` path.** After the F-04
+  fix, `_canonical()` is applied only to the *comparison* against `kept_backups`;
+  `resolved_item` itself is still `_resolve_path("./x")` = `/./x` on MicroPython,
+  so the debug log reads `Removing orphaned file: /./boot.py.ota` and
+  `_os.remove` is called with `/./boot.py.ota`. littlefs resolves it fine and
+  `.ota` removal is a suffix match, so it is purely cosmetic — but a future
+  path-equality check elsewhere in that function would hit the same class of
+  bug. Cheap to canonicalise `resolved_item` at the top of the loop; deferred
+  as out of scope for the retain-previous sub-task.
 
 - **`ChannelSerial` decoded-buffer overflow drops the oldest bytes.**
   `channel.py:161` caps the decoded channel-0 buffer at `OTA_BUFFER_BYTES`

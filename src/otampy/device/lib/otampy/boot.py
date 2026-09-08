@@ -3,13 +3,19 @@ try:
 except ImportError:
     import os as _os
 
-from .core import _get_config
+from .core import _get_config, _resolve_path
+
+# The host stages this one-shot RTC helper in every ``otampy upd`` manifest
+# (unless ``--no-rtc``). It self-deletes on the next boot, so it must be placed
+# but never retained as ``.bck`` or journalled -- otherwise ``restore.repair()``
+# resurrects it from the backup the boot after (F-05).
+_RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
 
 def _apply_staged_rtc_update():
     """Run the one-shot RTC helper staged during host operations (unless --no-rtc is specified)."""
     try:
-        __import__("_otampy_set_rtc")
+        __import__(_RTC_HELPER_FILE[:-3])
     except ImportError:
         pass
 
@@ -45,16 +51,6 @@ def _ticks_diff(new, old):
         return new - old
 
 
-def _resolve_path(path):
-    if path.startswith("/"):
-        return path
-    import sys
-
-    if sys.implementation.name != "micropython":
-        return path
-    return "/" + path
-
-
 def _get_free_space():
     try:
         stat = _os.statvfs("/")
@@ -84,6 +80,8 @@ def _run_default_update_loop(core):
     import hashlib
 
     import machine
+
+    from .restore import clear_journal, commit
 
     # Caching Attributes for speed. `reply`, not `send`: every call in this
     # loop answers the packet most recently read (§5.8.3) -- `READY` above,
@@ -175,6 +173,11 @@ def _run_default_update_loop(core):
             except ValueError:
                 send(b"ERROR:Invalid numbers")
                 continue
+
+            # Discard the previous generation's journal + .bck set now: the
+            # code currently running becomes this update's retained backup,
+            # and the space check should not count the older generation.
+            clear_journal(core)
 
             free_bytes = _get_free_space()
             delete_paths = []
@@ -319,27 +322,30 @@ def _run_default_update_loop(core):
 
         elif cmd == b"UPDATE_COMMIT":
             core.logger.debug("UPDATE COMMIT")
-            success = True
+            # Split the one-shot RTC helper out of the retained set: place it
+            # with a plain rename so it runs once, but never back it up or
+            # journal it (F-05).
+            retained = []
             for index in range(0, len(files), 2):
                 target = files[index]
-                staging = files[index + 1]
-                try:
+                if target.rsplit("/", 1)[-1] == _RTC_HELPER_FILE:
                     try:
                         _os.remove(target)
                     except OSError:
                         pass
-                    _os.rename(staging, target)
-                except OSError as e:
-                    core.logger.error(f"Commit failed for {target}: {e}")
-                    success = False
-                    break
+                    try:
+                        _os.rename(files[index + 1], target)
+                    except OSError:
+                        pass
+                else:
+                    retained.append(target)
+                    retained.append(files[index + 1])
 
-            if success:
-                for target in delete_paths:
-                    try:
-                        _os.remove(target)
-                    except OSError:
-                        pass
+            # All-or-nothing: renames each target to <target>.bck, stages the
+            # new file in, and rolls the whole set back from .bck on any
+            # failure. The retained .bck set plus the journal let boot.run()'s
+            # repair() reverse an interrupted commit on the next boot.
+            if commit(core, retained, delete_paths):
                 send(b"COMMIT_OK")
             else:
                 send(b"COMMIT_ERR")
@@ -360,7 +366,30 @@ def _run_default_update_loop(core):
             break
 
 
-def _cleanup_orphaned_ota(core, path="."):
+def _canonical(path):
+    # Collapse the "./" / "/./" traversal artefacts so a swept item's path
+    # compares equal to the "/dir/file" form read_journal() stores. Without
+    # this, "./main.py.bck" (host) / "/./main.py.bck" (MicroPython) never
+    # matched the journal's "/main.py.bck" and retained backups were deleted
+    # on the first boot after a commit (F-04).
+    path = path.replace("/./", "/")
+    if path.startswith("./"):
+        path = path[1:]
+    if not path.startswith("/"):
+        path = "/" + path
+    return path
+
+
+def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
+    if kept_backups is None:
+        # Backups still referenced by the retain-previous journal must be
+        # kept; every other <x>.bck is an orphan from a crashed commit whose
+        # journal never landed.
+        from .restore import _BACKUP_SUFFIX, read_journal
+
+        kept_backups = {
+            _canonical(p + _BACKUP_SUFFIX) for p in read_journal(core)[2]
+        }
     resolved_path = _resolve_path(path)
     try:
         # Cache standard methods & check logger levels
@@ -377,12 +406,13 @@ def _cleanup_orphaned_ota(core, path="."):
                 stat = stat_func(resolved_item)
                 is_dir = stat[0] & 0x4000
                 if is_dir:
-                    _cleanup_orphaned_ota(core, item_path)
-                elif item.endswith(".ota"):
+                    _cleanup_orphaned_ota(core, item_path, kept_backups)
+                elif item.endswith(".ota") or (
+                    item.endswith(".bck")
+                    and _canonical(resolved_item) not in kept_backups
+                ):
                     if log_level_debug:
-                        logger_debug(
-                            f"Removing orphaned staging file: {resolved_item}"
-                        )
+                        logger_debug(f"Removing orphaned file: {resolved_item}")
                     remove_func(resolved_item)
             except OSError:
                 pass
@@ -396,6 +426,14 @@ def run(core, callback=None):
     perform the update, and remove the flag-file.
     """
     _apply_staged_rtc_update()
+
+    # Finish or reverse an interrupted retain-previous commit before anything
+    # else touches the filesystem -- runs on every boot, flagged or not.
+    # Local import so it stays GC-eligible alongside `boot` itself.
+    from .restore import repair
+
+    repair(core)
+
     core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 

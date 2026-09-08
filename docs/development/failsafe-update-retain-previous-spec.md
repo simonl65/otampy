@@ -199,7 +199,7 @@ adds **no new peak usage** during a transfer. The existing check
 
 ## Build steps
 
-- [ ] **1. Journal format + helpers**
+- [x] **1. Journal format + helpers**
   - What changes: new `src/otampy/device/lib/otampy/restore.py` with
     `_BACKUP_SUFFIX`, `_DEFAULT_JOURNAL`, `_journal_path`, `read_journal`,
     `write_journal`, `clear_journal`. `_resolve_path` / `_get_config` reused
@@ -212,7 +212,7 @@ adds **no new peak usage** during a transfer. The existing check
   - Done when: `uv run pytest src/otampy/device/tests/test_restore.py` passes;
     `uv run ruff check .` clean.
 
-- [ ] **2. `restore.commit()` — all-or-nothing rename with `.bck`**
+- [x] **2. `restore.commit()` — all-or-nothing rename with `.bck`**
   - What changes: add `commit(core, files, delete_paths)` to `restore.py`
     implementing the numbered `commit()` sequence above — `committing` marker
     first, per-pair renames, whole-set best-effort rollback on any `OSError`,
@@ -224,7 +224,7 @@ adds **no new peak usage** during a transfer. The existing check
     `False`.
   - Done when: those tests pass.
 
-- [ ] **3. `restore.repair()` — finish or fix an interrupted commit**
+- [x] **3. `restore.repair()` — finish or fix an interrupted commit**
   - What changes: add `repair(core)` to `restore.py` with the two modes from
     its contract row.
   - Test: `test_restore.py` — (a) line 1 `committing`, two paths, both `.bck`
@@ -235,7 +235,7 @@ adds **no new peak usage** during a transfer. The existing check
     no-op.
   - Done when: those tests pass.
 
-- [ ] **4. Wire `repair()` into `boot.run()`**
+- [x] **4. Wire `repair()` into `boot.run()`**
   - What changes: call `restore.repair(core)` in `boot.run()` immediately after
     `_apply_staged_rtc_update()`, before the flag `stat`. Keep the
     module-release dance in `ota.OTA.boot()` working (add `restore` to the same
@@ -248,7 +248,7 @@ adds **no new peak usage** during a transfer. The existing check
     `test_boot_no_flag_file` and `test_boot_cleans_orphaned_ota_*` still pass.
   - Done when: full `test_ota_boot.py` passes.
 
-- [ ] **5. `UPDATE_START` clears the prior generation**
+- [x] **5. `UPDATE_START` clears the prior generation**
   - What changes: `restore.clear_journal(core)` at the top of the
     `UPDATE_START` branch, before `_get_free_space()`. (Ordered before step 6 so
     it lands as a harmless no-op first — nothing writes a journal until step 6.)
@@ -256,7 +256,7 @@ adds **no new peak usage** during a transfer. The existing check
     a prior update are gone after an `UPDATE_START` packet is processed.
   - Done when: that test passes.
 
-- [ ] **6. `UPDATE_COMMIT` delegates to `restore.commit()`**
+- [x] **6. `UPDATE_COMMIT` delegates to `restore.commit()`**
   - What changes: replace the inline rename loop in the `UPDATE_COMMIT` branch
     of `_run_default_update_loop` with a `restore.commit(core, files,
     delete_paths)` call; send `COMMIT_OK` / `COMMIT_ERR` on its return value;
@@ -267,7 +267,7 @@ adds **no new peak usage** during a transfer. The existing check
   - Done when: `test_ota_boot.py` passes, including the updated full-session
     test.
 
-- [ ] **7. `.bck` orphan cleanup on normal boot**
+- [x] **7. `.bck` orphan cleanup on normal boot**
   - What changes: extend `_cleanup_orphaned_ota` (or add a sibling called from
     the same no-flag path in `boot.run()`) to remove `<x>.bck` files whose
     target is not in the current journal.
@@ -275,7 +275,7 @@ adds **no new peak usage** during a transfer. The existing check
     journal) removes it; a `.bck` listed in the journal is kept.
   - Done when: that test passes.
 
-- [ ] **8. Docs + changelog**
+- [x] **8. Docs + changelog**
   - What changes: `docs/protocol.md` §2.4 — `UPDATE_COMMIT` is now all-or-nothing
     (whole-set rollback on failure), retains `<target>.bck`, and writes
     `OTA_JOURNAL_FILE`; `UPDATE_START` discards the prior generation. Replace the
@@ -291,6 +291,63 @@ adds **no new peak usage** during a transfer. The existing check
   - Done when: `docs/protocol.md`, `docs/architecture.md`, `CHANGELOG.md`
     reflect the new behaviour; no stale claim that commit deletes the target or
     leaves a mixed-version tree.
+
+- [x] **9. Repair F-04 — orphan sweep deletes freshly-committed `.bck` files**
+  - Found in HIL: after a normal `otampy upd`, the device's next boot logs
+    `Removing orphaned file: /./main.py.bck` and the backup is gone. Root cause:
+    `_cleanup_orphaned_ota(core, path=".")` builds candidates as
+    `_resolve_path("./x.bck")` → `"/./x.bck"` on MicroPython, which never
+    matches the journal's `"/x.bck"`, so every retained backup is swept.
+  - What changes: new `boot._canonical(path)` collapses `/./` and a leading
+    `./` and forces a leading `/`, applied to both the journal-derived
+    `kept_backups` set and each candidate before the membership test. (Traversal
+    root stays `"."` — flipping it to `"/"` made the no-flag boot tests that
+    don't mock `_os.listdir` walk the real filesystem.)
+  - Test: `test_ota_boot.py::test_cleanup_keeps_journalled_bck_with_real_resolve_path`
+    — does **not** patch `_resolve_path`, so the `.`-vs-`/` prefix mismatch is
+    exercised: a journalled `main.py.bck` survives, an un-journalled
+    `stale.py.bck` is removed. Fails with the raw `not in kept_backups`, passes
+    with `_canonical`. Existing `_cleanup_orphaned_ota` tests still pass.
+  - Done when: that test passes and `test_ota_boot.py` is green.
+
+- [x] **10. Repair F-05 — transient RTC helper retained + resurrected**
+  - `otampy upd` ships `_otampy_set_rtc.py` in the manifest; `commit()` backs it
+    up and journals it. It self-deletes on the next boot, then `repair()`
+    restores it from `.bck` (once F-04 is fixed), re-running the stale-dated
+    helper. Masked by F-04 today.
+  - What changes: `_run_default_update_loop`'s `UPDATE_COMMIT` branch splits
+    `_otampy_set_rtc.py` out of `files` before `commit()` and places it with a
+    plain `rename` — never `.bck`, never journalled. Named constant in
+    `boot.py`.
+  - Test: `test_ota_boot.py` — a full update session whose manifest includes
+    `_otampy_set_rtc.py`: after commit the helper is in place, but
+    `_otampy_set_rtc.py.bck` does not exist and the journal does not list it;
+    the other files are backed up and journalled as before.
+  - Done when: that test passes; `test_restore.py` + `test_ota_boot.py` green.
+
+- [x] **11. Repair F-06 — `main.py` also runs `repair()` (lost `boot.py` self-heals)**
+  - HIL exposed that an interrupted commit can rename `boot.py` to
+    `boot.py.bck` and reboot with no `boot.py`, so `boot.run()` — and its
+    `repair()` call — never executes. `restore.py`'s `repair()` is unreachable.
+  - What changes: new `OTA.recover()` facade method (`ota.py`) = a local-import
+    `restore.repair(self._core)` **plus** removal of the stale
+    `UPDATE_REQUEST_FLAG_FILE` (the interrupted `boot.run()` never reached its
+    flag removal; without this the next boot enters a dead update loop and
+    times out ~5 s before the app starts). Both shipped `main.py` scaffolds
+    (`examples/main.py`, `examples/shared-uart/main.py`) call `ota.recover()`
+    once, right after `ota = OTA(...)`, before the poll loop. Because `commit()`
+    renames one file at a time, at any interrupt point at most one of
+    `boot.py`/`main.py` is absent, so the survivor heals the whole set. The
+    stale `<file>.ota` staging file is swept by the next boot's normal
+    no-flag cleanup (no delay, since the flag is already gone).
+  - Test: `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+    `::test_recover_clears_the_stale_update_flag`,
+    `::test_recover_survives_a_missing_flag_file`;
+    `tests/test_examples.py::test_main_scaffold_calls_recover` (both scaffolds).
+  - Done when: those pass; full device suite + `pre_flight_check.py` green.
+  - **HIL:** re-run the doctored-`restore.py` interrupt test targeting
+    `boot.py` — after power-up the device must self-heal (journal → `0`,
+    `boot.py` present, set rolled back) with **no** USB intervention.
 
 ## Verification
 

@@ -17,6 +17,14 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 ### Changed
 
 - **The shipped `boot.py` / `main.py` example scaffold is direct mode again.** Since `6f2bd1b` the scaffold wired `SerialMux` unconditionally, which double-wrapped every URST frame; a plain host CLI then routed to an unknown channel and every command — including `otampy ping` — timed out silently. The default scaffold no longer uses `SerialMux`; the mux pattern moved to `examples/shared-uart/`.
+- **Boot-time `UPDATE_COMMIT` is now all-or-nothing and retains the previous generation.** Previously the commit deleted each target and renamed its `.ota` into place one file at a time, so an interruption could brick the device (a target gone, its replacement not yet renamed) or leave a mixed-version tree.
+  - Before the first rename the device writes `OTA_JOURNAL_FILE` (default `otampy-update.journal`) with a `committing` marker and the target list. Each target is renamed to `<target>.bck` and the staged `.ota` moved into place; the marker is then flipped to `0`.
+  - A failed rename rolls the whole set back from the `.bck` files and answers `COMMIT_ERR` — the device stays entirely on the previous generation.
+  - A power loss mid-commit leaves the marker; `boot.run()` now calls `restore.repair()` on every boot (before the update-flag check), which restores every journalled `.bck`. The device is never left on a mixed-version tree within a single commit.
+  - `UPDATE_START` discards the previously retained generation (journal + `.bck` files), so at most one previous generation is kept. This makes manual recovery from a bad update possible; automatic trial-boot rollback is a later sub-task.
+  - New setting `OTA_JOURNAL_FILE` (device). It must be a dedicated scratch path — a commit clobbers what it points at.
+  - The interrupted file can be `boot.py` itself, which would leave no `boot.py` to run the recovery. The shipped `main.py` scaffold now also calls `OTA(...).recover()` once at startup — `repair()` plus removal of the stale update flag; since `commit()` renames one file at a time, whichever of `boot.py`/`main.py` survives restores the set. A custom `main.py` should keep that call.
+  - Recovery is best-effort and converges over reboots; it is not a power-loss-atomic filesystem transaction.
 
 ### Compatibility
 

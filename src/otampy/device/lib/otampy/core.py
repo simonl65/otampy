@@ -20,6 +20,21 @@ def _get_config(config, name, default=None):
     return getattr(config, name, default)
 
 
+def _resolve_path(path):
+    """Absolutise a configured path. Shared by ``boot`` and ``restore``.
+
+    Lives here rather than in ``boot`` because ``boot`` imports ``restore``;
+    the other direction would be an import cycle.
+    """
+    if path.startswith("/"):
+        return path
+    import sys
+
+    if sys.implementation.name != "micropython":
+        return path
+    return "/" + path
+
+
 class OTACore:
     """
     OTACore provides the base initialisation, shared state, configuration,

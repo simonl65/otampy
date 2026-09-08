@@ -122,7 +122,12 @@ OTA_RX_PIN = 5
 OTA_BAUDRATE = 57600
 OTA_TIMEOUT_MS = 5000
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
+OTA_JOURNAL_FILE = "otampy-update.journal"
 ```
+
+`OTA_JOURNAL_FILE` (default `otampy-update.journal`, at the filesystem root)
+is the retain-previous commit journal. It must be a dedicated scratch path,
+never a real source file — a commit clobbers what it points at.
 
 ### 2. Boot-Time Updates (`boot.py`)
 
@@ -152,8 +157,22 @@ compatibility.
 When an update is pending, boot mode accepts `UPDATE_ABORT` and automatically
 abandons an inactive transfer after `OTA_TIMEOUT_MS`. Both paths delete staged
 `.ota` files, clear the request flag, and continue into the current application.
-Staging prevents target replacement before commit, but the current commit is a
-per-file rename sequence, not a power-loss-atomic filesystem transaction.
+
+`UPDATE_COMMIT` is all-or-nothing and retains the previous generation. It writes
+`OTA_JOURNAL_FILE` with a `committing` marker, renames each target to
+`<target>.bck` and the staged `.ota` into place, then flips the marker to `0`.
+A failed rename rolls the whole set back from `.bck` (`COMMIT_ERR`); a power loss
+mid-commit is finished or reversed by `restore.repair()`, which `boot.run()`
+calls on every boot before the flag check. `UPDATE_START` discards the previously
+retained generation, so at most one is kept. Recovery is best-effort over
+reboots, not a power-loss-atomic filesystem transaction; a hard guarantee needs
+a dual-slot layout.
+
+Because the interrupted file can be `boot.py` itself — leaving no `boot.py` to
+run `boot.run()` — the shipped `main.py` scaffold also calls `OTA(...).recover()`
+once at startup, which runs the same `repair()`. `commit()` renames one file at
+a time, so at most one of `boot.py`/`main.py` is ever absent and the survivor
+restores the set. A custom `main.py` should keep that call.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

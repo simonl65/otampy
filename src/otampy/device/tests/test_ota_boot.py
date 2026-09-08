@@ -5,7 +5,7 @@ import os
 from unittest.mock import patch
 
 import shared
-from device_otampy import boot
+from device_otampy import boot, restore
 from device_otampy.core import OTACore
 
 
@@ -108,8 +108,15 @@ def test_boot_handles_full_update_session(tmp_path):
 
     target_main = tmp_path / "main.py"
     target_lib = tmp_path / "lib" / "helper.py"
+    target_lib.parent.mkdir()
+    target_main.write_bytes(b"OLD main")
+    target_lib.write_bytes(b"OLD helper")
+    journal = tmp_path / "otampy-update.journal"
 
-    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
     core = OTACore(uart, config=config, logger=logger)
 
     from unittest.mock import patch
@@ -166,6 +173,16 @@ def test_boot_handles_full_update_session(tmp_path):
     assert not (tmp_path / "main.py.ota").exists()
     assert not (tmp_path / "lib" / "helper.py.ota").exists()
     assert not flag_file.exists()
+
+    # Retain-previous: each target's pre-update content survives as <target>.bck
+    # and the journal records the committed set.
+    assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
+    assert (tmp_path / "lib" / "helper.py.bck").read_bytes() == b"OLD helper"
+    assert restore.read_journal(core) == (
+        0,
+        False,
+        [str(target_main), str(target_lib)],
+    )
 
 
 def test_boot_aborts_active_update_and_cleans_staging(tmp_path):
@@ -269,6 +286,82 @@ def test_boot_times_out_interrupted_update_and_cleans_staging(
 # =============================================================================
 
 
+def test_update_start_clears_prior_generation(tmp_path):
+    """A pre-existing journal + .bck from a past update is gone after
+    UPDATE_START is processed."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+    journal = tmp_path / "otampy-update.journal"
+    old_backup = tmp_path / "main.py.bck"
+    old_backup.write_bytes(b"previous-generation")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+        "OTA_TIMEOUT_MS": 1,
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(tmp_path / "main.py")])
+
+    core.transport.incoming_queue.append(b"UPDATE_START:1:10")
+    ticks = iter((0, 0, 5, 5))
+    with patch.object(boot, "_ticks_ms", side_effect=lambda: next(ticks)):
+        boot.run(core, callback=None)
+
+    assert not journal.exists()
+    assert not old_backup.exists()
+    assert b"SPACE_OK" in core.transport.sent_messages
+
+
+def test_boot_repairs_finished_commit_with_missing_target(tmp_path):
+    """No flag, journal line 1 is 0, a target vanished -> repair restores it."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    main = tmp_path / "main.py"
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"good-main"
+
+
+def test_boot_reverses_interrupted_commit(tmp_path):
+    """No flag, journal line 1 'committing' -> whole set restored, line 1 -> 0."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "sensor.py"
+    main.write_bytes(b"half-new")
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    (tmp_path / "sensor.py.bck").write_bytes(b"good-sensor")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(
+        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+    )
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"good-main"
+    assert sensor.read_bytes() == b"good-sensor"
+    assert restore.read_journal(core)[1] is False
+
+
 def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
@@ -320,3 +413,142 @@ def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
 
     # Valid files must be kept
     assert valid_source.exists()
+
+
+def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
+    """F-05. `_otampy_set_rtc.py` ships in the manifest but is a one-shot helper
+    that self-deletes on the next boot. commit() must place it, not back it up
+    or journal it — otherwise repair() resurrects it from .bck the boot after."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+
+    payload_main = b"print('new main')"
+    payload_rtc = b"import machine  # one-shot"
+    sha_main = hashlib.sha256(payload_main).hexdigest()
+    sha_rtc = hashlib.sha256(payload_rtc).hexdigest()
+    b64_main = binascii.b2a_base64(payload_main).strip().decode()
+    b64_rtc = binascii.b2a_base64(payload_rtc).strip().decode()
+
+    target_main = tmp_path / "main.py"
+    target_main.write_bytes(b"OLD main")
+    journal = tmp_path / "otampy-update.journal"
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        return str(tmp_path / path.lstrip("/"))
+
+    core.transport.incoming_queue.extend(
+        [
+            b"UPDATE_START:2:40",
+            f"FILE_START:main.py:17:{sha_main}".encode(),
+            f"CHUNK:0:{b64_main}".encode(),
+            b"FILE_END",
+            f"FILE_START:_otampy_set_rtc.py:24:{sha_rtc}".encode(),
+            f"CHUNK:0:{b64_rtc}".encode(),
+            b"FILE_END",
+            b"UPDATE_COMMIT",
+        ]
+    )
+
+    with patch(
+        "device_otampy.boot._resolve_path", side_effect=mock_resolve_path
+    ):
+        boot.run(core, callback=None)
+
+    assert core.transport.sent_messages[-1] == b"COMMIT_OK"
+    # Helper placed so it runs once...
+    assert (tmp_path / "_otampy_set_rtc.py").read_bytes() == payload_rtc
+    # ...but never retained or journalled.
+    assert not (tmp_path / "_otampy_set_rtc.py.bck").exists()
+    assert restore.read_journal(core) == (0, False, [str(target_main)])
+    # The real target still got its backup.
+    assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
+
+
+def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
+    """Normal boot: a .bck not in the journal is an orphan and goes; a .bck
+    the journal still references is kept."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "nonexistent.flag"
+    journal = tmp_path / "otampy-update.journal"
+
+    orphan_bck = tmp_path / "stale.py.bck"
+    orphan_bck.touch()
+    kept_target = tmp_path / "keep.py"
+    kept_bck = tmp_path / "keep.py.bck"
+    kept_target.write_bytes(b"live")
+    kept_bck.write_bytes(b"previous")
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, [str(kept_target)])
+
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        if path.startswith("/"):
+            path = path[1:]
+        return str(tmp_path / path)
+
+    with (
+        patch(
+            "device_otampy.boot._resolve_path",
+            side_effect=mock_resolve_path,
+        ),
+        patch("device_otampy.boot._os.listdir", side_effect=os.listdir),
+        patch("device_otampy.boot._os.remove", side_effect=os.remove),
+        patch("device_otampy.boot._os.stat", side_effect=os.stat),
+    ):
+        boot.run(core, callback=None)
+
+    assert not orphan_bck.exists()
+    assert kept_bck.exists()
+
+
+def test_cleanup_keeps_journalled_bck_with_real_resolve_path(tmp_path):
+    """F-04 regression. `_cleanup_orphaned_ota` must compare candidates in the
+    same `/dir/file` form the journal stores. This test does NOT patch
+    `_resolve_path`, so the `.`-vs-`/` prefix mismatch that deleted
+    `/./main.py.bck` on the device is actually exercised (on the host the real
+    resolver is identity for relative paths, which is enough to expose it)."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    journal = tmp_path / "otampy-update.journal"
+    config = {"OTA_JOURNAL_FILE": str(journal)}
+    core = OTACore(uart, config=config, logger=logger)
+    restore.write_journal(core, 0, ["/main.py"])
+
+    # Virtual root: main.py + its journalled backup + an un-journalled orphan.
+    entries = {"main.py", "main.py.bck", "stale.py.bck"}
+    removed = []
+
+    def fake_listdir(p):
+        if p in ("/", ".", ""):
+            return sorted(entries)
+        raise OSError("not a dir")
+
+    def fake_stat(p):
+        return (0o100644, 0, 0, 0, 0, 0, 10, 0, 0, 0)  # regular file
+
+    with (
+        patch("device_otampy.boot._os.listdir", side_effect=fake_listdir),
+        patch("device_otampy.boot._os.stat", side_effect=fake_stat),
+        patch("device_otampy.boot._os.remove", side_effect=removed.append),
+    ):
+        boot._cleanup_orphaned_ota(core)
+
+    assert not any(r.endswith("main.py.bck") for r in removed), removed
+    assert any(r.endswith("stale.py.bck") for r in removed), removed

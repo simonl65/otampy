@@ -70,6 +70,10 @@ def main():
     # Instantiate OTA with the mux's virtual OTA port -- not the raw UART.
     ota = OTA(mux.ota_port, config=config, logger=logger)
 
+    # Finish/undo an interrupted update whose commit stopped while boot.py
+    # itself was mid-replace, so boot.py never ran this boot.
+    ota.recover()
+
     # Cache attributes/methods to eliminate loop lookup overhead
     mux_service = mux.service
     ota_poll = ota.poll

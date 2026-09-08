@@ -150,13 +150,17 @@ class ChannelSerial:
         return result
 
     def _pump(self) -> None:
-        pending = getattr(self._ser, "in_waiting", 0) or 1
-        chunk = self._ser.read(pending)
-        if chunk:
-            self._codec.feed(chunk)
-            for channel_id, payload in self._codec.frames():
-                if channel_id == OTA_CHANNEL:
-                    self._decoded.extend(payload)
+        # Only read what the raw port reports as available. A real
+        # serial.Serial.in_waiting never blocks, and neither must this; when
+        # nothing is pending, URST's own read_frame poll loop does the waiting.
+        pending = getattr(self._ser, "in_waiting", 0)
+        if pending:
+            chunk = self._ser.read(pending)
+            if chunk:
+                self._codec.feed(chunk)
+                for channel_id, payload in self._codec.frames():
+                    if channel_id == OTA_CHANNEL:
+                        self._decoded.extend(payload)
         if len(self._decoded) > OTA_BUFFER_BYTES:
             self._decoded = self._decoded[
                 len(self._decoded) - OTA_BUFFER_BYTES :

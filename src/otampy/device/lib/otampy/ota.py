@@ -53,11 +53,25 @@ class OTA:
         Finishes or reverses an interrupted retain-previous commit in the case
         boot.py was itself the file caught mid-rename: it was absent on this
         boot, so boot.run() -- and its repair() call -- never executed (F-06).
-        Near-free and a no-op when there is nothing to repair.
+        Also clears the update flag that same interrupted boot.run() never
+        removed, so the next boot goes straight to the app. Near-free and a
+        no-op when there is nothing to repair.
         """
+        from .core import _get_config
         from .restore import repair
 
         repair(self._core)
+
+        flag = _get_config(self._core.config, "UPDATE_REQUEST_FLAG_FILE")
+        if flag:
+            try:
+                import uos as _os
+            except ImportError:
+                import os as _os
+            try:
+                _os.remove(flag)
+            except OSError:
+                pass
 
     def poll(self, callback=None, heartbeat=None):
         """

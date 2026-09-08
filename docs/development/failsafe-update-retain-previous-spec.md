@@ -330,13 +330,19 @@ adds **no new peak usage** during a transfer. The existing check
     `boot.py.bck` and reboot with no `boot.py`, so `boot.run()` — and its
     `repair()` call — never executes. `restore.py`'s `repair()` is unreachable.
   - What changes: new `OTA.recover()` facade method (`ota.py`) = a local-import
-    `restore.repair(self._core)`. Both shipped `main.py` scaffolds
+    `restore.repair(self._core)` **plus** removal of the stale
+    `UPDATE_REQUEST_FLAG_FILE` (the interrupted `boot.run()` never reached its
+    flag removal; without this the next boot enters a dead update loop and
+    times out ~5 s before the app starts). Both shipped `main.py` scaffolds
     (`examples/main.py`, `examples/shared-uart/main.py`) call `ota.recover()`
     once, right after `ota = OTA(...)`, before the poll loop. Because `commit()`
     renames one file at a time, at any interrupt point at most one of
-    `boot.py`/`main.py` is absent, so the survivor heals the whole set. Full
-    convergence (stale flag cleared) happens on the next natural reboot.
-  - Test: `test_ota_facade.py::test_recover_delegates_to_restore_repair`;
+    `boot.py`/`main.py` is absent, so the survivor heals the whole set. The
+    stale `<file>.ota` staging file is swept by the next boot's normal
+    no-flag cleanup (no delay, since the flag is already gone).
+  - Test: `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+    `::test_recover_clears_the_stale_update_flag`,
+    `::test_recover_survives_a_missing_flag_file`;
     `tests/test_examples.py::test_main_scaffold_calls_recover` (both scaffolds).
   - Done when: those pass; full device suite + `pre_flight_check.py` green.
   - **HIL:** re-run the doctored-`restore.py` interrupt test targeting

@@ -246,3 +246,36 @@ Device needs a clean `otampy deploy` (its FS is mid-interrupted-commit).
    (Optional: deploy `restore_HIL.py` over `lib/otampy/restore.py` first for a
    reliable 30 s window; redeploy the real one after, no power pull.)
 4. Phases 4–5.
+
+## 2026-09-08 — HIL round 3: F-06 fix confirmed (with `recover()` intact)
+
+Re-ran with the corrected `main.py` (marker + `ota.recover()` both present),
+doctored `restore.py` on the device (30 s window). `otampy upd main.py boot.py`,
+power pulled while `boot.py` was committing.
+
+Device on power-up (radio only, no USB):
+```
+boot.py           PRESENT      <- restored from boot.py.bck by main.py's recover()
+otampy-update.journal:  line 1 "0"   <- repair() reconciled it
+no *.bck                             <- consumed by the rollback renames
+boot.py.ota, update_requested.flag   <- leftovers (see below)
+```
+
+**F-06 fix works.** A lost `boot.py` was restored with no USB intervention.
+
+The `PULL POWER` countdown never appeared in Simon's terminal because
+`core.logger` writes to the device `LOG_FILE` (`/ota.log`), not the CLI, and
+`log_to_file` isn't installed on this device (`deploy` without `--with-logger`)
+— `NullLogger`, so nothing is written. The CLI going quiet after
+"Committing…" is the window; with the doctored code it's 30 s.
+
+**Follow-up:** `recover()` was only `repair()`, so `update_requested.flag` and
+the unplaced `boot.py.ota` survived the heal — cosmetic, but the flag costs a
+~5 s dead update-loop timeout on the *next* boot. `recover()` now also removes
+the stale flag (safe: flag-set + `main.py`-running ⟹ `boot.run()` never ran ⟹
+F-06 ⟹ stale). The `.ota` is then swept by the next boot's normal no-flag
+cleanup, with no delay. Tests added:
+`test_recover_clears_the_stale_update_flag`,
+`test_recover_survives_a_missing_flag_file`.
+
+HIL still to do: Phases 2 (F-04/F-05 on hardware), 4, 5.

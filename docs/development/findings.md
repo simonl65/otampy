@@ -55,15 +55,23 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
     manifest/freeze change at deploy time.
 - **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 11
   (Option A). New `OTA.recover()` (`ota.py`) — a local-import
-  `restore.repair(self._core)`. Both `main.py` scaffolds call `ota.recover()`
-  once after `ota = OTA(...)`, before the poll loop. `commit()` renames one file
-  at a time, so at any interrupt at most one of `boot.py`/`main.py` is absent —
-  the survivor heals the set; a lost `boot.py` is restored from `boot.py.bck` by
-  `main.py`'s call, and full convergence (stale flag) follows on the next
-  reboot. Tests: `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+  `restore.repair(self._core)` plus removal of the stale update flag. Both
+  `main.py` scaffolds call `ota.recover()` once after `ota = OTA(...)`, before
+  the poll loop. `commit()` renames one file at a time, so at any interrupt at
+  most one of `boot.py`/`main.py` is absent — the survivor heals the set; a lost
+  `boot.py` is restored from `boot.py.bck` by `main.py`'s call. Tests:
+  `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+  `::test_recover_clears_the_stale_update_flag`,
   `tests/test_examples.py::test_main_scaffold_calls_recover`.
-- **Awaiting:** HIL — re-run the doctored-`restore.py` interrupt test against
-  `boot.py`; the device must self-heal with no USB intervention.
+- **HIL confirmed:** 2026-09-08. Doctored `restore.py` (30 s window),
+  `otampy upd main.py boot.py`, power pulled while committing `boot.py`. On
+  power-up (no USB): device state was `boot.py` **present** (restored from
+  `.bck`), `otampy-update.journal` line 1 `0`, no `.bck` files — `main.py`'s
+  `recover()` had run `repair()`. (First HIL attempt was an operator error —
+  the `recover()` line was deleted while adding a test marker; re-run with it
+  intact self-healed.) Stale-flag removal added after observing
+  `update_requested.flag` + `boot.py.ota` survive the first successful heal.
+- **Awaiting:** `/sl-findings review` (re-review of the repair).
 
 ### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
 

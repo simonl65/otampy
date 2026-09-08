@@ -99,6 +99,31 @@ def test_recover_delegates_to_restore_repair():
     mock_repair.assert_called_once_with(ota._core)
 
 
+def test_recover_clears_the_stale_update_flag(tmp_path):
+    """The interrupted boot.run() never removed the flag; recover() must, so
+    the next boot skips the dead update loop."""
+    flag = tmp_path / "update_requested.flag"
+    flag.touch()
+    uart = shared.FakeUART()
+    ota = OTA(uart, config={"UPDATE_REQUEST_FLAG_FILE": str(flag)})
+
+    with patch("device_otampy.restore.repair"):
+        ota.recover()
+
+    assert not flag.exists()
+
+
+def test_recover_survives_a_missing_flag_file(tmp_path):
+    uart = shared.FakeUART()
+    ota = OTA(
+        uart,
+        config={"UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "absent.flag")},
+    )
+
+    with patch("device_otampy.restore.repair"):
+        ota.recover()  # must not raise
+
+
 def test_poll_passes_heartbeat_through_to_manager():
     uart = shared.FakeUART()
     ota = OTA(uart)

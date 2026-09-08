@@ -270,6 +270,16 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 Concerns worth keeping but not confirmed defects. No ID, block nothing.
 
+- **`_cleanup_orphaned_ota` logs/removes the raw `/./x` path.** After the F-04
+  fix, `_canonical()` is applied only to the *comparison* against `kept_backups`;
+  `resolved_item` itself is still `_resolve_path("./x")` = `/./x` on MicroPython,
+  so the debug log reads `Removing orphaned file: /./boot.py.ota` and
+  `_os.remove` is called with `/./boot.py.ota`. littlefs resolves it fine and
+  `.ota` removal is a suffix match, so it is purely cosmetic — but a future
+  path-equality check elsewhere in that function would hit the same class of
+  bug. Cheap to canonicalise `resolved_item` at the top of the loop; deferred
+  as out of scope for the retain-previous sub-task.
+
 - **`ChannelSerial` decoded-buffer overflow drops the oldest bytes.**
   `channel.py:161` caps the decoded channel-0 buffer at `OTA_BUFFER_BYTES`
   (2048) and drops from the front on overflow, which would truncate an in-flight

@@ -256,7 +256,7 @@ adds **no new peak usage** during a transfer. The existing check
     a prior update are gone after an `UPDATE_START` packet is processed.
   - Done when: that test passes.
 
-- [ ] **6. `UPDATE_COMMIT` delegates to `restore.commit()`**
+- [x] **6. `UPDATE_COMMIT` delegates to `restore.commit()`**
   - What changes: replace the inline rename loop in the `UPDATE_COMMIT` branch
     of `_run_default_update_loop` with a `restore.commit(core, files,
     delete_paths)` call; send `COMMIT_OK` / `COMMIT_ERR` on its return value;

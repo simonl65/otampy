@@ -108,8 +108,15 @@ def test_boot_handles_full_update_session(tmp_path):
 
     target_main = tmp_path / "main.py"
     target_lib = tmp_path / "lib" / "helper.py"
+    target_lib.parent.mkdir()
+    target_main.write_bytes(b"OLD main")
+    target_lib.write_bytes(b"OLD helper")
+    journal = tmp_path / "otampy-update.journal"
 
-    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
     core = OTACore(uart, config=config, logger=logger)
 
     from unittest.mock import patch
@@ -166,6 +173,16 @@ def test_boot_handles_full_update_session(tmp_path):
     assert not (tmp_path / "main.py.ota").exists()
     assert not (tmp_path / "lib" / "helper.py.ota").exists()
     assert not flag_file.exists()
+
+    # Retain-previous: each target's pre-update content survives as <target>.bck
+    # and the journal records the committed set.
+    assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
+    assert (tmp_path / "lib" / "helper.py.bck").read_bytes() == b"OLD helper"
+    assert restore.read_journal(core) == (
+        0,
+        False,
+        [str(target_main), str(target_lib)],
+    )
 
 
 def test_boot_aborts_active_update_and_cleans_staging(tmp_path):

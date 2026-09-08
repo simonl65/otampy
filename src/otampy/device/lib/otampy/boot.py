@@ -75,7 +75,7 @@ def _run_default_update_loop(core):
 
     import machine
 
-    from .restore import clear_journal
+    from .restore import clear_journal, commit
 
     # Caching Attributes for speed. `reply`, not `send`: every call in this
     # loop answers the packet most recently read (§5.8.3) -- `READY` above,
@@ -316,27 +316,11 @@ def _run_default_update_loop(core):
 
         elif cmd == b"UPDATE_COMMIT":
             core.logger.debug("UPDATE COMMIT")
-            success = True
-            for index in range(0, len(files), 2):
-                target = files[index]
-                staging = files[index + 1]
-                try:
-                    try:
-                        _os.remove(target)
-                    except OSError:
-                        pass
-                    _os.rename(staging, target)
-                except OSError as e:
-                    core.logger.error(f"Commit failed for {target}: {e}")
-                    success = False
-                    break
-
-            if success:
-                for target in delete_paths:
-                    try:
-                        _os.remove(target)
-                    except OSError:
-                        pass
+            # All-or-nothing: renames each target to <target>.bck, stages the
+            # new file in, and rolls the whole set back from .bck on any
+            # failure. The retained .bck set plus the journal let boot.run()'s
+            # repair() reverse an interrupted commit on the next boot.
+            if commit(core, files, delete_paths):
                 send(b"COMMIT_OK")
             else:
                 send(b"COMMIT_ERR")

@@ -183,3 +183,35 @@ exactly the file an interrupted `commit()` can leave absent.
 property, and it mirrors the existing `boot()`/`poll()` split in the facade.
 Fold in as spec step 11, or split to its own sub-task alongside sub-task 4's
 recovery theme — Simon's call.
+
+### Resolution — step 11 (`b29d2c6`), Option A
+
+Simon: go with A; no preference on step-11-vs-sub-task-4, so folded in here as
+step 11. New `OTA.recover()` (`ota.py`, 8 lines incl. docstring) =
+`restore.repair(self._core)` via local import. Both `main.py` scaffolds call
+`ota.recover()` once after `ota = OTA(...)`. `recover()` is *just* `repair()` —
+the stale `update_requested.flag` is left for the next boot's `boot.run()` to
+time out and clear (~5 s), rather than adding flag-handling to the scaffold.
+
+Device was recovered by Simon (`otampy deploy` + power-cycle) — but that deploy
+predates `b29d2c6`, so the device's `main.py` has no `recover()` yet. HIL
+round 3 must redeploy first.
+
+Doctored `restore_HIL.py` regenerated in the scratchpad (30 s window on the
+last commit pair; `core.logger.error` countdown — only visible in
+`/ota.log`/`LOG_FILE` if `--with-logger` is installed, otherwise the ~30 s CLI
+hang is the cue).
+
+**HIL round 3 (Simon), all on `feature/failsafe-update-retain-previous`:**
+1. Redeploy so `main.py` has `recover()` and the lib has F-04/F-05:
+   `otampy deploy -p /dev/ttyACM0` → power-cycle → `otampy ping`.
+2. Phase 2 (F-04/F-05): `otampy upd main.py` → `main.py.bck` present, journal
+   lists only `/main.py`.
+3. Phase 3 (F-06 + whole-set rollback): deploy `restore_HIL.py` over
+   `lib/otampy/restore.py`, `otampy upd main.py boot.py`, pull power in the
+   ~30 s hang. After power-up: **no USB touch** — `otampy ping` → PONG,
+   `otampy cat /otampy-update.journal` line 1 `0`, `otampy ls /` shows `boot.py`
+   present and both files rolled back. Then redeploy the real `restore.py`
+   (do **not** pull power that time).
+4. Phases 4–5 as before.
+5. F-04/F-05/F-06 close only after this passes.

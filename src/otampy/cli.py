@@ -21,6 +21,7 @@ import otampy.minify as source_minify
 from .progress import TransferProgress
 
 if TYPE_CHECKING:
+    import serial
     from urst import Urst
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,16 @@ CONFIG_SETTINGS = {
 _CONFIG_DISPLAY_TO_KEY = {
     setting["display"]: key for key, setting in CONFIG_SETTINGS.items()
 }
+
+# Channel-mux mode: an opt-in transport layer that wraps every URST frame in a
+# COBS outer frame so one UART can be shared with application traffic. Must
+# match the device (docs/protocol.md §1.3). Off by default.
+MUX_ENV = "OTAMPY_MUX"
+_MUX_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+_MUX_FALSE_TOKENS = frozenset({"0", "false", "no", "off", ""})
+_MUX_TOKEN_HELP = ", ".join(
+    sorted(_MUX_TRUE_TOKENS | (_MUX_FALSE_TOKENS - {""}))
+)
 
 
 class DeviceError(Exception):
@@ -491,6 +502,83 @@ def set_default_port(port: str | None, session: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Channel-mux mode (project-scoped, same precedence as the default port)
+# ---------------------------------------------------------------------------
+
+
+def _parse_mux_token(raw: str) -> bool | None:
+    """``True``/``False`` for a recognised ``OTAMPY_MUX`` token, else ``None``."""
+    token = raw.strip().lower()
+    if token in _MUX_TRUE_TOKENS:
+        return True
+    if token in _MUX_FALSE_TOKENS:
+        return False
+    return None
+
+
+def _mux_from_config() -> bool:
+    """Resolve the mux setting from session -> project -> global config."""
+    for scope in (
+        _read_json(_session_config_path()),
+        _read_project_config(),
+        _read_global_config(),
+    ):
+        value = scope.get("mux")
+        if isinstance(value, bool):
+            return value
+    return False
+
+
+def get_mux_enabled() -> bool:
+    """Resolve whether channel-mux mode is on.
+
+    Precedence, highest first: ``OTAMPY_MUX`` env -> session config -> project
+    config -> global config -> ``False``. Mirrors ``get_default_port``.
+
+    An unrecognised ``OTAMPY_MUX`` value is reported on stderr and ignored
+    (treated as unset) rather than raised -- otherwise a typo in the env var
+    would block every command, including ``otampy mux --clear`` to fix it.
+    """
+    import os
+
+    env_value = os.environ.get(MUX_ENV)
+    if env_value is not None:
+        parsed = _parse_mux_token(env_value)
+        if parsed is not None:
+            return parsed
+        click.echo(
+            f"Warning: ignoring {MUX_ENV}={env_value!r} "
+            f"(expected one of {_MUX_TOKEN_HELP}).",
+            err=True,
+        )
+
+    return _mux_from_config()
+
+
+def set_mux_enabled(enabled: bool | None, session: bool = False) -> None:
+    """Persist the mux setting. ``None`` removes it from the chosen scope."""
+    if session:
+        path = _session_config_path()
+        try:
+            data = _read_json(path)
+            if enabled is None:
+                data.pop("mux", None)
+            else:
+                data["mux"] = enabled
+            _write_json(path, data)
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to save session mux setting: {e}"
+            ) from e
+        return
+
+    try:
+        _write_project_config({"mux": enabled})
+    except Exception as e:
+        raise click.ClickException(f"Failed to save mux setting: {e}") from e
+
+
+# ---------------------------------------------------------------------------
 # Log level (global only — not project-specific)
 # ---------------------------------------------------------------------------
 
@@ -731,6 +819,14 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     is_flag=True,
     help="Temporarily print elapsed-time metrics for the command.",
 )
+@click.option(
+    "--mux/--no-mux",
+    "mux",
+    default=None,
+    help="Speak the channel-mux outer frame for this command (docs/protocol.md "
+    "§1.3). Overrides the saved setting; omit to use it. Use 'otampy mux' to "
+    "view or save the default.",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -738,6 +834,7 @@ def cli(
     baud: int,
     log_level: str,
     timing: bool,
+    mux: bool | None,
 ) -> None:
     """OTAmpy CLI - Over the air (OTA) file management for MicroPython devices."""
     log_level = log_level.upper()
@@ -748,6 +845,7 @@ def cli(
     ctx.obj["baud"] = baud
     ctx.obj["log_level"] = log_level
     ctx.obj["timing"] = timing
+    ctx.obj["mux"] = mux if mux is not None else get_mux_enabled()
     if timing:
         ctx.obj["command_started_at"] = MONOTONIC()
 
@@ -873,6 +971,55 @@ def _read_full_reply(transport):
     return response
 
 
+def _open_transport(
+    ctx: click.Context, *, clear_queue: bool = True
+) -> tuple[serial.Serial, Urst]:
+    """Open the serial port and wrap it in a URST transport.
+
+    Centralises the open/configure/construct block the four device-facing
+    call sites share: raw ``serial.Serial``, DTR/RTS held low, input and
+    output buffers reset, ``Urst`` constructed, and (unless
+    ``clear_queue=False``) any stale receive-queue frames discarded.
+
+    Returns ``(raw_serial, transport)``; callers close ``raw_serial``.
+    """
+    import serial
+    from urst import Urst
+
+    from .channel import ChannelSerial
+
+    port = ctx.obj.get("port")
+    baud = ctx.obj.get("baud")
+    if not port:
+        raise click.ClickException(
+            "Error: Missing serial port. Specify with --port or -p option."
+        )
+
+    serial_timeout = float(get_config_value("serial_timeout_seconds"))
+    ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
+    try:
+        ser.dtr = False
+        ser.rts = False
+    except Exception:
+        pass
+
+    # Mux mode wraps the raw port so every URST frame gets the channel-mux
+    # outer frame (docs/protocol.md §1.3). DTR/RTS are set on the raw port
+    # above; ChannelSerial does not expose them.
+    port_obj = ChannelSerial(ser) if ctx.obj.get("mux") else ser
+    port_obj.reset_input_buffer()
+    port_obj.reset_output_buffer()
+    transport = Urst(port_obj)
+
+    if clear_queue:
+        try:
+            transport.protocol._recv_queue.clear()
+        except Exception:
+            pass
+
+    return ser, transport
+
+
 def _query(
     ctx: click.Context,
     command: bytes,
@@ -885,17 +1032,10 @@ def _query(
     If transport was provided, returns (data, None) - caller manages connection.
     If transport was created, returns (data, transport) - caller should close it.
     """
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
-
-    import serial
-    from urst import Urst
-
-    serial_timeout = float(get_config_value("serial_timeout_seconds"))
 
     # Resolved once, before the retry loop below, so a misconfigured key is
     # reported immediately instead of after three retries and their backoff.
@@ -962,21 +1102,7 @@ def _query(
     for attempt in range(query_retries):
         ser = None
         try:
-            ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            new_transport = Urst(ser)
-
-            # Clear any unsolicited messages (e.g. boot notifications) from the receive queue
-            try:
-                new_transport.protocol._recv_queue.clear()
-            except Exception:
-                pass
+            ser, new_transport = _open_transport(ctx)
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not new_transport.send(outgoing()):
@@ -1397,12 +1523,7 @@ def _validate_remote_only_arguments(
 
 def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     """Recursively remove directory using a persistent connection."""
-    import serial
-    from urst import Urst
-
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
@@ -1410,21 +1531,7 @@ def _recursive_rm_with_connection(ctx: click.Context, path: str) -> None:
     ser = None
     try:
         # Establish persistent connection
-        serial_timeout = float(get_config_value("serial_timeout_seconds"))
-        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-        try:
-            ser.dtr = False
-            ser.rts = False
-        except Exception:
-            pass
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        transport = Urst(ser)
-
-        try:
-            transport.protocol._recv_queue.clear()
-        except Exception:
-            pass
+        ser, transport = _open_transport(ctx)
 
         def remove_directory(directory: str) -> None:
             resp, _ = _query(
@@ -1795,18 +1902,13 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     """Copy files or directories without rebooting the device."""
     files_to_send = _get_files_to_send(args, python_only=False)
 
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
     import binascii
     import hashlib
-
-    import serial
-    from urst import Urst
 
     staging = (
         source_minify.staged_minified_files(files_to_send)
@@ -1816,23 +1918,8 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     with staging as files_to_copy:
         if minify:
             _print_minification_report(files_to_send, files_to_copy)  # type: ignore
-        serial_timeout = float(get_config_value("serial_timeout_seconds"))
-        ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
+        ser, transport = _open_transport(ctx)
         try:
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-            transport = Urst(ser)
-
-            try:
-                transport.protocol._recv_queue.clear()
-            except Exception:
-                pass
-
             reboot_targets = []
             transfer_active = False
             try:
@@ -2168,18 +2255,13 @@ def _update_files(
     )
 
     # 2. Wait for device to boot up and broadcast READY
-    port = ctx.obj.get("port")
-    baud = ctx.obj.get("baud")
-    if not port:
+    if not ctx.obj.get("port"):
         raise click.ClickException(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
     import binascii
     import time
-
-    import serial
-    from urst import Urst
 
     time.sleep(0.5)
 
@@ -2191,18 +2273,9 @@ def _update_files(
     while time.time() - start_time < timeout:
         try:
             if ser is None:
-                serial_timeout = float(
-                    get_config_value("serial_timeout_seconds")
-                )
-                ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
-                try:
-                    ser.dtr = False
-                    ser.rts = False
-                except Exception:
-                    pass
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
-                transport = Urst(ser)
+                # clear_queue=False: this site historically did not clear the
+                # receive queue before the READY loop -- keep that.
+                ser, transport = _open_transport(ctx, clear_queue=False)
 
             resp = transport.read()  # type: ignore
             if resp == b"READY":
@@ -2536,6 +2609,114 @@ def log_level_cmd(show: bool, set_level: str | None, clear: bool) -> None:
         set_default_log_level(selection, session=True)
         _console().print(
             f"[green]Session log level set to: {selection}[/green]"
+        )
+    else:
+        _console().print("Cancelled.")
+
+
+def _mux_state() -> tuple[bool, str]:
+    """Return ``(enabled, source)`` for display by ``otampy mux --show``."""
+    import os
+
+    env_value = os.environ.get(MUX_ENV)
+    note = ""
+    if env_value is not None:
+        parsed = _parse_mux_token(env_value)
+        if parsed is not None:
+            return parsed, f"env {MUX_ENV}"
+        note = f" (env {MUX_ENV}={env_value!r} invalid, ignored)"
+
+    for scope_name, scope in (
+        ("session config", _read_json(_session_config_path())),
+        ("project config", _read_project_config()),
+        ("global config", _read_global_config()),
+    ):
+        if isinstance(scope.get("mux"), bool):
+            return scope["mux"], scope_name + note
+    return False, "default" + note
+
+
+@cli.command(name="mux")
+@click.option("--show", is_flag=True, help="Show the current mux setting.")
+@click.option(
+    "--enable", is_flag=True, help="Enable channel-mux mode permanently."
+)
+@click.option(
+    "--disable", is_flag=True, help="Disable channel-mux mode permanently."
+)
+@click.option(
+    "--clear",
+    is_flag=True,
+    help="Remove the saved mux setting (session, project and global).",
+)
+def mux_cmd(show: bool, enable: bool, disable: bool, clear: bool) -> None:
+    """Show or manage channel-mux mode (docs/protocol.md §1.3).
+
+    Channel-mux mode wraps every URST frame in a COBS outer frame so one UART
+    can carry OTAmpy traffic alongside the device's own application stream. It
+    must be enabled on the device too. Override for one command with
+    'otampy --mux <cmd>' / 'otampy --no-mux <cmd>'.
+    """
+    if enable and disable:
+        raise click.ClickException("Use only one of --enable / --disable.")
+
+    def _describe(enabled: bool, source: str) -> str:
+        return f"{'mux' if enabled else 'direct'} mode (from {source})"
+
+    if show:
+        enabled, source = _mux_state()
+        _console().print(
+            f"Channel-mux: [green]{_describe(enabled, source)}[/green]"
+        )
+        return
+
+    if clear:
+        set_mux_enabled(None)
+        set_mux_enabled(None, session=True)
+        _write_global_config({"mux": None})
+        _console().print(
+            "[green]Saved mux setting cleared (will default to direct).[/green]"
+        )
+        return
+
+    if enable or disable:
+        set_mux_enabled(enable)
+        set_mux_enabled(None, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if enable else 'off'} (permanent).[/green]"
+        )
+        return
+
+    # Interactive
+    current, source = _mux_state()
+    _console().print(f"Channel-mux: [bold]{_describe(current, source)}[/bold]")
+    target = not current
+    if not click.confirm(
+        f"Turn channel-mux mode {'on' if target else 'off'}?", default=False
+    ):
+        _console().print("Cancelled.")
+        return
+
+    choice = (
+        click.prompt(
+            "Save as? (p=permanent, s=session, c=cancel) [p/s/c]", default="p"
+        )
+        .strip()
+        .lower()
+    )
+    if choice == "p":
+        set_mux_enabled(target)
+        set_mux_enabled(None, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if target else 'off'} (permanent).[/green]"
+        )
+    elif choice == "s":
+        set_mux_enabled(target, session=True)
+        _console().print(
+            f"[green]Channel-mux mode set to "
+            f"{'on' if target else 'off'} (session).[/green]"
         )
     else:
         _console().print("Cancelled.")

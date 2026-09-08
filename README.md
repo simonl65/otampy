@@ -24,6 +24,7 @@ View the latest version at [https://otampy.codeability.co.uk/](https://otampy.co
 - **Remote reboot and reset** — trigger a hard reboot (`rb`) or MicroPython soft reset (`sr`) over the air.
 - **Diagnostic commands** — `ping` health checks and `mem` RAM/flash queries.
 - **Port management** — `ports` lists and selects adapters; `OTAMPY_PORT` and persistent `~/.config/otampy/config.json` settings avoid repeating `--port` on every command.
+- **Shared-UART (channel-mux) mode** — `--mux` (or `otampy mux --enable`) wraps every URST frame in a channel-mux outer frame so one UART can carry OTAmpy traffic alongside the device's own stream. Off by default; must match the device's `SerialMux`. See `docs/protocol.md` §1.3.
 - **Target-matched bytecode deployment** — `--bytecode` compiles OTAmpy and optional user/logger code to `.mpy` using the connected device's exact `.mpy` format and small-int width; URST remains device-native source.
 - **Fail-safe CLI** — destructive commands display a confirmation prompt before contacting the device.
 
@@ -156,7 +157,7 @@ Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
 `OTAMPY_LOG_LEVEL` environment variables override saved settings. Advanced
 settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 `OTAMPY_QUERY_RETRIES`, `OTAMPY_QUERY_RETRY_BACKOFF`,
-`OTAMPY_UPDATE_READY_TIMEOUT`, and `OTAMPY_TRANSFER_CHUNK_SIZE`.
+`OTAMPY_UPDATE_READY_TIMEOUT`, `OTAMPY_TRANSFER_CHUNK_SIZE`, and `OTAMPY_MUX`.
 
 ### Commands
 

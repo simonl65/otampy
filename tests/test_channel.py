@@ -184,6 +184,41 @@ class TestChannelSerial:
         fake.feed(_outer(OTA_CHANNEL, b"\x00next\x00"))
         assert cs.read(64) == b"\x00next\x00"
 
+    def test_pump_does_not_read_when_port_is_empty(self):
+        # A real serial.Serial.in_waiting never blocks; ChannelSerial must not
+        # either. When the raw port reports nothing pending, _pump must not fall
+        # back to a blocking read(1) -- URST's own read_frame loop does the
+        # waiting.
+        class _RaisingWhenEmpty:
+            in_waiting = 0
+            reads = 0
+
+            def read(self, n):
+                self.__class__.reads += 1
+                raise AssertionError("read() called on an empty port")
+
+            def reset_input_buffer(self):
+                pass
+
+            def reset_output_buffer(self):
+                pass
+
+        fake = _RaisingWhenEmpty()
+        cs = ChannelSerial(fake)
+        assert cs.in_waiting == 0
+        assert cs.read(16) == b""
+        assert _RaisingWhenEmpty.reads == 0
+
+    def test_pump_reads_only_what_is_pending(self):
+        fake = _FakeSerial()
+        cs = ChannelSerial(fake)
+        frame = _outer(OTA_CHANNEL, b"\x00hi\x00")
+        fake.feed(frame)
+        # in_waiting reports the raw pending count; ChannelSerial reads exactly
+        # that many bytes, no blocking 1-byte fallback.
+        assert cs.in_waiting == len(b"\x00hi\x00")
+        assert cs.read(64) == b"\x00hi\x00"
+
     def test_delegates_output_reset_and_close(self):
         fake = _FakeSerial()
         cs = ChannelSerial(fake)

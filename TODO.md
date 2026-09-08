@@ -32,13 +32,17 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     is absent from this checkout); `tests/test_channel.py` +
     `tests/test_channel_conformance.py` pin it against the device frame bytes.
     No CLI wiring. See `docs/development/channel-mux-opt-in-log.md`.
-  - [ ] **2. CLI mux mode.** `--mux` flag + `otampy.toml` key; wire the codec into all
-    `Urst(ser)` sites (`cli.py:973, 1422, 1829, 2205`). `otampy ping` succeeds against a
-    mux-mode device; direct mode unchanged.
+  - [x] **2. CLI mux mode.** Done — `--mux/--no-mux` global flag, `OTAMPY_MUX`
+    env + `mux` config key (project/global), `otampy mux` command; all four
+    `Urst(ser)` sites routed through a new `_open_transport` helper that wraps
+    the port in `ChannelSerial` when mux mode is on. `docs/protocol.md` §1.3,
+    README and `docs/deployment.md` updated. `deploy` stays direct.
+    See `docs/development/channel-mux-cli-mode-log.md`.
   - [ ] **3. Scaffold direct-by-default + separate mux example set.** Revert
     `examples/boot.py`/`main.py` to direct mode; add `examples/shared-uart/` with the
-    `SerialMux` pattern; `otampy init` offers both; fix `architecture.md`, README,
-    CHANGELOG.
+    `SerialMux` pattern (its `boot.py` must keep `SerialMux`); `otampy init` offers
+    both; fix `architecture.md` Integration Guide, README, CHANGELOG (cover the whole
+    channel-mux feature: sub-tasks 1+2+3).
   - Deferred (out of scope, tracked in `diff-drive-robot/TODO.md`): consolidating that
     project's `gateway/src/mux_host.py` onto this host codec once released.
 

@@ -43,3 +43,23 @@ Pyright reports "Import '.restore' could not be resolved" for the in-function
 imports in `boot.py`. Editor-only LSP artefact — the device lib is not on
 pyright's path. The import works at runtime (every device test exercises it)
 and pre-flight (ruff + full pytest, mirrors CI) is green at every step.
+
+## 2026-09-08 — HIL: not yet run
+
+Host side is complete: all 8 build steps committed, `pre_flight_check.py`
+green (ruff + full pytest). Findings ledger (added by Simon at `98ea791`) is
+empty — nothing blocks a merge.
+
+**Robot not reachable from this session.** `otampy -p /dev/ttyUSB0 ping`
+(direct on the gateway XBee) failed with "device reports readiness to read but
+returned no data (… multiple access on port?)" after three handshake attempts
+— consistent with the diff-drive-robot gateway daemon holding `/dev/ttyUSB0`,
+or the robot being powered down. Not probed further: grabbing that port while
+the gateway may be running, or repeated USB pokes, is exactly the
+false-alarm pattern to avoid.
+
+HIL therefore stays with Simon. Plan is the spec's Verification section
+(happy path, power-loss whole-set rollback, single-generation retention, bad
+firmware survives + manual `.bck` recovery). Bootstrapping needs
+`otampy deploy` on the feature branch (raw-port, human-run only). Results and
+every measurement to be appended here before `git flow feature finish`.

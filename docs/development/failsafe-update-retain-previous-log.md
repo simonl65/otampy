@@ -63,3 +63,29 @@ HIL therefore stays with Simon. Plan is the spec's Verification section
 firmware survives + manual `.bck` recovery). Bootstrapping needs
 `otampy deploy` on the feature branch (raw-port, human-run only). Results and
 every measurement to be appended here before `git flow feature finish`.
+
+## 2026-09-08 — merged `develop` (channel-mux)
+
+`develop` gained the **channel-mux** feature (three merged sub-branches:
+`opt-in`, `cli-mode`, `scaffold`). Merged into this branch at `a8f3633`.
+
+- **Conflict surface was small.** Two conflicts: `CHANGELOG.md` (both prepend
+  an `[Unreleased]` entry — kept both, channel-mux's `Added` first, the
+  retain-previous item folded into the shared `Changed` section) and
+  `docs/development/findings.md` (add/add — took `develop`'s, which records and
+  closes F-01..F-03 from the channel-mux review; this branch's copy was the
+  empty ledger from `98ea791`). `docs/protocol.md` and `docs/architecture.md`
+  auto-merged with both sets of changes intact.
+- **No device-lib interaction.** `git diff 0ee2a52..HEAD -- device/lib/`
+  is exactly the four retain-previous files. Channel-mux is host-side
+  (`cli.py`, `channel.py`) plus `examples/shared-uart/` scaffolds; it does not
+  touch `boot.py`, `ota.py`, or the OTA update loop.
+- **Protocol decision still holds.** The mux outer frame
+  (`COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`, protocol §1.3) is opt-in and
+  sits *below* URST. When mux mode is on, retain-previous's `UPDATE_*` traffic
+  is wrapped transparently like everything else — the commit/journal/repair
+  logic is above the wire and unaffected. The spec's "Wire format change? No"
+  line is still true *for retain-previous*; the mux frame is orthogonal. Not
+  re-signed — no scope change.
+- `pre_flight_check.py` green after the merge (ruff + full pytest, now
+  including channel-mux's suite).

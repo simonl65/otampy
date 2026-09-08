@@ -4,7 +4,6 @@ import json
 import unittest.mock as mock
 from contextlib import contextmanager
 
-import click
 import pytest
 from click.testing import CliRunner
 
@@ -73,12 +72,18 @@ class TestMuxSetting:
         with _isolated_config(tmp_path, env={"OTAMPY_MUX": token}):
             assert get_mux_enabled() is expected
 
-    def test_invalid_env_token_raises(self, tmp_path):
-        with (
-            _isolated_config(tmp_path, env={"OTAMPY_MUX": "maybe"}),
-            pytest.raises(click.ClickException),
-        ):
-            get_mux_enabled()
+    def test_invalid_env_token_is_ignored_with_warning(self, tmp_path, capsys):
+        # A typo in OTAMPY_MUX must NOT raise -- that would block every command,
+        # including the `otampy mux` command needed to fix it (F-03).
+        with _isolated_config(tmp_path):
+            set_mux_enabled(True)  # project config says on
+        with _isolated_config(tmp_path, env={"OTAMPY_MUX": "maybe"}):
+            assert get_mux_enabled() is True  # falls through to config
+        assert "ignoring OTAMPY_MUX='maybe'" in capsys.readouterr().err
+
+    def test_invalid_env_falls_through_to_default(self, tmp_path):
+        with _isolated_config(tmp_path, env={"OTAMPY_MUX": "maybe"}):
+            assert get_mux_enabled() is False
 
     def test_clear_removes_project_and_session(self, tmp_path):
         with _isolated_config(tmp_path):
@@ -283,6 +288,14 @@ class TestMuxCommand:
         result = self._run(tmp_path, ["--show"], env={"OTAMPY_MUX": "1"})
         assert result.exit_code == 0
         assert "OTAMPY_MUX" in result.output
+
+    def test_show_still_works_with_a_malformed_env_var(self, tmp_path):
+        # F-03: a bad OTAMPY_MUX must not lock the user out of `otampy mux`.
+        result = self._run(tmp_path, ["--show"], env={"OTAMPY_MUX": "maybe"})
+        assert result.exit_code == 0
+        flat = " ".join(result.output.split())
+        assert "invalid, ignored" in flat
+        assert "ignoring OTAMPY_MUX='maybe'" in flat
 
     def test_interactive_session_choice(self, tmp_path):
         result = self._run(tmp_path, [], stdin="y\ns\n")

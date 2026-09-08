@@ -507,25 +507,18 @@ def set_default_port(port: str | None, session: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_mux_enabled() -> bool:
-    """Resolve whether channel-mux mode is on.
+def _parse_mux_token(raw: str) -> bool | None:
+    """``True``/``False`` for a recognised ``OTAMPY_MUX`` token, else ``None``."""
+    token = raw.strip().lower()
+    if token in _MUX_TRUE_TOKENS:
+        return True
+    if token in _MUX_FALSE_TOKENS:
+        return False
+    return None
 
-    Precedence, highest first: ``OTAMPY_MUX`` env -> session config -> project
-    config -> global config -> ``False``. Mirrors ``get_default_port``.
-    """
-    import os
 
-    env_value = os.environ.get(MUX_ENV)
-    if env_value is not None:
-        token = env_value.strip().lower()
-        if token in _MUX_TRUE_TOKENS:
-            return True
-        if token in _MUX_FALSE_TOKENS:
-            return False
-        raise click.ClickException(
-            f"{MUX_ENV} must be one of {_MUX_TOKEN_HELP} (got {env_value!r})."
-        )
-
+def _mux_from_config() -> bool:
+    """Resolve the mux setting from session -> project -> global config."""
     for scope in (
         _read_json(_session_config_path()),
         _read_project_config(),
@@ -534,8 +527,33 @@ def get_mux_enabled() -> bool:
         value = scope.get("mux")
         if isinstance(value, bool):
             return value
-
     return False
+
+
+def get_mux_enabled() -> bool:
+    """Resolve whether channel-mux mode is on.
+
+    Precedence, highest first: ``OTAMPY_MUX`` env -> session config -> project
+    config -> global config -> ``False``. Mirrors ``get_default_port``.
+
+    An unrecognised ``OTAMPY_MUX`` value is reported on stderr and ignored
+    (treated as unset) rather than raised -- otherwise a typo in the env var
+    would block every command, including ``otampy mux --clear`` to fix it.
+    """
+    import os
+
+    env_value = os.environ.get(MUX_ENV)
+    if env_value is not None:
+        parsed = _parse_mux_token(env_value)
+        if parsed is not None:
+            return parsed
+        click.echo(
+            f"Warning: ignoring {MUX_ENV}={env_value!r} "
+            f"(expected one of {_MUX_TOKEN_HELP}).",
+            err=True,
+        )
+
+    return _mux_from_config()
 
 
 def set_mux_enabled(enabled: bool | None, session: bool = False) -> None:
@@ -2599,16 +2617,22 @@ def _mux_state() -> tuple[bool, str]:
     """Return ``(enabled, source)`` for display by ``otampy mux --show``."""
     import os
 
-    if os.environ.get(MUX_ENV) is not None:
-        return get_mux_enabled(), f"env {MUX_ENV}"
+    env_value = os.environ.get(MUX_ENV)
+    note = ""
+    if env_value is not None:
+        parsed = _parse_mux_token(env_value)
+        if parsed is not None:
+            return parsed, f"env {MUX_ENV}"
+        note = f" (env {MUX_ENV}={env_value!r} invalid, ignored)"
+
     for scope_name, scope in (
         ("session config", _read_json(_session_config_path())),
         ("project config", _read_project_config()),
         ("global config", _read_global_config()),
     ):
         if isinstance(scope.get("mux"), bool):
-            return scope["mux"], scope_name
-    return False, "default"
+            return scope["mux"], scope_name + note
+    return False, "default" + note
 
 
 @cli.command(name="mux")

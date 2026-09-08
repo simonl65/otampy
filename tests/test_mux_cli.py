@@ -113,6 +113,25 @@ class TestMuxFlag:
         assert result.exit_code == 0
 
 
+class TestLazyImport:
+    def test_importing_cli_does_not_pull_in_urst_or_serial(self):
+        # F-02: keep the deliberate lazy-import pattern -- `otampy --help`,
+        # completion and non-device subcommands must not pay the urst/pyserial
+        # import.
+        import subprocess
+        import sys
+
+        code = (
+            "import sys, otampy.cli; "
+            "assert 'urst' not in sys.modules, 'urst imported'; "
+            "assert 'serial' not in sys.modules, 'serial imported'"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+
+
 class TestMuxWiring:
     def test_mux_on_wraps_serial_in_channelserial(self, tmp_path):
         from otampy.channel import ChannelSerial

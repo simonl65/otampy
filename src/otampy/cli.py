@@ -18,7 +18,6 @@ import otampy.auth as auth
 import otampy.deploy as deploy
 import otampy.minify as source_minify
 
-from .channel import ChannelSerial
 from .progress import TransferProgress
 
 if TYPE_CHECKING:
@@ -986,6 +985,8 @@ def _open_transport(
     """
     import serial
     from urst import Urst
+
+    from .channel import ChannelSerial
 
     port = ctx.obj.get("port")
     baud = ctx.obj.get("baud")

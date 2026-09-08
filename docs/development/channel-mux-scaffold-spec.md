@@ -108,7 +108,7 @@ Device-facing, but scaffold code only — no library hot path changes.
 
 ## Build steps
 
-- [ ] **1. Split the scaffold: direct default + `shared-uart/` set**
+- [x] **1. Split the scaffold: direct default + `shared-uart/` set**
   - What changes:
     - `src/otampy/device/examples/boot.py`, `main.py` → restore to
       `git show 6f2bd1b~1:…` content (direct mode).

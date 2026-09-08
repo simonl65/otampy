@@ -415,6 +415,65 @@ def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
     assert valid_source.exists()
 
 
+def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
+    """F-05. `_otampy_set_rtc.py` ships in the manifest but is a one-shot helper
+    that self-deletes on the next boot. commit() must place it, not back it up
+    or journal it — otherwise repair() resurrects it from .bck the boot after."""
+    uart = shared.FakeUART()
+    logger = shared.FakeLogger()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+
+    payload_main = b"print('new main')"
+    payload_rtc = b"import machine  # one-shot"
+    sha_main = hashlib.sha256(payload_main).hexdigest()
+    sha_rtc = hashlib.sha256(payload_rtc).hexdigest()
+    b64_main = binascii.b2a_base64(payload_main).strip().decode()
+    b64_rtc = binascii.b2a_base64(payload_rtc).strip().decode()
+
+    target_main = tmp_path / "main.py"
+    target_main.write_bytes(b"OLD main")
+    journal = tmp_path / "otampy-update.journal"
+
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_JOURNAL_FILE": str(journal),
+    }
+    core = OTACore(uart, config=config, logger=logger)
+
+    def mock_resolve_path(path):
+        if str(path).startswith(str(tmp_path)):
+            return str(path)
+        return str(tmp_path / path.lstrip("/"))
+
+    core.transport.incoming_queue.extend(
+        [
+            b"UPDATE_START:2:40",
+            f"FILE_START:main.py:17:{sha_main}".encode(),
+            f"CHUNK:0:{b64_main}".encode(),
+            b"FILE_END",
+            f"FILE_START:_otampy_set_rtc.py:24:{sha_rtc}".encode(),
+            f"CHUNK:0:{b64_rtc}".encode(),
+            b"FILE_END",
+            b"UPDATE_COMMIT",
+        ]
+    )
+
+    with patch(
+        "device_otampy.boot._resolve_path", side_effect=mock_resolve_path
+    ):
+        boot.run(core, callback=None)
+
+    assert core.transport.sent_messages[-1] == b"COMMIT_OK"
+    # Helper placed so it runs once...
+    assert (tmp_path / "_otampy_set_rtc.py").read_bytes() == payload_rtc
+    # ...but never retained or journalled.
+    assert not (tmp_path / "_otampy_set_rtc.py.bck").exists()
+    assert restore.read_journal(core) == (0, False, [str(target_main)])
+    # The real target still got its backup.
+    assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
+
+
 def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
     """Normal boot: a .bck not in the journal is an orphan and goes; a .bck
     the journal still references is kept."""

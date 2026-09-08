@@ -310,7 +310,7 @@ adds **no new peak usage** during a transfer. The existing check
     with `_canonical`. Existing `_cleanup_orphaned_ota` tests still pass.
   - Done when: that test passes and `test_ota_boot.py` is green.
 
-- [ ] **10. Repair F-05 — transient RTC helper retained + resurrected**
+- [x] **10. Repair F-05 — transient RTC helper retained + resurrected**
   - `otampy upd` ships `_otampy_set_rtc.py` in the manifest; `commit()` backs it
     up and journals it. It self-deletes on the next boot, then `repair()`
     restores it from `.bck` (once F-04 is fixed), re-running the stale-dated

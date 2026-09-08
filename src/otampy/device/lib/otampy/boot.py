@@ -5,11 +5,17 @@ except ImportError:
 
 from .core import _get_config, _resolve_path
 
+# The host stages this one-shot RTC helper in every ``otampy upd`` manifest
+# (unless ``--no-rtc``). It self-deletes on the next boot, so it must be placed
+# but never retained as ``.bck`` or journalled -- otherwise ``restore.repair()``
+# resurrects it from the backup the boot after (F-05).
+_RTC_HELPER_FILE = "_otampy_set_rtc.py"
+
 
 def _apply_staged_rtc_update():
     """Run the one-shot RTC helper staged during host operations (unless --no-rtc is specified)."""
     try:
-        __import__("_otampy_set_rtc")
+        __import__(_RTC_HELPER_FILE[:-3])
     except ImportError:
         pass
 
@@ -316,11 +322,30 @@ def _run_default_update_loop(core):
 
         elif cmd == b"UPDATE_COMMIT":
             core.logger.debug("UPDATE COMMIT")
+            # Split the one-shot RTC helper out of the retained set: place it
+            # with a plain rename so it runs once, but never back it up or
+            # journal it (F-05).
+            retained = []
+            for index in range(0, len(files), 2):
+                target = files[index]
+                if target.rsplit("/", 1)[-1] == _RTC_HELPER_FILE:
+                    try:
+                        _os.remove(target)
+                    except OSError:
+                        pass
+                    try:
+                        _os.rename(files[index + 1], target)
+                    except OSError:
+                        pass
+                else:
+                    retained.append(target)
+                    retained.append(files[index + 1])
+
             # All-or-nothing: renames each target to <target>.bck, stages the
             # new file in, and rolls the whole set back from .bck on any
             # failure. The retained .bck set plus the journal let boot.run()'s
             # repair() reverse an interrupted commit on the next boot.
-            if commit(core, files, delete_paths):
+            if commit(core, retained, delete_paths):
                 send(b"COMMIT_OK")
             else:
                 send(b"COMMIT_ERR")

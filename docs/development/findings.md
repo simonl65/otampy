@@ -52,7 +52,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-05 — `commit()` retains the transient RTC helper; `repair()` then resurrects it
 
 - **Severity:** P2
-- **Status:** open
+- **Status:** fixed
 - **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_default_update_loop` /
   `restore.commit`)
 - **Found:** 2026-09-08 during HIL of `feature/failsafe-update-retain-previous`
@@ -79,6 +79,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   it with a plain `rename(staging, target)` — never backed up, never journalled.
   Named constant in `boot.py` (it already knows the module name in
   `_apply_staged_rtc_update`).
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 10.
+  New `boot._RTC_HELPER_FILE` constant. The `UPDATE_COMMIT` branch now walks
+  `files`, places any pair whose target basename is `_RTC_HELPER_FILE` with a
+  plain `remove`+`rename`, and passes only the `retained` pairs to
+  `commit()`. `_apply_staged_rtc_update` derives its import name from the same
+  constant (DRY). Test:
+  `test_ota_boot.py::test_commit_does_not_retain_the_transient_rtc_helper` —
+  full session with the helper in the manifest; asserts it is placed but has no
+  `.bck` and is absent from the journal, while `main.py` is backed up normally.
+- **Awaiting:** re-review (`/sl-findings review`) and HIL (the journal after an
+  `otampy upd` must list only real targets, no `/_otampy_set_rtc.py`).
 
 ## Closed
 

@@ -215,3 +215,34 @@ hang is the cue).
    (do **not** pull power that time).
 4. Phases 4–5 as before.
 5. F-04/F-05/F-06 close only after this passes.
+
+## 2026-09-08 — HIL round 3 attempt: operator error, not a code fault
+
+Simon caught the commit window cleanly on `otampy upd main.py boot.py` (real
+commit, no doctored `restore.py` needed — the CLI's "commit failed: None" is
+its read timing out when power drops). Resulting device state was the exact
+F-06 case: `main.py` committed, `boot.py` renamed to `.bck`, `boot.py.ota`
+unplaced, `boot.py` absent, journal `committing`, flag set.
+
+**But it did not self-heal** — because the `main.py` that got pushed had **no
+`ota.recover()` call**: while adding the HIL marker to
+`src/otampy/device/examples/main.py`, the `ota.recover()` line (from `b29d2c6`)
+was deleted in the same edit. `otampy upd` sends the working-tree file, so the
+committed `/main.py` on the device genuinely lacked the recovery call. F-06's
+fix itself is intact and correct in `b29d2c6`; nothing to change in the code.
+
+Scaffolds restored from HEAD, clean `# HIL-R3` marker re-added with
+`ota.recover()` kept. Doctored `restore_HIL.py` regenerated (30 s window).
+Device needs a clean `otampy deploy` (its FS is mid-interrupted-commit).
+
+**HIL round 3, corrected:**
+1. `otampy deploy -p /dev/ttyACM0` (clean tree + `# HIL-R3` markers), power-cycle,
+   `otampy ping`. Confirm `otampy cat /main.py | grep recover` shows the call.
+2. Phase 2 (F-04/F-05): `otampy upd main.py` → `main.py.bck` present, journal
+   lists only `/main.py`.
+3. Phase 3 (F-06): `otampy upd main.py boot.py`, pull power mid-commit. After
+   power-up, **no USB** — `otampy ping` → PONG, `cat /otampy-update.journal`
+   line 1 `0`, `ls /` shows `boot.py` present, both files rolled back.
+   (Optional: deploy `restore_HIL.py` over `lib/otampy/restore.py` first for a
+   reliable 30 s window; redeploy the real one after, no power pull.)
+4. Phases 4–5.

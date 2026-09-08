@@ -325,6 +325,24 @@ adds **no new peak usage** during a transfer. The existing check
     the other files are backed up and journalled as before.
   - Done when: that test passes; `test_restore.py` + `test_ota_boot.py` green.
 
+- [x] **11. Repair F-06 — `main.py` also runs `repair()` (lost `boot.py` self-heals)**
+  - HIL exposed that an interrupted commit can rename `boot.py` to
+    `boot.py.bck` and reboot with no `boot.py`, so `boot.run()` — and its
+    `repair()` call — never executes. `restore.py`'s `repair()` is unreachable.
+  - What changes: new `OTA.recover()` facade method (`ota.py`) = a local-import
+    `restore.repair(self._core)`. Both shipped `main.py` scaffolds
+    (`examples/main.py`, `examples/shared-uart/main.py`) call `ota.recover()`
+    once, right after `ota = OTA(...)`, before the poll loop. Because `commit()`
+    renames one file at a time, at any interrupt point at most one of
+    `boot.py`/`main.py` is absent, so the survivor heals the whole set. Full
+    convergence (stale flag cleared) happens on the next natural reboot.
+  - Test: `test_ota_facade.py::test_recover_delegates_to_restore_repair`;
+    `tests/test_examples.py::test_main_scaffold_calls_recover` (both scaffolds).
+  - Done when: those pass; full device suite + `pre_flight_check.py` green.
+  - **HIL:** re-run the doctored-`restore.py` interrupt test targeting
+    `boot.py` — after power-up the device must self-heal (journal → `0`,
+    `boot.py` present, set rolled back) with **no** USB intervention.
+
 ## Verification
 
 - **Host:** `python3 .agents/scripts/pre_flight_check.py` (ruff + full pytest,

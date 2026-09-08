@@ -23,6 +23,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   - A power loss mid-commit leaves the marker; `boot.run()` now calls `restore.repair()` on every boot (before the update-flag check), which restores every journalled `.bck`. The device is never left on a mixed-version tree within a single commit.
   - `UPDATE_START` discards the previously retained generation (journal + `.bck` files), so at most one previous generation is kept. This makes manual recovery from a bad update possible; automatic trial-boot rollback is a later sub-task.
   - New setting `OTA_JOURNAL_FILE` (device). It must be a dedicated scratch path — a commit clobbers what it points at.
+  - The interrupted file can be `boot.py` itself, which would leave no `boot.py` to run the recovery. The shipped `main.py` scaffold now also calls `OTA(...).recover()` once at startup (same `repair()`); since `commit()` renames one file at a time, whichever of `boot.py`/`main.py` survives restores the set. A custom `main.py` should keep that call.
   - Recovery is best-effort and converges over reboots; it is not a power-loss-atomic filesystem transaction.
 
 ### Compatibility

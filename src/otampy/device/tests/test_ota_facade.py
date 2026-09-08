@@ -87,6 +87,18 @@ def test_facade_delegates_to_boot_and_manager():
         )
 
 
+def test_recover_delegates_to_restore_repair():
+    """F-06: main.py calls recover() so an interrupted commit that left boot.py
+    absent (and so never ran boot.run()'s repair()) still self-heals."""
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+
+    with patch("device_otampy.restore.repair") as mock_repair:
+        ota.recover()
+
+    mock_repair.assert_called_once_with(ota._core)
+
+
 def test_poll_passes_heartbeat_through_to_manager():
     uart = shared.FakeUART()
     ota = OTA(uart)

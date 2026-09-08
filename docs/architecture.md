@@ -168,6 +168,12 @@ retained generation, so at most one is kept. Recovery is best-effort over
 reboots, not a power-loss-atomic filesystem transaction; a hard guarantee needs
 a dual-slot layout.
 
+Because the interrupted file can be `boot.py` itself — leaving no `boot.py` to
+run `boot.run()` — the shipped `main.py` scaffold also calls `OTA(...).recover()`
+once at startup, which runs the same `repair()`. `commit()` renames one file at
+a time, so at most one of `boot.py`/`main.py` is ever absent and the survivor
+restores the set. A custom `main.py` should keep that call.
+
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.
 

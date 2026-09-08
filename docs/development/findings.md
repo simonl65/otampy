@@ -12,7 +12,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-06 — an interrupted `boot.py` commit strands the device: `repair()` lives in the file that got deleted
 
 - **Severity:** P0
-- **Status:** open
+- **Status:** fixed
 - **Area:** `src/otampy/device/lib/otampy/` (`boot.run` / `restore` design;
   the shipped `main.py` scaffold)
 - **Found:** 2026-09-08, HIL fault-injection of
@@ -53,6 +53,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   - **C:** freeze a minimal recovery `_boot.py` (runs before `boot.py`) into the
     deployed image that calls `repair()` and chains on. Heaviest; needs a
     manifest/freeze change at deploy time.
+- **Resolution:** 2026-09-08, `feature/failsafe-update-retain-previous` step 11
+  (Option A). New `OTA.recover()` (`ota.py`) — a local-import
+  `restore.repair(self._core)`. Both `main.py` scaffolds call `ota.recover()`
+  once after `ota = OTA(...)`, before the poll loop. `commit()` renames one file
+  at a time, so at any interrupt at most one of `boot.py`/`main.py` is absent —
+  the survivor heals the set; a lost `boot.py` is restored from `boot.py.bck` by
+  `main.py`'s call, and full convergence (stale flag) follows on the next
+  reboot. Tests: `test_ota_facade.py::test_recover_delegates_to_restore_repair`,
+  `tests/test_examples.py::test_main_scaffold_calls_recover`.
+- **Awaiting:** HIL — re-run the doctored-`restore.py` interrupt test against
+  `boot.py`; the device must self-heal with no USB intervention.
 
 ### F-04 — the orphan sweep deletes freshly-committed `.bck` files on the next boot
 

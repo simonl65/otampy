@@ -47,6 +47,18 @@ class OTA:
             del run
             gc.collect()
 
+    def recover(self):
+        """Call once from main.py at startup, before the poll loop.
+
+        Finishes or reverses an interrupted retain-previous commit in the case
+        boot.py was itself the file caught mid-rename: it was absent on this
+        boot, so boot.run() -- and its repair() call -- never executed (F-06).
+        Near-free and a no-op when there is nothing to repair.
+        """
+        from .restore import repair
+
+        repair(self._core)
+
     def poll(self, callback=None, heartbeat=None):
         """
         Call from main.py loop. Polls UART transport for incoming OTA commands.

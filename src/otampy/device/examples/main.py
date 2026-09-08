@@ -64,6 +64,10 @@ def main():
     # Instantiate OTA with our UART (and optionally config and logger)
     ota = OTA(uart, config=config, logger=logger)
 
+    # Finish/undo an interrupted update whose commit stopped while boot.py
+    # itself was mid-replace, so boot.py never ran this boot.
+    ota.recover()
+
     # Cache attributes/methods to eliminate loop lookup overhead
     ota_poll = ota.poll
     do_app = do_application_stuff

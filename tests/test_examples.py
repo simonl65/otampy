@@ -35,6 +35,16 @@ def test_default_scaffold_is_direct_mode(path):
     assert "mux." not in text
 
 
+@pytest.mark.parametrize(
+    "path",
+    [EXAMPLES / "main.py", SHARED_UART / "main.py"],
+    ids=lambda p: str(p.relative_to(EXAMPLES)),
+)
+def test_main_scaffold_calls_recover(path):
+    """F-06: every main.py must run recover() so a lost boot.py self-heals."""
+    assert ".recover()" in path.read_text()
+
+
 @pytest.mark.parametrize("path", SHARED_SCRIPTS, ids=lambda p: p.name)
 def test_shared_uart_scaffold_uses_serialmux(path):
     text = path.read_text()

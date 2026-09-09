@@ -266,9 +266,45 @@ A commented block after `ota.recover()` in both `examples/main.py` and
 
 ---
 
-## Sub-task complete — pending HIL
+## Sub-task complete — build
 
 All 11 build steps done. Host verification green (`pre_flight_check.py` exit
-0, full suite passing). Hardware verification (spec §Verification tests 1–4)
-is Simon's to run from the build branch — happy path, `--no-confirm` + manual
-confirm, auto-rollback boot-loop, and `.bck` retention past confirm.
+0, full suite passing). Merged to `develop` (`14e0e8f`).
+
+---
+
+## HIL — 2026-09-09
+
+Rig: Pico W on `/dev/ttyACM0` (raw provisioning), XBee gateway on
+`/dev/ttyUSB0` (OTA). diff-drive-robot services stopped for the session so
+the gateway port is uncontended. `otampy` is an editable install, so
+`deploy` and the CLI both carry the merged trial-boot code. Device config
+`OTA_TRIAL_BOOTS = 3` (added explicitly to `examples/configota.py`).
+
+| Test | What it proves | Result |
+| --- | --- | --- |
+| 0. Provision + baseline | Fresh deploy from `develop`, device answers over the gateway | **PASS** — `otampy deploy` OK; `ping` → PONG; `state` → "Running a confirmed (stable) build"; `ls /` → `boot.py configota.py lib/ main.py` (no journal, no `.bck`); `cat /otampy-update.journal` → "No such file or directory" |
+| 1. Happy path | `otampy upd` auto-confirms; journal → `confirmed`; `.bck` kept | **PASS** — `upd` printed "Waiting for the updated device to answer..." → "Candidate confirmed."; `state` → stable; journal line 1 `confirmed` + `/main.py`; `/main.py` = new `[HIL-1]` build, `/main.py.bck` = previous; both `.bck` and journal retained after confirm |
+| 2. `--no-confirm` + manual confirm | trial counter climbs over power cycles; `otampy confirm` stabilises | **PASS** — `upd --no-confirm` printed the on-trial notice, sent no CONFIRM; `state` → boot 1; two power cycles → boot 2, boot 3 (journal line 1 tracked 1→2→3); `otampy confirm` → "Candidate confirmed"; `state` → stable; journal → `confirmed`; `/main.py` still `[HIL-2]` (not rolled back) |
+| 3. Auto-rollback | a WDT-looping candidate is restored to the previous `main.py` after 3 counted boots, no host action | **PASS** — `upd --no-confirm` of a `machine.WDT(4000)`+`raise` `main.py`; device boot-looped on the watchdog; ~30 s later, with **no host action**, `ping` → PONG, `state` → stable, `ls /` → **no `main.py.bck`, no `otampy-update.journal`**, `/main.py` = the previous `[HIL-2]` build |
+| 4. Confirmed candidate survives a power cycle; `.bck` retained | **PASS** — one power cycle of the `[HIL-2]` confirmed candidate: `state` → stable, journal still `confirmed`, `main.py.bck` + journal still present, `/main.py` unchanged |
+
+Broken candidate for test 3: `scratchpad/main_broken.py` (module-level
+`machine.WDT(timeout=4000)` then `raise`), staged transiently as
+`examples/main_broken.py`, removed after.
+
+### Outcome
+
+All four HIL tests pass. The device was left on a clean `main.py` matching
+`develop` HEAD via a final `otampy upd` (auto-confirmed). Notes:
+
+- The XBee link is slow to wake — most commands log one or two
+  `Handshake timeout` / `Timeout waiting for ACK` warnings then succeed on
+  retry. Consistent with sub-task 1's rig; not a code fault. The final
+  `otampy upd` and auto-confirm each re-ran cleanly, so test 1's result is
+  not a single-measurement artefact.
+- `examples/configota.py` (untracked, Simon's device config) gained
+  `OTA_TRIAL_BOOTS = 3` — explicit rather than relying on the default.
+- `boot.run()`'s `machine.reset()` on the rollback path fired as designed:
+  the device came back on the restored generation with the journal and
+  `.bck` gone, no REPL, no manual recovery.

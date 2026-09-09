@@ -54,6 +54,46 @@ def test_boot_releases_boot_module_and_can_run_again():
         assert not hasattr(package, "boot")
 
 
+def test_boot_teardown_survives_micropython_delattr_keyerror():
+    """MicroPython's ``delattr`` raises ``KeyError`` (not ``AttributeError``)
+    when the attribute is absent -- as ``authgate`` is on every boot that did
+    not configure auth. The teardown must swallow that, or ``boot()`` raises
+    and ``boot.py`` crashes on every boot, stranding the device (F-09).
+    """
+    import builtins
+
+    real_delattr = builtins.delattr
+
+    def micropython_delattr(obj, name):
+        if not hasattr(obj, name):
+            raise KeyError(name)
+        return real_delattr(obj, name)
+
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    package = sys.modules["device_otampy"]
+
+    # The teardown legitimately drops these from sys.modules; restore them so
+    # test ordering does not leave later tests importing a stale `boot`.
+    released = ("boot", "restore", "authgate")
+    saved = {
+        name: sys.modules.get("device_otampy." + name) for name in released
+    }
+    try:
+        with (
+            patch("device_otampy.boot.run"),
+            patch("builtins.delattr", side_effect=micropython_delattr),
+        ):
+            ota.boot()
+
+        assert "device_otampy.authgate" not in sys.modules
+    finally:
+        for name, module in saved.items():
+            if module is not None:
+                sys.modules["device_otampy." + name] = module
+                setattr(package, name, module)
+
+
 def test_boot_release_does_not_require_package_global():
     uart = shared.FakeUART()
     ota = OTA(uart)

@@ -43,7 +43,10 @@ class OTA:
                 if package is not None:
                     try:
                         delattr(package, submodule)
-                    except AttributeError:
+                    except (AttributeError, KeyError):
+                        # CPython raises AttributeError for a missing module
+                        # attribute; MicroPython raises KeyError. `authgate`
+                        # is absent on every boot that did not configure auth.
                         pass
 
             del run

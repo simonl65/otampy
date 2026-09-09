@@ -208,3 +208,69 @@ Docs only, no code.
   proposed, not yet added — needs Simon's approval per the spec.**
 
 Pre-flight exit 0 (docs don't gate; ran to confirm nothing else moved).
+
+## HIL verification — 2026-09-09
+
+### Step 8 — F-09, found on the rig before any HIL test could run
+
+Deployed the branch to the Pico W: `otampy deploy -p /dev/ttyACM0 --device-dir
+src/otampy/device/examples` → "Deployment completed successfully", exit 0.
+Filesystem after deploy (over USB): `boot.py configota.py lib main.py`,
+`lib/otampy/` has `authgate.py`, no journal, no `.bck`. Clean.
+
+`otampy --port /dev/ttyUSB0 ping` then timed out on every attempt — full URST
+handshake failure, 4 attempts, no `PONG`. Pre-deploy the same command answered
+first try, so the deploy broke it.
+
+Isolated it over USB (one disciplined mpremote session, hard reset after):
+- The gateway link is fine — a hand-run `ota.poll()` loop on the device
+  answered a host `ping` with `PONG` immediately.
+- `configota.py` pins/port/baud on device match the wiring (1 / 4 / 5 / 57600).
+- Calling `OTA(uart, ...).boot()` directly on the device raised
+  `KeyError: authgate` from `ota.py` line 45.
+
+Root cause: MicroPython's `delattr(module, name)` raises `KeyError` for a
+missing attribute; CPython raises `AttributeError`. `OTA.boot()`'s teardown
+catches only `AttributeError`. `authgate` is imported by the recovery window
+only when `OTA_REQUIRE_AUTH` is set, so on a normal boot the `delattr` for it
+throws `KeyError`, which escapes `boot()` → `boot.py` crashes → `main.py` never
+runs → device dead over the radio. Every no-auth boot. Filed F-09 (P0).
+
+Verified the divergence directly on device:
+`delattr(otampy, 'authgate')` → `KeyError('authgate',)`;
+`del otampy.nonexistent` → `KeyError` too.
+
+Host tests never caught it (CPython). Added
+`test_boot_teardown_survives_micropython_delattr_keyerror` which simulates the
+MicroPython semantics by patching `builtins.delattr`; red before the fix.
+
+Fix: `except AttributeError` → `except (AttributeError, KeyError)` at that one
+call site. Pre-flight exit 0 (337 device tests, full CLI suite).
+
+Also noticed while here: `test_ota_facade.py`'s existing
+`test_boot_releases_boot_module_and_can_run_again` leaves `device_otampy.boot`
+deleted from `sys.modules`; a `pytest-randomly` seed that runs it before the
+`test_ota_boot.py` boot tests makes 5 of them fail (they patch a stale module).
+Pre-existing, masked by alphabetical file order. Noted in F-09 as a follow-up
+for `TODO.md`; not fixed here.
+
+Two stray stub files (`main.py`, `_otampy_set_rtc.py`, ~20 B each) were sitting
+untracked in the repo root from some earlier session — they made
+`test_cli_update_default` fail (it scans cwd). Moved them to the scratchpad;
+not ours.
+
+**HIL tests 0–6 not yet run** — blocked on redeploying the F-09 fix and
+confirming the rig boots.
+
+### HIL test 0 — provision + baseline (after F-09 fix) — PASS
+
+Redeployed the branch with the F-09 fix: `otampy deploy` exit 0.
+`otampy --port /dev/ttyUSB0 ping` → `PONG` on 3/3 attempts.
+`otampy ls /` → `boot.py  configota.py  lib/  main.py` (no journal, no `.bck`).
+`otampy state` → "Running a confirmed (stable) build."
+
+The device now boots cleanly to `main.py` over the radio with no USB. F-09 is
+repaired on the rig.
+
+**HIL tests 1–6 need an operator at the rig** (power-cycle on the CLI prompt,
+six full power cycles for test 3). Paused here for Simon.

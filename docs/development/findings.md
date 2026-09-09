@@ -9,6 +9,41 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
+
+- **Severity:** P0
+- **Status:** fixed (awaiting re-review)
+- **Area:** `src/otampy/device/lib/otampy/ota.py` (`OTA.boot()` `finally` teardown)
+- **Found:** 2026-09-09, HIL verification of the boot-time recovery window
+  (sub-task 4). Device was unreachable over the radio after a clean deploy of
+  the branch; USB REPL showed `KeyError: authgate` from `ota.py` on every boot.
+- **Evidence:** commit `b07b4e9` added `"authgate"` to the
+  `for submodule in ("boot", "restore", "authgate")` teardown loop. `authgate`
+  is imported by the recovery window **only when `OTA_REQUIRE_AUTH` is set**, so
+  on a normal boot `device_otampy.authgate` is never an attribute of the
+  package. CPython's `delattr(package, "authgate")` then raises
+  `AttributeError` (caught); **MicroPython raises `KeyError`** (not caught by
+  `except AttributeError`). The exception propagates out of `boot()`, through
+  `boot.py`, so `main.py` never runs. Confirmed on device:
+  `delattr(otampy, 'authgate')` → `KeyError('authgate',)`.
+- **Impact:** Every device that deploys this branch **without** `OTA_REQUIRE_AUTH`
+  is stranded on the next boot — boot.py crashes, `main.py`'s poll loop never
+  starts, and the boot-time recovery window itself never opens (boot.py raises
+  after it). USB-only recovery. This is the exact failure class the Fail-safe
+  Updates epic exists to remove, reintroduced by its last sub-task. Host tests
+  passed because they run on CPython.
+- **Fix applied:** `except AttributeError` → `except (AttributeError, KeyError)`
+  at the `delattr` call site (mirrors the `del sys.modules[...]` guard two
+  lines up, which already catches `KeyError`). Regression test
+  `test_boot_teardown_survives_micropython_delattr_keyerror` in
+  `test_ota_facade.py` simulates MicroPython's `delattr` semantics.
+- **Follow-up noted (not this finding):** `test_ota_facade.py`'s existing
+  `test_boot_releases_boot_module_and_can_run_again` deletes
+  `device_otampy.boot` from `sys.modules` without restoring it; under a
+  `pytest-randomly` seed that orders it before `test_ota_boot.py` tests, those
+  tests then patch a stale module and fail. Pre-existing, masked by
+  alphabetical collection order. Worth a `TODO.md` item.
+
 ### F-08 — a power loss while updating `restore.py` itself strands the device with no radio recovery
 
 - **Severity:** P2

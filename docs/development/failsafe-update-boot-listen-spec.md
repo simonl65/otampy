@@ -364,6 +364,20 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     or missing, and `OTA_BOOT_LISTEN_MS`'s per-boot cost is stated wherever the
     key is documented.
 
+- [x] **8. Repair F-09 — `OTA.boot()` teardown crashes on every no-auth boot**
+  - What changes: `ota.py` `OTA.boot()` teardown — `except AttributeError` →
+    `except (AttributeError, KeyError)` at the `delattr(package, submodule)`
+    call. MicroPython raises `KeyError` (not `AttributeError`) for a missing
+    module attribute, and `authgate` is absent on every boot that did not
+    configure `OTA_REQUIRE_AUTH`, so boot.py crashed on every such boot and the
+    device was stranded. Found on the rig during this sub-task's HIL.
+  - Test: `test_boot_teardown_survives_micropython_delattr_keyerror`
+    (`test_ota_facade.py`) — patches `builtins.delattr` to raise `KeyError` for
+    a missing attribute, asserts `ota.boot()` does not propagate it. Red before
+    the fix (`KeyError` escapes), green after.
+  - Done when: that test passes, `pre_flight_check.py` is clean, and the rig
+    boots to a working `main.py` (HIL test 0 below) after a clean redeploy.
+
 ## Verification
 
 - **Host:** `python3 .agents/scripts/pre_flight_check.py` (ruff + full pytest,

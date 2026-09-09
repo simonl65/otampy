@@ -63,6 +63,20 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     - settle the freeze mechanism and which module(s) get frozen before any code.
   - Fresh: yes.
 
+[ ] **`test_ota_facade.py` leaks `sys.modules` state and can flake CI.** Found 2026-09-09 during F-09's HIL verification. `test_boot_releases_boot_module_and_can_run_again` calls `ota.boot()` with `boot.run` patched, so the teardown deletes `device_otampy.boot` (and `restore`, `authgate`) from `sys.modules` and never restores them. Under a `pytest-randomly` seed that orders this test before the `test_ota_boot.py` boot tests, those tests then `patch("device_otampy.boot._resolve_path", ...)` against a freshly re-imported module while their own module-level `from device_otampy import boot` still points at the stale one — 5 tests fail (`test_boot_handles_full_update_session`, `test_boot_aborts_active_update_and_cleans_staging`, `test_boot_cleans_orphaned_ota_on_normal_boot`, `test_commit_does_not_retain_the_transient_rtc_helper`, `test_boot_removes_orphan_bck_but_keeps_journalled_one`). Pre-existing, currently masked by alphabetical collection order; `test_boot_teardown_survives_micropython_delattr_keyerror` (added for F-09) already does the save/restore dance locally, which is the pattern to generalise — a `conftest.py` autouse fixture that snapshots and restores the `device_otampy` submodule table, or an explicit restore in the offending test.
+
+  - Model: Sonnet
+    - contained test-infrastructure fix; the failure mode is understood, the fix is a fixture.
+  - Spec : no.
+  - Fresh: yes.
+
+[ ] **Resolve or discard the stale `deploy.py` git stash.** Noticed 2026-09-09: `git stash list` shows `stash@{0}: wip: deploy dynamic location (Copilot limit hit)` — 68 insertions / 27 deletions in `src/otampy/deploy.py` around `_find_device_root` / `ROOT`, from an earlier interrupted session. Not touched since. Decide whether that work is still wanted (finish and commit it) or drop it (`git stash drop`), so it stops shadowing the working tree. Two ~20 B stub files (`main.py`, `_otampy_set_rtc.py`) that were also littering the repo root from an earlier session — they broke `test_cli_update_default`, which scans cwd — have already been cleared.
+
+  - Model: Haiku
+    - a triage decision plus one git command; only becomes real work if the stashed change is worth finishing.
+  - Spec : no.
+  - Fresh: yes.
+
 ## Deferred - do not run these
 
 [ ] **Run the `micropython-nasa-power-of-ten` skill against this repo (and `urst-mpy`).** Surfaced 2026-08-20 as a `Needs Review`/deferred item (D-1) in `diff-drive-robot`'s own NASA Power of Ten audit (`docs/development/NASA-Power-of-Ten-review.md`), which explicitly can't audit vendored code per its own `CLAUDE.md` convention -- `diff-drive-robot/robot/device/lib/otampy`/`lib/urst` are synced verbatim from here and from `urst-mpy`, not maintained in that repo. That audit's shallow grep pass (not a deep read) flagged four spots worth a proper look, evidence as of otampy 4.5.0/urst-mpy 3.2.0:

@@ -232,3 +232,14 @@ Two small `@cli.command`s modelled on `ping` / `rtc`:
   (stable) build."
 
 **Evidence:** `test_cli.py -k "confirm or state"` → 4 passed. Pre-flight → exit 0.
+
+---
+
+## Step 10 — `main.py` scaffolds document `ota.confirm()` (2026-09-09)
+
+A commented block after `ota.recover()` in both `examples/main.py` and
+`examples/shared-uart/main.py`, explaining the trial window and showing
+`# ota.confirm()`. No behavioural change — the scaffold still relies on host
+`CONFIRM`. New `test_main_scaffold_mentions_confirm` guards both.
+
+**Evidence:** `test_examples.py` → 16 passed. Pre-flight → exit 0.

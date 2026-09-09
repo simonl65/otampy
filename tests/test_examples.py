@@ -45,6 +45,16 @@ def test_main_scaffold_calls_recover(path):
     assert ".recover()" in path.read_text()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [EXAMPLES / "main.py", SHARED_UART / "main.py"],
+    ids=lambda p: str(p.relative_to(EXAMPLES)),
+)
+def test_main_scaffold_mentions_confirm(path):
+    """Every main.py must point at ota.confirm() for the trial-boot lifecycle."""
+    assert "ota.confirm()" in path.read_text()
+
+
 @pytest.mark.parametrize("path", SHARED_SCRIPTS, ids=lambda p: p.name)
 def test_shared_uart_scaffold_uses_serialmux(path):
     text = path.read_text()

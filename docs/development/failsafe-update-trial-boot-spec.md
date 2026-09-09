@@ -299,7 +299,7 @@ new host config key.
     `state` renders both `trial:2` and `stable:0` responses.
   - Done when: those tests pass.
 
-- [ ] **10. `main.py` scaffolds — document `ota.confirm()`**
+- [x] **10. `main.py` scaffolds — document `ota.confirm()`**
   - What changes: in both `src/otampy/device/examples/main.py` and
     `examples/shared-uart/main.py`, add a commented line near the `ota.recover()`
     call showing `# ota.confirm()  # call after your own health check if you

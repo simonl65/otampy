@@ -32,8 +32,15 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   trigger is narrow. Strictly smaller than the pre-retain-previous exposure,
   where any interrupted commit could brick the device and no `.bck` existed.
 - **Suggested fix:** freeze `restore.py` into the deployed image, or F-06
-  Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Belongs
-  with sub-task 4 (boot-time recovery), not this sub-task.
+  Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`).
+- **Not sub-task 4 (boot-time recovery window):** re-checked when that
+  sub-task was built (2026-09-09). The window cannot fix F-08 —
+  `boot.run()`'s `from .restore import ...` raises before the window would
+  open, and the flagged update loop's `from .restore import clear_journal,
+  commit` needs the same absent module. A real fix needs frozen code, so this
+  is now tracked as its own `TODO.md` item ("Freeze `restore.py` / a recovery
+  `_boot.py` into the deployed image") rather than parked on a sub-task that
+  demonstrably cannot resolve it.
 
 ## Closed
 

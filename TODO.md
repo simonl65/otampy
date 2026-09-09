@@ -50,9 +50,10 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     `restore_all()`; `manager.poll` takes the `RB` pre-reset path (`_persist_replay_floor`
     then `machine.reset()`). `otampy rollback` prompts, sends `ROLLBACK`, waits for `PONG`.
     Spec: `docs/development/failsafe-update-rollback-spec.md`.
-  - [ ] **4. Boot-time recovery listen window.** `boot.py` briefly accepts
+  - [x] **4. Boot-time recovery listen window.** `boot.py` briefly accepts
     `UPDATE_REQUEST`/`ROLLBACK` with no flag set (`OTA_BOOT_LISTEN_MS`), so a device
     stranded by a faulty `main.py` or `boot.py` still has a remote recovery path.
+    Spec: `docs/development/failsafe-update-boot-listen-spec.md`.
 
 ## Deferred - do not run these
 

@@ -177,3 +177,34 @@ no-`--recover` user path is unchanged (`test_upd_without_recover_prints_no_power
 plus every untouched handshake test).
 
 Pre-flight exit 0 (627 tests).
+
+## Step 7 — docs, config example, changelog, findings
+
+Docs only, no code.
+
+- `docs/protocol.md` §2.4 — new "Boot-time recovery window" subsection: when
+  it opens, the full dispatch table, silent + host-blind-retry, channel 0, no
+  wire change, auth enforced, and the hard limits (needs `boot.py` to run,
+  no watchdog this early, `PING` deliberately unanswered). The `ROLLBACK`
+  command row and the trial-boot prose corrected from "served only by the
+  `main.py` poll loop" to "and the boot-time recovery window".
+- `docs/architecture.md` — `OTA_BOOT_LISTEN_MS` in the `configota.py` block
+  with its per-boot cost (~1 s + one `Urst` instantiation, `0` disables and
+  removes the recovery path); a paragraph under "Trial boot, confirmation,
+  and auto-restore" covering the window and the custom-`boot.py`-watchdog
+  caveat; the "device stranded before `main.py` needs the boot-time recovery
+  window" sentence corrected — it now has one.
+- `configota.example.py` — `OTA_BOOT_LISTEN_MS = 1000` with a comment on the
+  per-boot cost and `0` to disable.
+- `CHANGELOG.md` `[Unreleased]` — an "Added" bullet for the window + the two
+  `--recover` flags + `recovery-wait`, and the existing `ROLLBACK` "Changed"
+  bullet corrected.
+- `docs/development/findings.md` — F-08's "Belongs with sub-task 4" line
+  replaced with a paragraph explaining why the window cannot fix it (its own
+  `from .restore import` raises first) and that it is now a standalone
+  `TODO.md` item.
+- `TODO.md` — sub-task 4 ticked `[x]`. **The F-08 follow-up item
+  ("Freeze `restore.py` / a recovery `_boot.py` into the deployed image") is
+  proposed, not yet added — needs Simon's approval per the spec.**
+
+Pre-flight exit 0 (docs don't gate; ran to confirm nothing else moved).

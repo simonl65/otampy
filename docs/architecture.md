@@ -124,6 +124,7 @@ OTA_TIMEOUT_MS = 5000
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
 OTA_JOURNAL_FILE = "otampy-update.journal"
 OTA_TRIAL_BOOTS = 3
+OTA_BOOT_LISTEN_MS = 1000
 ```
 
 `OTA_JOURNAL_FILE` (default `otampy-update.journal`, at the filesystem root)
@@ -133,6 +134,14 @@ never a real source file — a commit clobbers what it points at.
 `OTA_TRIAL_BOOTS` (default `3`) is how many boots into an unconfirmed update
 candidate the device tolerates before it auto-restores the previous
 generation. See "Trial boot" below.
+
+`OTA_BOOT_LISTEN_MS` (default `1000`) is how long `boot.py` listens for a
+recovery command on any boot with no update pending. It is added to every such
+boot — ~1 s at the default, plus one `Urst` transport instantiation — and is
+paid on each iteration of a boot-loop too. `0` disables the window entirely,
+which also removes the only recovery path for a device stranded before
+`main.py`. A non-integer value falls back to the default; `<= 0` disables. See
+"Trial boot" below.
 
 ### 2. Boot-Time Updates (`boot.py`)
 
@@ -206,10 +215,34 @@ update can still be reverted over the radio: `otampy rollback` sends the
 channel-0 `ROLLBACK` command, `manager.poll` runs `restore.rollback()` (the
 whole retained generation renamed back, journal removed), replies, and
 `machine.reset()`s onto the previous version. It refuses without resetting
-when nothing is retained or a commit is mid-flight. `ROLLBACK` is served only
-by the `main.py` poll loop — a device stranded before that point needs the
-boot-time recovery window. Only one generation is retained, so rollback is
-one-shot: what it lands on has no `.bck` and cannot be rolled back again.
+when nothing is retained or a commit is mid-flight. `ROLLBACK` is served by the
+`main.py` poll loop and — for a device stranded before that point — by the
+boot-time recovery window (below). Only one generation is retained, so rollback
+is one-shot: what it lands on has no `.bck` and cannot be rolled back again.
+
+`boot.run()` opens a short **recovery window** on every boot where
+`UPDATE_REQUEST_FLAG_FILE` is absent, after `repair()`/`trial()` have healed
+the tree. For `OTA_BOOT_LISTEN_MS` (default `1000`) it listens on channel 0
+for exactly two commands — `UPDATE_REQUEST` (write the flag and reset into a
+normal update session) and `ROLLBACK` (revert to the retained generation) —
+answering everything else, `PING` included, with `ERROR:Recovery window`. It
+is the recovery path for a candidate that was confirmed and then proved fatal,
+or one that hangs before `ota.poll()` is reached. The window is silent (no
+beacon — an unacknowledged `Urst.send()` would cost up to ~8 s per boot), so
+the host blind-retries: `otampy upd --recover` and `otampy rollback --recover`
+prompt the operator to power-cycle and keep retrying for `recovery-wait`
+seconds (default `60`) until a command lands in a window. When
+`OTA_REQUIRE_AUTH` is set the window enforces the same `AUTH:` envelope as the
+runtime surface — it is not a bypass. It needs `boot.py` itself to run;
+a `boot.py` that crashes earlier, or a wedged UART, still requires USB.
+`docs/protocol.md` §2.4 has the full dispatch table.
+
+Nothing arms a watchdog this early (`boot.run()` precedes `main.py`) and
+1000 ms is far under the RP2040's ~8388 ms cap. A custom `boot.py` that arms a
+watchdog *before* `OTA(...).boot()` must keep `OTA_BOOT_LISTEN_MS` under its
+period. An integrator whose hardware needs attention sooner than ~1 s into
+boot (motor control, say) should note the window runs with no application and
+no watchdog for that duration.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

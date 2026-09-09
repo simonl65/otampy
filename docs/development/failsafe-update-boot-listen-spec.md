@@ -344,7 +344,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
   - Done when: those tests pass and `python3 .agents/scripts/pre_flight_check.py`
     is clean.
 
-- [ ] **7. Docs, config example, changelog, findings**
+- [x] **7. Docs, config example, changelog, findings**
   - What changes: `docs/protocol.md` §2.4 — a subsection on the recovery
     window: when it opens (every boot with no flag set, after `repair()`/
     `trial()`), the exact dispatch table, that it is silent and how the host

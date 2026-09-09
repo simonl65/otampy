@@ -35,35 +35,37 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Belongs
   with sub-task 4 (boot-time recovery), not this sub-task.
 
+## Closed
+
 ### F-07 — `repair()` rewrites the journal on every call, now twice per boot
 
 - **Severity:** P3
-- **Status:** fixed
+- **Status:** closed
 - **Area:** `src/otampy/device/lib/otampy/restore.py` (`repair`)
 - **Found:** 2026-09-08, `/sl-findings review` of the F-06 fix
-- **Fixed:** 2026-09-09, `failsafe-update-trial-boot` steps 2 and 4.
-  `repair()`'s `trial` branch now rewrites the journal only when it restored a
-  missing target; the `committing` branch delegates to `restore_all()`, which
-  removes the journal rather than rewriting it; and `trial()` (the new
-  per-boot counter) writes only when it actually incremented — a normal
-  stable boot reads the journal and returns without a write. Tests:
-  `test_repair_trial_all_targets_present_does_not_write`,
-  `test_trial_is_a_noop_when_confirmed`.
-- **Evidence:** `restore.repair()` ends with an unconditional
-  `write_journal(core, ..., paths)` whenever the journal has any entries, even
+- **Evidence:** `restore.repair()` ended with an unconditional
+  `write_journal(core, ..., paths)` whenever the journal had any entries, even
   when it restored nothing and the marker did not change. After a successful
-  update the journal persists as `0\n/main.py\n...` until the next
-  `UPDATE_START` clears it, so it is rewritten on every boot. The F-06 fix
-  added a second caller (`main.py`'s `recover()` → `repair()`), so a normal
-  boot now rewrites that file twice.
-- **Impact:** Two small flash writes per boot instead of one, indefinitely
-  after any update. Negligible at a normal reboot cadence (littlefs
-  wear-levels a tiny file); only visible on a crash/watchdog-looping device,
-  where it is the least of the problems. No behavioural effect.
-- **Suggested fix:** `repair()` writes the journal only when it changed
-  something — flipped the marker, or restored at least one file.
-
-## Closed
+  update the journal persisted as `0\n/main.py\n...` until the next
+  `UPDATE_START`, so it was rewritten on every boot — twice, since the F-06
+  fix added `main.py`'s `recover()` → `repair()` as a second caller.
+- **Impact:** Two small flash writes per boot indefinitely after any update.
+  No behavioural effect.
+- **Resolution:** `failsafe-update-trial-boot` steps 2 and 4.
+  `repair.py:230` guards the trial-branch write behind a `restored` flag (only
+  writes when a `.bck` was renamed back over a missing target);
+  `repair.py:215-217` routes the `committing` branch through `restore_all()`,
+  which *removes* the journal instead of rewriting it; and the new `trial()`
+  returns early (`restore.py:262`) in every non-`trial` state, so a confirmed
+  candidate does zero journal writes per boot. An unconfirmed candidate still
+  gets a write per boot as `trial()` counts — but that is intentional,
+  bounded to `OTA_TRIAL_BOOTS`, and self-terminating (rollback removes the
+  journal); `otampy upd` confirms within seconds by default.
+- **Closed:** 2026-09-09 by `/sl-findings review` — independent re-read of
+  `restore.py` as it stands: no unconditional `write_journal` remains on any
+  `repair()`/`trial()` path. Guard tests `test_repair_trial_all_targets_present_does_not_write`
+  (write-count spy) and `test_trial_is_a_noop_when_confirmed` pass; no new
+  defect introduced by the guard.
 
 ### F-06 — an interrupted `boot.py` commit strands the device: `repair()` lives in the file that got deleted
 

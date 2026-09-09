@@ -230,7 +230,7 @@ string already lives.
   - Done when: those tests pass and
     `python3 .agents/scripts/pre_flight_check.py` is clean.
 
-- [ ] **5. Docs + changelog**
+- [x] **5. Docs + changelog**
   - What changes: `docs/protocol.md` — `ROLLBACK` row in the §2.1 control
     table and the §2.4 update-sequence table (all three responses); in the
     trial-boot lifecycle paragraph, replace "run `otampy rollback` (planned)"

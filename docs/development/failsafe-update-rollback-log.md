@@ -44,3 +44,19 @@ Starting at build step 1 (`restore.rollback()`).
 - `python3 .agents/scripts/pre_flight_check.py` -> READY FOR COMMIT (ruff +
   full pytest, mirrors CI). ruff format folded one over-long assert in the
   step-2 manager test.
+
+## 2026-09-09 — step 5 (docs)
+
+- `docs/protocol.md`: `ROLLBACK` row in §2.1 and §2.4 (all three responses);
+  the trial-boot lifecycle paragraph now describes the shipped `otampy
+  rollback`, that it needs the poll loop, and the one-generation / one-shot
+  limit. "(planned)" removed.
+- `docs/architecture.md`: paragraph under "Trial boot, confirmation, and
+  auto-restore" covering the user-initiated revert and its one-shot nature.
+- `CHANGELOG.md`: `Unreleased` bullet under the trial-boot block.
+- `TODO.md`: sub-task 3 ticked.
+- `python3 .agents/scripts/pre_flight_check.py` -> READY FOR COMMIT.
+
+All 5 build steps done. Ledger: F-08 (P2, open) untouched and out of scope
+(sub-task 4) — no P0/P1 open. Hardware HIL tests 1–4 pending (Simon, end of
+sub-task).

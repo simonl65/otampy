@@ -23,3 +23,11 @@ Starting at build step 1 (`restore.rollback()`).
   (floor persisted at counter 4242 before reset).
 - `uv run pytest src/otampy/device/tests/ -q` → 314 passed. Facade lazy-load
   test still green. ruff clean.
+
+## 2026-09-09 — step 3
+
+- Extracted `_post_commit_confirm`'s `while True: _query(PING)` loop into
+  `_wait_for_pong(ctx, timeout_message)`. Same behaviour; the timeout text is
+  built by the caller (keeps the `{timeout:.0f}s` value) and passed in.
+- `uv run pytest tests/test_cli.py -q` → 123 passed (unchanged). The retry loop
+  now appears once in cli.py. ruff clean.

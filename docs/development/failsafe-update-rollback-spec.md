@@ -199,7 +199,7 @@ string already lives.
     must still pass.
   - Done when: `uv run pytest src/otampy/device/tests/ -q` passes.
 
-- [ ] **3. Extract the host `PONG` wait loop (refactor only)**
+- [x] **3. Extract the host `PONG` wait loop (refactor only)**
   - What changes: `src/otampy/cli.py` — lift `_post_commit_confirm`'s
     `while True: _query(PING)` loop into `_wait_for_pong(ctx, timeout_message)`
     (raising `click.ClickException(timeout_message)` on expiry) and call it

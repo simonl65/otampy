@@ -2475,6 +2475,30 @@ def _update_files(
     _post_commit_confirm(ctx, no_confirm)
 
 
+def _wait_for_pong(ctx: click.Context, timeout_message: str) -> None:
+    """Poll ``PING`` until the device answers ``PONG`` or the wait expires.
+
+    One "the device is rebooting, keep trying" implementation, shared by the
+    post-commit confirm wait and ``otampy rollback``. Retries on
+    ``ClickException``/``DeviceError`` with ``query_retry_backoff_seconds``
+    between attempts, up to ``update_ready_timeout_seconds`` total, then raises
+    ``click.ClickException(timeout_message)``.
+    """
+    import time
+
+    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    backoff = float(get_config_value("query_retry_backoff_seconds"))
+    start = time.time()
+    while True:
+        try:
+            _query(ctx, b"PING", b"PONG")
+            return
+        except (click.ClickException, DeviceError):
+            if time.time() - start >= timeout:
+                raise click.ClickException(timeout_message) from None
+            time.sleep(backoff)
+
+
 def _post_commit_confirm(ctx: click.Context, no_confirm: bool) -> None:
     """Take the just-committed candidate off trial (docs/protocol.md §2.4).
 
@@ -2492,26 +2516,16 @@ def _post_commit_confirm(ctx: click.Context, no_confirm: bool) -> None:
         )
         return
 
-    import time
-
     timeout = float(get_config_value("update_ready_timeout_seconds"))
-    backoff = float(get_config_value("query_retry_backoff_seconds"))
-    start = time.time()
     _console().print("Waiting for the updated device to answer...")
-    while True:
-        try:
-            _query(ctx, b"PING", b"PONG")
-            break
-        except (click.ClickException, DeviceError):
-            if time.time() - start >= timeout:
-                raise click.ClickException(
-                    "Update committed but the device did not come back "
-                    f"healthy (no PONG within {timeout:.0f}s). The candidate "
-                    "is NOT confirmed and will auto-restore the previous "
-                    "version after OTA_TRIAL_BOOTS reboots. Investigate or "
-                    "re-deploy."
-                ) from None
-            time.sleep(backoff)
+    _wait_for_pong(
+        ctx,
+        "Update committed but the device did not come back "
+        f"healthy (no PONG within {timeout:.0f}s). The candidate "
+        "is NOT confirmed and will auto-restore the previous "
+        "version after OTA_TRIAL_BOOTS reboots. Investigate or "
+        "re-deploy.",
+    )
 
     _send_command(ctx, b"CONFIRM", b"CONFIRM_OK")
     _console().print("[green]Candidate confirmed.[/green]")

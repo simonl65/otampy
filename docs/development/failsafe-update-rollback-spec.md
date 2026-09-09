@@ -181,7 +181,7 @@ string already lives.
   - Done when: `uv run pytest src/otampy/device/tests/test_restore.py -q`
     passes and `uv run ruff check .` is clean.
 
-- [ ] **2. `manager.poll` — `ROLLBACK` branch**
+- [x] **2. `manager.poll` — `ROLLBACK` branch**
   - What changes: `manager.py` — one `elif cmd == "ROLLBACK"` branch with a
     local `from .restore import _ROLLBACK_BUSY, rollback`. Restore first, then
     reply `ROLLBACK_OK` or the matching `ROLLBACK_ERR:<reason>`; on success

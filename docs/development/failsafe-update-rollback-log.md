@@ -12,3 +12,14 @@ loss while `restore.py` itself is the mid-commit file. In the touched area but
 deliberately out of scope here; owned by sub-task 4.
 
 Starting at build step 1 (`restore.rollback()`).
+
+## 2026-09-09 — steps 1 & 2
+
+- Step 1: `restore.rollback(core)` + `_ROLLBACK_BUSY`. 5 tests in test_restore.py.
+- Step 2: `manager.poll` `elif cmd == "ROLLBACK"` — lazy `from .restore import
+  _ROLLBACK_BUSY, rollback`. Restore first, then reply, then (success only)
+  callback → `_persist_replay_floor` → `machine.reset()`, mirroring `RB`.
+  6 tests in test_ota_manager.py + 1 signed-path test in test_manager_auth.py
+  (floor persisted at counter 4242 before reset).
+- `uv run pytest src/otampy/device/tests/ -q` → 314 passed. Facade lazy-load
+  test still green. ruff clean.

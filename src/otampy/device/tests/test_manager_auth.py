@@ -321,3 +321,24 @@ def test_with_auth_off_a_reset_writes_no_floor(tmp_path):
     manager.poll(core)
     machine.reset.assert_called_once()
     assert replay.load_floor(str(tmp_path / "otampy-replay-floor")) == 0
+
+
+def test_a_signed_rollback_persists_the_floor_before_resetting(tmp_path):
+    """Sub-task 3: ROLLBACK takes the same pre-reset path as RB."""
+    import device_otampy.replay as replay
+    from device_otampy import restore
+
+    core = _core(tmp_path)
+    core.config["OTA_JOURNAL_FILE"] = str(tmp_path / "otampy-update.journal")
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, 1, [str(main)])
+
+    core.transport.incoming_queue.append(_envelope(b"ROLLBACK", 4242))
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ROLLBACK_OK"]
+    assert main.read_bytes() == b"old-main"
+    machine.reset.assert_called_once()
+    assert replay.load_floor(str(tmp_path / "otampy-replay-floor")) == 4242

@@ -264,7 +264,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     src/otampy/device/tests/test_ota_manager.py -q` passes, and the
     `ROLLBACK_ERR` strings appear exactly once in the tree (grep).
 
-- [ ] **3. `boot._run_boot_listen()` — the window, not yet wired in**
+- [x] **3. `boot._run_boot_listen()` — the window, not yet wired in**
   - What changes: `boot.py` — the three new constants and
     `_run_boot_listen(core)` implementing the dispatch table above. Returns
     `True` when it handled a command that reset the board (so the caller

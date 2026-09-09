@@ -1,9 +1,11 @@
 import binascii
 import builtins
 import hashlib
+import itertools
 import os
 from unittest.mock import patch
 
+import device_otampy.auth as device_auth
 import machine
 import shared
 from device_otampy import boot, restore
@@ -621,3 +623,229 @@ def test_cleanup_keeps_journalled_bck_with_real_resolve_path(tmp_path):
 
     assert not any(r.endswith("main.py.bck") for r in removed), removed
     assert any(r.endswith("stale.py.bck") for r in removed), removed
+
+
+# =============================================================================
+# The boot-time recovery window (_run_boot_listen)
+#
+# The window is how a device stranded before ota.poll() is recovered over the
+# radio with no USB. It is silent -- no beacon -- so the host blind-retries
+# while the operator power-cycles.
+# =============================================================================
+
+WINDOW_MS = 1000
+
+AUTH_KEY_HEX = "0f1e2d3c4b5a6978" * 4
+
+
+def _window_core(tmp_path, **extra):
+    machine.reset.reset_mock()
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "update_requested.flag"),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_REPLAY_FLOOR_FILE": str(tmp_path / "otampy-replay-floor"),
+        "OTA_BOOT_LISTEN_MS": WINDOW_MS,
+    }
+    config.update(extra)
+    return OTACore(shared.FakeUART(), config=config, logger=shared.FakeLogger())
+
+
+def _fake_clock(monkeypatch, step=10):
+    """Deterministic, instant clock -- no test may really sleep a window."""
+    counter = itertools.count(0, step)
+    monkeypatch.setattr(boot, "_ticks_ms", lambda: next(counter))
+    monkeypatch.setattr(boot, "_sleep_ms", lambda _ms: None)
+
+
+def _envelope(command, counter):
+    """A signed AUTH: envelope, exactly as the CLI builds one."""
+    blocks = device_auth.derive_key_blocks(bytes.fromhex(AUTH_KEY_HEX))
+    mac = device_auth.tag(blocks, device_auth.signed_bytes(counter, command))
+    return b"AUTH:%d:%s:%s" % (counter, binascii.hexlify(mac), command)
+
+
+def test_boot_listen_expires_with_no_traffic(monkeypatch, tmp_path):
+    """(a) Nothing arrives -> the window closes on its own, no reset."""
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+
+    assert boot._run_boot_listen(core) is False
+
+    machine.reset.assert_not_called()
+    assert core.transport.sent_messages == []
+
+
+def test_boot_listen_deadline_is_absolute_not_inactivity(monkeypatch, tmp_path):
+    """A stream of refused commands must not hold the window open.
+
+    _run_default_update_loop resets its timer on every packet; the window
+    deliberately does not, or a chatty peer could pin a device in it.
+    """
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.extend([b"PING"] * 500)
+
+    assert boot._run_boot_listen(core) is False
+
+    # 1000ms window / 10ms per tick -> ~100 packets served, not all 500.
+    assert 0 < len(core.transport.sent_messages) < 200
+    assert set(core.transport.sent_messages) == {b"ERROR:Recovery window"}
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_disabled_never_reads(monkeypatch, tmp_path):
+    """(b) OTA_BOOT_LISTEN_MS = 0 disables the window outright."""
+    core = _window_core(tmp_path, OTA_BOOT_LISTEN_MS=0)
+    reads = []
+    monkeypatch.setattr(core.transport, "read", lambda: reads.append(1) or None)
+
+    assert boot._run_boot_listen(core) is False
+
+    assert reads == []
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_non_integer_window_falls_back_to_default(
+    monkeypatch, tmp_path
+):
+    core = _window_core(tmp_path, OTA_BOOT_LISTEN_MS="not-a-number")
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"PING")
+
+    assert boot._run_boot_listen(core) is False
+
+    assert core.transport.sent_messages == [b"ERROR:Recovery window"]
+
+
+def test_boot_listen_update_request_sets_flag_and_resets(monkeypatch, tmp_path):
+    """(c) UPDATE_REQUEST hands the device to the existing update session."""
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"UPDATE_REQUEST")
+
+    assert boot._run_boot_listen(core) is True
+
+    assert core.transport.sent_messages == [b"REBOOTING"]
+    assert (tmp_path / "update_requested.flag").exists()
+    machine.reset.assert_called_once()
+
+
+def test_boot_listen_rollback_restores_and_resets(monkeypatch, tmp_path):
+    """(d) ROLLBACK reverts to the retained generation and resets onto it."""
+    core = _window_core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"fatal-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    restore.write_journal(core, restore._STATE_CONFIRMED, [str(main)])
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"ROLLBACK")
+
+    assert boot._run_boot_listen(core) is True
+
+    assert core.transport.sent_messages == [b"ROLLBACK_OK"]
+    assert main.read_bytes() == b"previous-good"
+    assert not (tmp_path / "otampy-update.journal").exists()
+    machine.reset.assert_called_once()
+
+
+def test_boot_listen_refusal_does_not_consume_the_window(monkeypatch, tmp_path):
+    """(e) A refused ROLLBACK must not reset, and must not close the window.
+
+    The operator who guesses wrong should not have to power-cycle again to
+    get a second command into the same window.
+    """
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.extend([b"ROLLBACK", b"UPDATE_REQUEST"])
+
+    assert boot._run_boot_listen(core) is True
+
+    assert core.transport.sent_messages == [
+        b"ROLLBACK_ERR:Nothing to roll back",
+        b"REBOOTING",
+    ]
+    assert (tmp_path / "update_requested.flag").exists()
+    machine.reset.assert_called_once()
+
+
+def test_boot_listen_rollback_refuses_while_committing(monkeypatch, tmp_path):
+    core = _window_core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"half-written")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    restore.write_journal(core, restore._STATE_COMMITTING, [str(main)])
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"ROLLBACK")
+
+    assert boot._run_boot_listen(core) is False
+
+    assert core.transport.sent_messages == [b"ROLLBACK_ERR:Commit in flight"]
+    assert main.read_bytes() == b"half-written"
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_refuses_ping(monkeypatch, tmp_path):
+    """(f) PING is deliberately unanswered: a PONG would say "healthy"."""
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"PING")
+
+    assert boot._run_boot_listen(core) is False
+
+    assert core.transport.sent_messages == [b"ERROR:Recovery window"]
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_ignores_empty_and_non_utf8_packets(monkeypatch, tmp_path):
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.extend([b"", b"   ", b"\xff\xfe"])
+
+    assert boot._run_boot_listen(core) is False
+
+    assert core.transport.sent_messages == []
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_rejects_unauthenticated_rollback(monkeypatch, tmp_path):
+    """(g) The window is not an auth bypass.
+
+    An unwrapped ROLLBACK is refused, nothing is restored, and a correctly
+    signed one in the *same* window still succeeds.
+    """
+    core = _window_core(
+        tmp_path, OTA_REQUIRE_AUTH=True, COMMAND_AUTH_KEY=AUTH_KEY_HEX
+    )
+    main = tmp_path / "main.py"
+    main.write_bytes(b"fatal-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    restore.write_journal(core, restore._STATE_CONFIRMED, [str(main)])
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    core.transport.incoming_queue.append(_envelope(b"ROLLBACK", 1))
+
+    assert boot._run_boot_listen(core) is True
+
+    assert core.transport.sent_messages == [
+        b"ERROR:Unauthenticated",
+        b"ROLLBACK_OK",
+    ]
+    assert main.read_bytes() == b"previous-good"
+    machine.reset.assert_called_once()
+
+
+def test_boot_listen_rejects_replayed_counter(monkeypatch, tmp_path):
+    core = _window_core(
+        tmp_path, OTA_REQUIRE_AUTH=True, COMMAND_AUTH_KEY=AUTH_KEY_HEX
+    )
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(_envelope(b"PING", 5))
+    core.transport.incoming_queue.append(_envelope(b"PING", 5))
+
+    assert boot._run_boot_listen(core) is False
+
+    assert core.transport.sent_messages == [
+        b"ERROR:Recovery window",
+        b"ERROR:Replayed",
+    ]
+    machine.reset.assert_not_called()

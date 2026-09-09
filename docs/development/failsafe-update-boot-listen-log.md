@@ -63,3 +63,39 @@ Note: `uv run pyright` reports one pre-existing error in `restore.py` (`trial()`
 `attempt > limit`, because `_get_config` is typed `Any | None`). Confirmed
 present on `develop` before this branch — line number moved 294 → 317 only.
 Pyright does not gate CI.
+
+## Step 3 — `boot._run_boot_listen()`, the window itself
+
+12 tests written first, all red on `AttributeError: module
+'device_otampy.boot' has no attribute '_run_boot_listen'`.
+
+Tests use a fake monotonic clock (`itertools.count` patched over
+`boot._ticks_ms`, with `_sleep_ms` a no-op) so no test ever really sleeps a
+window. The whole device suite still runs in ~4 s.
+
+Two design points worth remembering:
+
+- **The deadline is absolute, not inactivity-based.**
+  `_run_default_update_loop` resets `last_activity` on every packet; the
+  window must not, or a chatty peer could pin a device inside it. Covered by
+  `test_boot_listen_deadline_is_absolute_not_inactivity`, which queues 500
+  refused `PING`s and asserts fewer than 200 are served before the window
+  closes on schedule.
+- **A refusal keeps the window open.** `ROLLBACK` with nothing retained
+  replies and *keeps listening*, so an operator who guesses wrong can still
+  land `UPDATE_REQUEST` in the same window without another power cycle.
+  Covered by `test_boot_listen_refusal_does_not_consume_the_window`.
+
+Non-UTF-8 packets are dropped in silence (per the spec's dispatch table),
+not answered with `ERROR:Invalid UTF-8` as the update loop does. The
+high-bit scan from the update loop is reused so pure-ASCII packets never pay
+for a decode.
+
+`boot.py` still contains no import of `manager` (grep, no hits) — the reason
+`authgate` was extracted in step 1. `boot._persist_replay_floor` duplicates
+`manager`'s four-line guard on purpose; sharing it would mean importing
+`manager` into the boot phase, which is the exact cost being avoided. Noted
+in both docstrings.
+
+Device suite 331 passed (319 + 12). `ruff check .` clean; ruff format
+reformatted the new test file.

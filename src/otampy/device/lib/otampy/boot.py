@@ -11,6 +11,19 @@ from .core import _get_config, _resolve_path
 # resurrects it from the backup the boot after (F-05).
 _RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
+# Boot-time recovery window. Opened on every boot with no update pending, so
+# a device whose main.py never reaches ota.poll() -- it raises on import,
+# hangs, or was replaced by a fatal candidate that got confirmed -- is still
+# reachable over the radio with no USB.
+#
+# The window is silent: no beacon. An unacknowledged Urst.send() is
+# stop-and-wait reliable (connect + send_reliable, 4 attempts each at
+# ACK_TIMEOUT_MS), so announcing the window would cost up to ~8s on every
+# boot with no host listening. The host blind-retries instead.
+_DEFAULT_BOOT_LISTEN_MS = 1000
+_BOOT_LISTEN_POLL_MS = 10
+_RECOVERY_REFUSED = b"ERROR:Recovery window"
+
 
 def _apply_staged_rtc_update():
     """Run the one-shot RTC helper staged during host operations (unless --no-rtc is specified)."""
@@ -364,6 +377,131 @@ def _run_default_update_loop(core):
             except Exception:
                 pass
             break
+
+
+def _persist_replay_floor(core):
+    """Record the replay counter before a window-commanded reset.
+
+    The `_replay_guard` check sits here, not inside `authgate`, so a device
+    with auth off never imports that module. `manager` keeps its own copy of
+    this four-line guard deliberately: importing `manager` from the boot
+    phase to share it would pull the entire runtime command surface in.
+    """
+    if getattr(core, "_replay_guard", None) is None:
+        return
+    from .authgate import persist_replay_floor
+
+    persist_replay_floor(core)
+
+
+def _run_boot_listen(core):
+    """The boot-time recovery window. Never raises.
+
+    Listens silently for ``OTA_BOOT_LISTEN_MS`` and serves exactly two
+    commands, ``UPDATE_REQUEST`` and ``ROLLBACK``. Returns ``True`` when it
+    handled a command that reset the board (so the caller returns -- a mocked
+    ``machine.reset`` in tests does not actually reset), ``False`` when the
+    window simply expired.
+
+    A refusal does not consume the window: the deadline is **absolute** and
+    is never extended by activity, unlike ``_run_default_update_loop``'s
+    inactivity timeout, so a chatty peer cannot pin a device in here.
+
+    Deliberately does not answer ``PING``. A device in the window is not
+    running its application, and a ``PONG`` would report it healthy -- the
+    absence of one is the signal that recovery is needed.
+    """
+    window_ms = _get_config(
+        core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
+    )
+    try:
+        window_ms = int(window_ms)  # type: ignore
+    except (TypeError, ValueError):
+        window_ms = _DEFAULT_BOOT_LISTEN_MS
+    if window_ms <= 0:
+        return False
+
+    read = core.transport.read
+    reply = core.transport.reply
+    require_auth = _get_config(core.config, "OTA_REQUIRE_AUTH", False)
+    started = _ticks_ms()
+
+    while _ticks_diff(_ticks_ms(), started) < window_ms:
+        packet = read()
+        if not packet:
+            _sleep_ms(_BOOT_LISTEN_POLL_MS)
+            continue
+
+        packet = (
+            str(packet).strip().encode()
+            if not isinstance(packet, bytes)
+            else packet.strip()
+        )
+        if not packet:
+            continue
+
+        # ASCII protocol packets stay as bytes. Validate UTF-8 only when a
+        # high-bit byte makes it relevant; a non-UTF-8 packet is dropped in
+        # silence, as manager.poll drops one.
+        decodable = True
+        for value in packet:
+            if value & 0x80:
+                try:
+                    packet.decode("utf-8")
+                except UnicodeError:
+                    decodable = False
+                break
+        if not decodable:
+            core.logger.warning("Recovery window: ignoring non-UTF-8 packet")
+            continue
+
+        # The window enforces the same auth envelope the runtime command
+        # surface does, so it is not a bypass. Imported lazily and only when
+        # auth is configured, keeping the no-auth boot path unchanged.
+        if require_auth:
+            from .authgate import authenticate
+
+            inner = authenticate(core, packet.decode("utf-8"))
+            if inner is None:
+                continue
+            packet = inner.encode()
+
+        if packet == b"UPDATE_REQUEST":
+            flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
+            if flag:
+                try:
+                    with open(flag, "w") as handle:
+                        handle.write("1")
+                except OSError as err:
+                    core.logger.error(f"Failed to write flag-file: {err}")
+            reply(b"REBOOTING")
+            core.logger.info("Recovery window: update requested; resetting")
+            _persist_replay_floor(core)
+            import machine
+
+            machine.reset()
+            return True
+
+        elif packet == b"ROLLBACK":
+            from .restore import rollback_result
+
+            response, restored = rollback_result(core)
+            reply(response)
+            if restored:
+                core.logger.info(
+                    f"Recovery window: rollback restored {restored} "
+                    "file(s); resetting"
+                )
+                _persist_replay_floor(core)
+                import machine
+
+                machine.reset()
+                return True
+
+        else:
+            reply(_RECOVERY_REFUSED)
+
+    return False
 
 
 def _canonical(path):

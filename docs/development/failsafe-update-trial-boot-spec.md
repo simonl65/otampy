@@ -289,7 +289,7 @@ new host config key.
     warning text.
   - Done when: those tests pass; existing update tests still pass.
 
-- [ ] **9. `otampy confirm` and `otampy state` commands**
+- [x] **9. `otampy confirm` and `otampy state` commands**
   - What changes: two small `@cli.command`s. `confirm` → `_send_command(ctx,
     b"CONFIRM", b"CONFIRM_OK")` with `DeviceError` handling like `ping`.
     `state` → `_query(ctx, b"UPDATE_STATE", b"STATE_OK")`, parse

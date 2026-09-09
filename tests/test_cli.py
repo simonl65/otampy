@@ -596,6 +596,39 @@ def test_cli_ping():
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
+def test_cli_confirm():
+    """The 'confirm' command takes the running candidate off trial."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = b"CONFIRM_OK"
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "confirm"])
+
+    assert result.exit_code == 0
+    assert "Candidate confirmed" in result.output
+    mock_device.return_value.send.assert_called_once_with(b"CONFIRM")
+
+
+def test_cli_state_renders_trial_and_stable():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = b"STATE_OK:trial:2"
+        trial_result = runner.invoke(cli, ["-p", "/dev/ttyFake", "state"])
+
+        mock_device.return_value.read.return_value = b"STATE_OK:stable:0"
+        stable_result = runner.invoke(cli, ["-p", "/dev/ttyFake", "state"])
+
+    assert trial_result.exit_code == 0
+    assert "on trial (boot 2)" in trial_result.output
+    assert stable_result.exit_code == 0
+    assert "confirmed (stable) build" in stable_result.output
+
+
 def test_cli_rtc_displays_device_timestamp():
     """Test the read-only 'rtc' command."""
     runner = CliRunner()

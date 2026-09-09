@@ -218,3 +218,17 @@ without real waiting).
 
 **Evidence:** `tests/test_cli.py` + `src/otampy/device/tests/` → 425 passed.
 `ruff` clean. Pre-flight → exit 0.
+
+---
+
+## Step 9 — `otampy confirm` and `otampy state` commands (2026-09-09)
+
+Two small `@cli.command`s modelled on `ping` / `rtc`:
+
+- `confirm` → `_send_command(CONFIRM, CONFIRM_OK)`, `DeviceError` via
+  `_handle_device_error`.
+- `state` → `_query(UPDATE_STATE, STATE_OK)`, split the `<label>:<attempt>`
+  payload, print "Candidate on trial (boot N) ..." or "Running a confirmed
+  (stable) build."
+
+**Evidence:** `test_cli.py -k "confirm or state"` → 4 passed. Pre-flight → exit 0.

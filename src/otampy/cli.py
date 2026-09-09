@@ -1234,6 +1234,42 @@ def ping(ctx: click.Context) -> None:
     _console().print("[green]Success: Received PONG from device.[/green]")
 
 
+@cli.command(name="confirm")
+@click.pass_context
+def confirm(ctx: click.Context) -> None:
+    """Take the running update candidate off trial (stop auto-rollback)."""
+    _console().print("[yellow]Confirming the running update...[/yellow]")
+    try:
+        _send_command(ctx, b"CONFIRM", b"CONFIRM_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+    _console().print("[green]Candidate confirmed (no longer on trial).[/green]")
+
+
+@cli.command(name="state")
+@click.pass_context
+def state(ctx: click.Context) -> None:
+    """Report whether the running build is on trial or confirmed (stable)."""
+    try:
+        payload, _ = _query(ctx, b"UPDATE_STATE", b"STATE_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+        return
+    try:
+        label, attempt = payload.decode().split(":")
+    except ValueError as e:
+        raise click.ClickException(
+            "Invalid UPDATE_STATE response from device."
+        ) from e
+    if label == "trial":
+        _console().print(
+            f"Candidate on trial (boot {attempt}) -- auto-restores the "
+            "previous version on the next reboot past OTA_TRIAL_BOOTS."
+        )
+    else:
+        _console().print("Running a confirmed (stable) build.")
+
+
 @cli.command(name="rtc")
 @click.pass_context
 def rtc(ctx: click.Context) -> None:

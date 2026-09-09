@@ -185,6 +185,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `SR`    | `SR_OK`                                                               | Trigger a soft reboot (`machine.soft_reset()`).                                        |
 | `CONFIRM` | `CONFIRM_OK`<br>`CONFIRM_ERR` | Take the running update candidate off trial (stop auto-rollback). Idempotent. `CONFIRM_ERR` only when a commit marker is still present. See §2.4. |
 | `UPDATE_STATE` | `STATE_OK:<trial\|stable>:<attempt>` | Read-only. Report whether the running build is on trial (with the boot count) or confirmed/stable (`0`). |
+| `ROLLBACK` | `ROLLBACK_OK`<br>`ROLLBACK_ERR:<reason>` | Revert to the retained `.bck` generation and reset onto it. Served only by the `main.py` poll loop. See §2.4. |
 
 ### 2.2 File System Commands
 
@@ -235,6 +236,7 @@ These commands handle the transition from runtime (`main.py`) to bootloader (`bo
 | `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`<br>`COMMIT_ERR`    | Complete update. All-or-nothing: device renames each target to `<target>.bck`, moves the `.ota` into place, and writes `OTA_JOURNAL_FILE`. On any failure the whole set is rolled back from `.bck` and `COMMIT_ERR` is returned. Then clears flag and reboots. |
 | `CONFIRM`                             | Host / app | `CONFIRM_OK`<br>`CONFIRM_ERR` | Take the just-committed candidate off trial. See the trial-boot lifecycle below. |
 | `UPDATE_STATE`                        | Host   | `STATE_OK:<trial\|stable>:<attempt>` | Read-only trial-state query. |
+| `ROLLBACK`                            | Host   | `ROLLBACK_OK`<br>`ROLLBACK_ERR:Nothing to roll back`<br>`ROLLBACK_ERR:Commit in flight` | Rename the retained `.bck` generation back over its targets, remove the journal, reply, then reset onto the previous version. `ROLLBACK_OK` restores and resets; `ROLLBACK_ERR:Nothing to roll back` when no journal or no `.bck` survives; `ROLLBACK_ERR:Commit in flight` when a `committing` marker is present. On either error **nothing is touched and the device does not reset.** |
 
 #### Trial boot, confirmation, and auto-restore
 
@@ -246,9 +248,20 @@ generation from its `.bck` files and reboots onto it, with no host
 involvement. The auto-restore trigger is therefore **a reboot during the
 trial window** — a crash to reset, a panic, a brownout, the application's
 watchdog firing, or a manual power cycle. A candidate that hangs without
-resetting is *not* auto-restored; run `otampy rollback` (planned) or use the
-boot-time recovery window. Applications are expected to run their own
+resetting is *not* auto-restored. Applications are expected to run their own
 watchdog, which supplies the reset.
+
+Once a candidate has been confirmed — or when a shallow `PING` health check
+passes but the build later proves wrong — the host can still revert it with
+`otampy rollback` (the `ROLLBACK` command). The device renames the retained
+`.bck` generation back over its targets, removes the journal, and resets onto
+the previous version. It refuses without resetting when there is nothing
+retained or a commit is mid-flight. `ROLLBACK` is served **only by the
+`main.py` poll loop**, so a device that never reaches `main.py` still needs the
+boot-time recovery window. Only one previous generation is ever retained, so
+rollback is **one-shot**: the generation it lands on has no journal and no
+`.bck` (`UPDATE_STATE` → `stable:0`), is not itself on trial, and cannot be
+rolled back again.
 
 A candidate leaves trial when:
 

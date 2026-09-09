@@ -45,9 +45,11 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     `UPDATE_STATE` -> `STATE_OK:<trial|stable>:<attempt>`. `otampy upd` sends `CONFIRM`
     after `COMMIT_OK` + a health `PING` (unless `--no-confirm`).
     Spec: `docs/development/failsafe-update-trial-boot-spec.md`.
-  - [ ] **3. `ROLLBACK` command + `otampy rollback` CLI.** User-initiated revert of a
-    candidate that booted and was confirmed but is wrong. Reuses sub-task 2's restore
-    primitive; needs `_persist_replay_floor` like `RB`.
+  - [x] **3. `ROLLBACK` command + `otampy rollback` CLI.** User-initiated revert of a
+    candidate that booted and was confirmed but is wrong. `restore.rollback()` reuses
+    `restore_all()`; `manager.poll` takes the `RB` pre-reset path (`_persist_replay_floor`
+    then `machine.reset()`). `otampy rollback` prompts, sends `ROLLBACK`, waits for `PONG`.
+    Spec: `docs/development/failsafe-update-rollback-spec.md`.
   - [ ] **4. Boot-time recovery listen window.** `boot.py` briefly accepts
     `UPDATE_REQUEST`/`ROLLBACK` with no flag set (`OTA_BOOT_LISTEN_MS`), so a device
     stranded by a faulty `main.py` or `boot.py` still has a remote recovery path.

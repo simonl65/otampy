@@ -404,3 +404,77 @@ def test_repair_no_journal_is_noop(tmp_path):
     restore.repair(core)
 
     assert not (tmp_path / "otampy-update.journal").exists()
+
+
+# =============================================================================
+# rollback() -- the user-initiated revert primitive
+# =============================================================================
+
+
+def test_rollback_restores_trial_generation(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "lib" / "sensor.py"
+    sensor.parent.mkdir()
+    main.write_bytes(b"new-main")
+    sensor.write_bytes(b"new-sensor")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"old-sensor")
+    restore.write_journal(core, 1, [str(main), str(sensor)])
+
+    assert restore.rollback(core) == 2
+
+    assert main.read_bytes() == b"old-main"
+    assert sensor.read_bytes() == b"old-sensor"
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_rollback_restores_confirmed_generation(tmp_path):
+    """The point of the sub-task: a confirmed build is still revertible."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, restore._STATE_CONFIRMED, [str(main)])
+
+    assert restore.rollback(core) == 1
+
+    assert main.read_bytes() == b"old-main"
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_rollback_without_backups_leaves_the_journal_untouched(tmp_path):
+    """Nothing to revert must not silently take a candidate off trial."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    restore.write_journal(core, 2, [str(main)])
+    before = (tmp_path / "otampy-update.journal").read_text()
+
+    assert restore.rollback(core) == 0
+
+    assert main.read_bytes() == b"new-main"
+    assert (tmp_path / "otampy-update.journal").read_text() == before
+
+
+def test_rollback_refuses_while_committing(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"half-new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, restore._STATE_COMMITTING, [str(main)])
+    before = (tmp_path / "otampy-update.journal").read_text()
+
+    assert restore.rollback(core) == restore._ROLLBACK_BUSY
+
+    assert main.read_bytes() == b"half-new-main"
+    assert (tmp_path / "main.py.bck").read_bytes() == b"old-main"
+    assert (tmp_path / "otampy-update.journal").read_text() == before
+
+
+def test_rollback_with_no_journal_returns_zero(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.rollback(core) == 0
+
+    assert not (tmp_path / "otampy-update.journal").exists()

@@ -879,3 +879,86 @@ def test_manager_update_state_reports_trial_and_stable(tmp_path):
     core.transport.incoming_queue.append(b"UPDATE_STATE")
     manager.poll(core)
     assert core.transport.sent_messages[-1] == b"STATE_OK:stable:0"
+
+
+def _revertible_journal(tmp_path, core, restore, state=1):
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, state, [str(main)])
+    return main
+
+
+def test_manager_rollback_restores_and_resets(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    main = _revertible_journal(tmp_path, core, restore, state=1)
+    machine.reset.reset_mock()
+
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ROLLBACK_OK"]
+    assert main.read_bytes() == b"old-main"
+    assert not (tmp_path / "otampy-update.journal").exists()
+    machine.reset.assert_called_once()
+
+
+def test_manager_rollback_confirmed_candidate_is_revertible(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    main = _revertible_journal(
+        tmp_path, core, restore, state=restore._STATE_CONFIRMED
+    )
+    machine.reset.reset_mock()
+
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ROLLBACK_OK"]
+    assert main.read_bytes() == b"old-main"
+    machine.reset.assert_called_once()
+
+
+def test_manager_rollback_nothing_to_revert_does_not_reset(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    restore.write_journal(core, 2, [str(main)])
+    machine.reset.reset_mock()
+
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [
+        b"ROLLBACK_ERR:Nothing to roll back"
+    ]
+    assert main.read_bytes() == b"new-main"
+    machine.reset.assert_not_called()
+
+
+def test_manager_rollback_refuses_mid_commit(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    _revertible_journal(
+        tmp_path, core, restore, state=restore._STATE_COMMITTING
+    )
+    machine.reset.reset_mock()
+
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"ROLLBACK_ERR:Commit in flight"]
+    machine.reset.assert_not_called()
+
+
+def test_manager_rollback_runs_callback_before_reset(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    _revertible_journal(tmp_path, core, restore, state=1)
+    machine.reset.reset_mock()
+
+    events = []
+    machine.reset.side_effect = lambda: events.append("reset")
+
+    core.transport.incoming_queue.append(b"ROLLBACK")
+    manager.poll(core, callback=lambda: events.append("callback"))
+
+    machine.reset.side_effect = None
+    assert events == ["callback", "reset"]

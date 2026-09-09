@@ -44,6 +44,10 @@ _DEFAULT_TRIAL_BOOTS = 3
 # just-restored previous generation.
 _ROLLED_BACK = "rolled_back"
 
+# rollback() returns this when a commit marker is present: the caller must
+# refuse the request rather than reset. Distinct from 0 ("nothing to revert").
+_ROLLBACK_BUSY = -1
+
 
 def _journal_path(core):
     return _resolve_path(
@@ -246,6 +250,30 @@ def confirm(core):
     if state == _STATE_TRIAL:
         write_journal(core, _STATE_CONFIRMED, paths)
     return True
+
+
+def rollback(core):
+    """Revert to the retained generation on the host's command. Never raises.
+
+    Returns ``_ROLLBACK_BUSY`` when a ``committing`` marker is present --
+    ``repair()`` owns that state, so the caller must not reset. Returns ``0``
+    when there is no journal or no journalled ``<path>.bck`` survives: there is
+    nothing to revert, and the journal is left exactly as it was. Otherwise
+    delegates to ``restore_all()`` and returns its count, at which point the
+    caller resets onto the restored generation.
+
+    The ``.bck`` pre-scan is not redundant. ``restore_all()`` removes the
+    journal unconditionally, so calling it with nothing to restore would take a
+    trialling candidate off trial -- stopping the boot counter -- while
+    reporting failure to the host.
+    """
+    _, st, paths = read_journal(core)
+    if st == _STATE_COMMITTING:
+        return _ROLLBACK_BUSY
+    for target in paths:
+        if _exists(target + _BACKUP_SUFFIX):
+            return restore_all(core)
+    return 0
 
 
 def trial(core):

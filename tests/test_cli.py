@@ -2867,3 +2867,82 @@ def test_read_full_reply_is_bounded_when_progress_never_completes():
 
     assert _read_full_reply(transport) == b""
     assert transport.reads == _MAX_STALLED_READS + 1
+
+
+# =============================================================================
+# otampy rollback -- user-initiated revert over the radio (sub-task 3)
+# =============================================================================
+
+
+def test_cli_rollback_reverts_and_waits_for_pong():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK", b"PONG"]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback"], input="y\n"
+        )
+
+    assert result.exit_code == 0, result.output
+    sent = [c.args[0] for c in mock_device.return_value.send.call_args_list]
+    assert b"ROLLBACK" in sent
+    assert b"PING" in sent
+    assert "previous" in result.output.lower()
+
+
+def test_cli_rollback_nothing_to_revert_exits_nonzero_without_pinging():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = (
+            b"ROLLBACK_ERR:Nothing to roll back"
+        )
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback"], input="y\n"
+        )
+
+    assert result.exit_code == 1
+    assert "Nothing to roll back" in result.output
+    sent = [c.args[0] for c in mock_device.return_value.send.call_args_list]
+    assert b"PING" not in sent
+
+
+def test_cli_rollback_declined_sends_nothing():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback"], input="n\n"
+        )
+
+    assert result.exit_code == 0
+    assert "Aborted" in result.output
+    mock_device.return_value.send.assert_not_called()
+
+
+def test_cli_rollback_warns_when_device_never_answers(monkeypatch):
+    runner = CliRunner()
+    clock = iter([0.0] * 3 + [10_000.0] * 50)
+    monkeypatch.setattr("time.time", lambda: next(clock))
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK"] + [
+            None
+        ] * 20
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "did not answer PING" in result.output

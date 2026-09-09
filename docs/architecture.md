@@ -201,6 +201,16 @@ is kept until the next update's `UPDATE_START`, so the previous generation
 stays recoverable. A plain power cycle never rolls back a confirmed
 candidate.
 
+Because the `.bck` set survives confirmation, a healthy-looking-but-wrong
+update can still be reverted over the radio: `otampy rollback` sends the
+channel-0 `ROLLBACK` command, `manager.poll` runs `restore.rollback()` (the
+whole retained generation renamed back, journal removed), replies, and
+`machine.reset()`s onto the previous version. It refuses without resetting
+when nothing is retained or a commit is mid-flight. `ROLLBACK` is served only
+by the `main.py` poll loop — a device stranded before that point needs the
+boot-time recovery window. Only one generation is retained, so rollback is
+one-shot: what it lands on has no `.bck` and cannot be rolled back again.
+
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.
 

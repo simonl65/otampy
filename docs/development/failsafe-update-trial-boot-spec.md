@@ -252,7 +252,7 @@ new host config key.
     no reset. Existing no-flag / orphan-sweep tests still pass.
   - Done when: full `test_ota_boot.py` passes.
 
-- [ ] **6. `manager.poll` — `CONFIRM` and `UPDATE_STATE`**
+- [x] **6. `manager.poll` — `CONFIRM` and `UPDATE_STATE`**
   - What changes: two `elif` branches in `manager.poll`, each with a local
     `from .restore import …`. `CONFIRM` → reply `CONFIRM_OK`/`CONFIRM_ERR`;
     `UPDATE_STATE` → reply `STATE_OK:<label>:<attempt>`.

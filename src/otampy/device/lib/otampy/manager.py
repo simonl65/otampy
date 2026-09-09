@@ -445,6 +445,15 @@ def poll(core, callback=None, heartbeat=None):
         core.logger.info("Shutdown started: OTA update requested")
         _persist_replay_floor(core)
         machine.reset()
+    elif cmd == "CONFIRM":
+        from .restore import confirm
+
+        core.transport.reply(b"CONFIRM_OK" if confirm(core) else b"CONFIRM_ERR")
+    elif cmd == "UPDATE_STATE":
+        from .restore import state
+
+        label, attempt = state(core)
+        core.transport.reply(f"STATE_OK:{label}:{attempt}".encode())
     elif cmd == "LS":
         path = parts[1] if len(parts) > 1 and parts[1] else "."
         try:

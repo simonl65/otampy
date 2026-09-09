@@ -832,3 +832,50 @@ def test_manager_handles_mem(monkeypatch):
         b"MEM_OK:50000,30000,524288,1048576"
     ]
     assert gc_calls == ["collect", "mem_free", "mem_alloc"]
+
+
+def _journal_core(tmp_path):
+    from device_otampy import restore
+
+    config = {"OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal")}
+    core = OTACore(shared.FakeUART(), config=config, logger=shared.FakeLogger())
+    return core, restore
+
+
+def test_manager_confirm_takes_candidate_off_trial(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    restore.write_journal(core, 2, [str(tmp_path / "main.py")])
+
+    core.transport.incoming_queue.append(b"CONFIRM")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"CONFIRM_OK"]
+    assert restore.read_journal(core)[1] == restore._STATE_CONFIRMED
+
+
+def test_manager_confirm_errs_mid_commit(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    restore.write_journal(
+        core, restore._STATE_COMMITTING, [str(tmp_path / "main.py")]
+    )
+
+    core.transport.incoming_queue.append(b"CONFIRM")
+    manager.poll(core)
+
+    assert core.transport.sent_messages == [b"CONFIRM_ERR"]
+
+
+def test_manager_update_state_reports_trial_and_stable(tmp_path):
+    core, restore = _journal_core(tmp_path)
+    restore.write_journal(core, 2, [str(tmp_path / "main.py")])
+
+    core.transport.incoming_queue.append(b"UPDATE_STATE")
+    manager.poll(core)
+    assert core.transport.sent_messages == [b"STATE_OK:trial:2"]
+
+    restore.write_journal(
+        core, restore._STATE_CONFIRMED, [str(tmp_path / "main.py")]
+    )
+    core.transport.incoming_queue.append(b"UPDATE_STATE")
+    manager.poll(core)
+    assert core.transport.sent_messages[-1] == b"STATE_OK:stable:0"

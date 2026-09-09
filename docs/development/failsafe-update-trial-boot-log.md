@@ -149,3 +149,26 @@ step but nothing sends `CONFIRM` until step 8, so a mid-build CLI update would
 auto-roll-back after `OTA_TRIAL_BOOTS` power cycles.
 
 **Evidence:** `test_ota_boot.py` → 17 passed. `ruff` clean. Pre-flight → exit 0.
+
+---
+
+## Step 6 — `manager.poll` — `CONFIRM` and `UPDATE_STATE` (2026-09-09)
+
+Two `elif` branches after `UPDATE_REQUEST`, each with a per-command
+`from .restore import ...` so `manager` import stays light — the lazy-load
+facade test (`test_package_import_does_not_eagerly_load_operating_modes`)
+still passes.
+
+`CONFIRM` → `CONFIRM_OK` / `CONFIRM_ERR` (ERR only when `restore.confirm()`
+returns `False`, i.e. a commit marker is present). `UPDATE_STATE` →
+`STATE_OK:<label>:<attempt>`, formatted from `restore.state()`.
+
+Checked `test_manager_auth.py` per the spec note: auth is envelope-based and
+command-agnostic — there is no fixed accepted-command list, so the two new
+commands need nothing there. `PROTOCOL_VERSION` unchanged (channel 0 only,
+no wire-format change).
+
+Neither command resets the board, so neither calls `_persist_replay_floor`.
+
+**Evidence:** `test_ota_manager.py` + `test_ota_facade.py` → 46 passed.
+`ruff` clean. Pre-flight → exit 0.

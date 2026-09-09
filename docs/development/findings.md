@@ -38,9 +38,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-07 — `repair()` rewrites the journal on every call, now twice per boot
 
 - **Severity:** P3
-- **Status:** open
+- **Status:** fixed
 - **Area:** `src/otampy/device/lib/otampy/restore.py` (`repair`)
 - **Found:** 2026-09-08, `/sl-findings review` of the F-06 fix
+- **Fixed:** 2026-09-09, `failsafe-update-trial-boot` steps 2 and 4.
+  `repair()`'s `trial` branch now rewrites the journal only when it restored a
+  missing target; the `committing` branch delegates to `restore_all()`, which
+  removes the journal rather than rewriting it; and `trial()` (the new
+  per-boot counter) writes only when it actually incremented — a normal
+  stable boot reads the journal and returns without a write. Tests:
+  `test_repair_trial_all_targets_present_does_not_write`,
+  `test_trial_is_a_noop_when_confirmed`.
 - **Evidence:** `restore.repair()` ends with an unconditional
   `write_journal(core, ..., paths)` whenever the journal has any entries, even
   when it restored nothing and the marker did not change. After a successful

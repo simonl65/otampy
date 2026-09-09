@@ -351,6 +351,53 @@ def test_state_reports_stable_when_confirmed_or_absent(tmp_path):
     assert restore.state(core) == ("stable", 0)
 
 
+# =============================================================================
+# trial() -- per-boot counter with reboot-triggered auto-rollback
+# =============================================================================
+
+
+def test_trial_counts_then_rolls_back_past_the_limit(tmp_path):
+    core = _core(tmp_path, OTA_TRIAL_BOOTS=3)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    restore.write_journal(core, 0, [str(main)])
+
+    for expected in (1, 2, 3):
+        assert restore.trial(core) is None
+        assert restore.read_journal(core) == (
+            expected,
+            restore._STATE_TRIAL,
+            [str(main)],
+        )
+
+    # The 4th boot: 4 > 3 -> restore the previous generation and signal reset.
+    assert restore.trial(core) == restore._ROLLED_BACK
+    assert main.read_bytes() == b"previous-good"
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_trial_is_a_noop_when_confirmed(tmp_path, monkeypatch):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, restore._STATE_CONFIRMED, paths)
+
+    writes = []
+    monkeypatch.setattr(
+        restore, "write_journal", lambda *a, **kw: writes.append(a)
+    )
+
+    assert restore.trial(core) is None
+    assert writes == []
+
+
+def test_trial_is_a_noop_with_no_journal(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.trial(core) is None
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
 def test_repair_no_journal_is_noop(tmp_path):
     core = _core(tmp_path)
 

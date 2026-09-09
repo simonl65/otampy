@@ -226,7 +226,7 @@ new host config key.
     confirmed and when no journal.
   - Done when: those tests pass.
 
-- [ ] **4. `restore.trial()`**
+- [x] **4. `restore.trial()`**
   - What changes: add `trial(core)` per its contract row — `_DEFAULT_TRIAL_BOOTS`
     constant, `OTA_TRIAL_BOOTS` via `_get_config`, `_ROLLED_BACK` sentinel.
   - Test: `test_restore.py` — (a) `trial` journal at `0`, `OTA_TRIAL_BOOTS=3` →

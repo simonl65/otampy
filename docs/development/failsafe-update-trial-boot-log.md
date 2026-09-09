@@ -97,3 +97,29 @@ Added `_LABEL_STABLE = "stable"`; the trial label reuses `_STATE_TRIAL` since
 the strings are identical.
 
 **Evidence:** `test_restore.py` → 26 passed. `ruff` clean. Pre-flight → exit 0.
+
+---
+
+## Step 4 — `restore.trial()` (2026-09-09)
+
+The per-boot counter. Reads the journal; if a candidate is on trial,
+`attempt += 1`. Once `attempt` **exceeds** `OTA_TRIAL_BOOTS` (default 3, via
+`_get_config`), it calls `restore_all()` and returns `_ROLLED_BACK` so
+`boot.run()` (step 5) knows to `machine.reset()` onto the restored generation.
+Otherwise it persists the new count and returns `None`.
+
+Boundary chosen per the contract: `> limit`, not `>= limit`. With
+`OTA_TRIAL_BOOTS=3` the candidate gets boots 1, 2, 3 to prove itself, and the
+4th boot into it triggers the rollback. The warning logs `attempt - 1` (the
+number of *completed* failed boots).
+
+`_get_config` is left uncast (matches `boot.py:101`'s `OTA_TIMEOUT_MS` read) —
+`configota.py` is Python so the value is already an int; pyright flags a
+theoretical `None` but that only happens if a user explicitly sets the key to
+`None`, same exposure as every other numeric config key.
+
+**F-07 fixed** (steps 2 + 4): with `trial()` also writing on-change only, a
+normal stable boot now touches flash zero times for the journal. Marked
+`fixed` in the ledger — re-review at `/sl-findings review` before it closes.
+
+**Evidence:** `test_restore.py` → 29 passed. `ruff` clean. Pre-flight → exit 0.

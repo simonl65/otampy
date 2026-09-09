@@ -36,6 +36,14 @@ _STATE_CONFIRMED = "confirmed"
 # UPDATE_STATE label for a candidate that is no longer counting boots.
 _LABEL_STABLE = "stable"
 
+# Boots into an unconfirmed candidate before the device auto-restores the
+# previous generation. Overridden by the OTA_TRIAL_BOOTS config key.
+_DEFAULT_TRIAL_BOOTS = 3
+
+# trial() returns this so boot.run() knows to machine.reset() onto the
+# just-restored previous generation.
+_ROLLED_BACK = "rolled_back"
+
 
 def _journal_path(core):
     return _resolve_path(
@@ -238,6 +246,31 @@ def confirm(core):
     if state == _STATE_TRIAL:
         write_journal(core, _STATE_CONFIRMED, paths)
     return True
+
+
+def trial(core):
+    """Advance the trial-boot counter; auto-restore past the limit. Never raises.
+
+    Called from ``boot.run()`` on every boot. A no-op (returns ``None``, no
+    write) unless a candidate is on trial. Otherwise increments the counter;
+    once it exceeds ``OTA_TRIAL_BOOTS`` the whole previous generation is put
+    back via ``restore_all()`` and ``_ROLLED_BACK`` is returned so
+    ``boot.run()`` resets onto it. The trigger is therefore a reboot during
+    the trial window -- a crash, panic, brownout, watchdog, or power cycle.
+    """
+    attempt, st, paths = read_journal(core)
+    if st != _STATE_TRIAL:
+        return None
+    attempt += 1
+    limit = _get_config(core.config, "OTA_TRIAL_BOOTS", _DEFAULT_TRIAL_BOOTS)
+    if attempt > limit:
+        core.logger.warning(
+            f"trial: candidate failed {attempt - 1} boots, restoring previous"
+        )
+        restore_all(core)
+        return _ROLLED_BACK
+    write_journal(core, attempt, paths)
+    return None
 
 
 def state(core):

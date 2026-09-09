@@ -123,3 +123,29 @@ normal stable boot now touches flash zero times for the journal. Marked
 `fixed` in the ledger — re-review at `/sl-findings review` before it closes.
 
 **Evidence:** `test_restore.py` → 29 passed. `ruff` clean. Pre-flight → exit 0.
+
+---
+
+## Step 5 — wire `trial()` into `boot.run()` (2026-09-09)
+
+One block added straight after `repair(core)`: `trial(core)`, and on
+`_ROLLED_BACK` log a warning, `import machine`, `machine.reset()`, `return`.
+
+The `return` matters in tests only — `machine` is a module-global `MagicMock`
+(`conftest.py`), so `machine.reset()` does nothing and execution would fall
+through into the flag-file check without it. On hardware the reset never
+returns. Pyright now marks the post-`reset()` line unreachable, which is
+correct for the hardware path; left as-is.
+
+`_ROLLED_BACK` is imported alongside `repair`/`trial` in the existing local
+`from .restore import ...` so `restore` stays GC-eligible with `boot`.
+
+New boot tests use `import machine` + `machine.reset.reset_mock()` at the top
+of each (the mock is process-global, like `test_manager_auth.py` already
+does).
+
+**Do not HIL-deploy now** — per the spec, the device trial-counts after this
+step but nothing sends `CONFIRM` until step 8, so a mid-build CLI update would
+auto-roll-back after `OTA_TRIAL_BOOTS` power cycles.
+
+**Evidence:** `test_ota_boot.py` → 17 passed. `ruff` clean. Pre-flight → exit 0.

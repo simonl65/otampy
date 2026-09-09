@@ -236,7 +236,7 @@ new host config key.
     (c) no journal → `None`.
   - Done when: those tests pass.
 
-- [ ] **5. Wire `trial()` into `boot.run()`**
+- [x] **5. Wire `trial()` into `boot.run()`**
   - What changes: in `boot.run()`, after `repair(core)`, add
     `from .restore import trial` and
     `if trial(core) == _ROLLED_BACK:` → `core.logger.warning(...)`,

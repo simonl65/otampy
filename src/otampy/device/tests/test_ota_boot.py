@@ -4,9 +4,73 @@ import hashlib
 import os
 from unittest.mock import patch
 
+import machine
 import shared
 from device_otampy import boot, restore
 from device_otampy.core import OTACore
+
+
+def _no_flag_core(tmp_path, uart=None, logger=None):
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "nonexistent.flag"),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    return OTACore(
+        uart or shared.FakeUART(),
+        config=config,
+        logger=logger or shared.FakeLogger(),
+    )
+
+
+def test_boot_trial_rollback_restores_set_and_resets(tmp_path):
+    """No flag, trial journal at the limit -> whole set back, machine.reset()."""
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"bad-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 3, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"previous-good"
+    assert not (tmp_path / "otampy-update.journal").exists()
+    machine.reset.assert_called_once()
+
+
+def test_boot_trial_counts_without_reset(tmp_path):
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 0, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert restore.read_journal(core) == (1, restore._STATE_TRIAL, [str(main)])
+    assert main.read_bytes() == b"candidate"
+    machine.reset.assert_not_called()
+
+
+def test_boot_confirmed_journal_untouched_no_reset(tmp_path):
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    restore.write_journal(core, restore._STATE_CONFIRMED, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_CONFIRMED,
+        [str(main)],
+    )
+    machine.reset.assert_not_called()
 
 
 def test_boot_imports_staged_rtc_helper(monkeypatch):

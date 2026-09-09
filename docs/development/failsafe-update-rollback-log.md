@@ -60,3 +60,33 @@ Starting at build step 1 (`restore.rollback()`).
 All 5 build steps done. Ledger: F-08 (P2, open) untouched and out of scope
 (sub-task 4) — no P0/P1 open. Hardware HIL tests 1–4 pending (Simon, end of
 sub-task).
+
+## HIL — 2026-09-09
+
+Rig: Pico W on `/dev/ttyACM0` (raw provisioning), XBee gateway on
+`/dev/ttyUSB0` (OTA, default port). diff-drive-robot services stopped.
+Simon deployed the branch (`otampy deploy -p /dev/ttyACM0`); `otampy` is an
+editable install so `lib/otampy` carried the branch's `restore.py` /
+`manager.py`. Device config `OTA_TRIAL_BOOTS = 3`, no auth.
+
+Baseline after deploy: `ping` -> PONG; `state` -> "Running a confirmed
+(stable) build"; `ls /` -> `boot.py configota.py lib/ logs/ main.py` (no
+`.bck`, no journal). Candidate v2 = `examples/main.py` + a `# [HIL-ROLLBACK-V2]`
+marker line 1, sent as `<scratch>:main.py`.
+
+| Test | What it proves | Result |
+| --- | --- | --- |
+| 1. Revert a confirmed candidate | a confirmed, `.bck`-retained update reverts over the radio | **PASS** — `otampy upd v2` auto-confirmed (`state` -> stable, journal `confirmed`+`/main.py`, `main.py.bck` present, `/main.py` has the marker). `otampy rollback` -> prompt, "Rollback complete. The device is running the previous (stable) version." Then: `/main.py` marker **gone**, `ls /` **no `main.py.bck`, no `otampy-update.journal`**, `state` -> stable, `cat /otampy-update.journal` -> "No such file or directory". |
+| 2. Second rollback refuses without rebooting | nothing-to-revert is a clean no-op | **PASS** — immediate second `otampy rollback` -> `Rollback refused: Nothing to roll back`, process **exit 1** (verified without a masking pipe); `otampy ping` answered PONG in ~2.3 s (XBee handshake only, no reboot delay). |
+| 3. Revert an unconfirmed candidate | a trialling candidate is abandoned, not paused | **PASS** — `otampy upd --no-confirm v2` -> `state` "Candidate on trial (boot 1)", journal line 1 `1` + `/main.py`, marker present. `otampy rollback` -> marker gone, `state` -> stable, `ls /` no `.bck`/journal. |
+| 4. Replay floor survives the rollback reset | `_persist_replay_floor` runs before `machine.reset()` | **NOT RUN** — device `configota.py` has no `OTA_REQUIRE_AUTH`/`COMMAND_AUTH_KEY`; covered by `test_manager_auth.py::test_a_signed_rollback_persists_the_floor_before_resetting` (floor written at counter 4242 before the mocked reset). Deferred pending an auth-configured device.
+
+### Outcome
+
+HIL tests 1–3 (Simon's signed-off manual bar) pass. `ROLLBACK`'s
+`machine.reset()` fired as designed on both the confirmed and the trial path:
+the device came back on the restored generation with journal + `.bck` gone,
+no REPL, no manual recovery, reachable over the gateway. Device left clean:
+`/main.py` byte-identical to `examples/main.py` (= `develop` HEAD, no `main.py`
+change on this branch), no journal, no `.bck`, `state` -> stable. Test 4
+carried by the host unit test until an auth-configured rig is available.

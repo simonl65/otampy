@@ -430,9 +430,22 @@ def run(core, callback=None):
     # Finish or reverse an interrupted retain-previous commit before anything
     # else touches the filesystem -- runs on every boot, flagged or not.
     # Local import so it stays GC-eligible alongside `boot` itself.
-    from .restore import repair
+    from .restore import _ROLLED_BACK, repair, trial
 
     repair(core)
+
+    # Count this boot into any unconfirmed candidate. Past OTA_TRIAL_BOOTS
+    # reboots trial() has already restored the previous generation, so all
+    # that is left is to reset onto it. `return` because a mocked
+    # `machine.reset` in tests does not actually reset.
+    if trial(core) == _ROLLED_BACK:
+        core.logger.warning(
+            "Trial-boot limit exceeded; previous generation restored, resetting"
+        )
+        import machine
+
+        machine.reset()
+        return
 
     core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")

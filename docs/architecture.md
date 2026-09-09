@@ -123,11 +123,16 @@ OTA_BAUDRATE = 57600
 OTA_TIMEOUT_MS = 5000
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
 OTA_JOURNAL_FILE = "otampy-update.journal"
+OTA_TRIAL_BOOTS = 3
 ```
 
 `OTA_JOURNAL_FILE` (default `otampy-update.journal`, at the filesystem root)
 is the retain-previous commit journal. It must be a dedicated scratch path,
 never a real source file — a commit clobbers what it points at.
+
+`OTA_TRIAL_BOOTS` (default `3`) is how many boots into an unconfirmed update
+candidate the device tolerates before it auto-restores the previous
+generation. See "Trial boot" below.
 
 ### 2. Boot-Time Updates (`boot.py`)
 
@@ -173,6 +178,28 @@ run `boot.run()` — the shipped `main.py` scaffold also calls `OTA(...).recover
 once at startup, which runs the same `repair()`. `commit()` renames one file at
 a time, so at most one of `boot.py`/`main.py` is ever absent and the survivor
 restores the set. A custom `main.py` should keep that call.
+
+#### Trial boot, confirmation, and auto-restore
+
+`COMMIT_OK` does not make an update permanent. The committed candidate is on
+trial: `boot.run()` calls `restore.trial()` on every boot, which increments
+the journal's boot counter. Once the counter passes `OTA_TRIAL_BOOTS` the
+device runs `restore.restore_all()` — the whole previous generation renamed
+back from `.bck`, journal removed — and `machine.reset()`s onto it, with no
+host involvement.
+
+The auto-restore trigger is **a reboot during the trial window** — a crash,
+panic, brownout, watchdog, or manual power cycle. A candidate that hangs
+without resetting is not auto-restored; the application is expected to run its
+own watchdog to supply the reset (as `diff-drive-robot` does).
+
+The candidate leaves trial when the host sends `CONFIRM` (`otampy upd` does
+this after a post-reboot `PING` unless `--no-confirm`) or the application
+calls `ota.confirm()` after its own health check. Confirming flips the
+journal to `confirmed` and only stops the counter — the retained `.bck` set
+is kept until the next update's `UPDATE_START`, so the previous generation
+stays recoverable. A plain power cycle never rolls back a confirmed
+candidate.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

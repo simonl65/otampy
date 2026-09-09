@@ -68,6 +68,12 @@ def main():
     # itself was mid-replace, so boot.py never ran this boot.
     ota.recover()
 
+    # A freshly committed update is on trial: a reboot before it is confirmed
+    # auto-restores the previous version after OTA_TRIAL_BOOTS boots. `otampy
+    # upd` confirms it for you. If you drive updates another way, or want to
+    # gate on your own health check, call ota.confirm() once healthy:
+    # ota.confirm()
+
     # Cache attributes/methods to eliminate loop lookup overhead
     ota_poll = ota.poll
     do_app = do_application_stuff

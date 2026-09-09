@@ -183,6 +183,8 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `RTC`   | `RTC_OK:(year, month, day, weekday, hour, minute, second, subsecond)` | Return the raw RTC tuple without resetting the device. The CLI formats it for display. |
 | `RB`    | `RB_OK`                                                               | Trigger a hardware hard reboot (`machine.reset()`).                                    |
 | `SR`    | `SR_OK`                                                               | Trigger a soft reboot (`machine.soft_reset()`).                                        |
+| `CONFIRM` | `CONFIRM_OK`<br>`CONFIRM_ERR` | Take the running update candidate off trial (stop auto-rollback). Idempotent. `CONFIRM_ERR` only when a commit marker is still present. See §2.4. |
+| `UPDATE_STATE` | `STATE_OK:<trial\|stable>:<attempt>` | Read-only. Report whether the running build is on trial (with the boot count) or confirmed/stable (`0`). |
 
 ### 2.2 File System Commands
 
@@ -231,6 +233,38 @@ These commands handle the transition from runtime (`main.py`) to bootloader (`bo
 | `FILE_END`                            | Host   | `FILE_OK`<br>`FILE_ERR`        | Finalise current file. Device verifies SHA-256 checksum.                                                                            |
 | `UPDATE_ABORT`                        | Host   | `UPDATE_ABORTED`               | Cancel before commit. Device closes the active file, removes session staging files and the update flag, then continues normal boot. |
 | `UPDATE_COMMIT`                       | Host   | `COMMIT_OK`<br>`COMMIT_ERR`    | Complete update. All-or-nothing: device renames each target to `<target>.bck`, moves the `.ota` into place, and writes `OTA_JOURNAL_FILE`. On any failure the whole set is rolled back from `.bck` and `COMMIT_ERR` is returned. Then clears flag and reboots. |
+| `CONFIRM`                             | Host / app | `CONFIRM_OK`<br>`CONFIRM_ERR` | Take the just-committed candidate off trial. See the trial-boot lifecycle below. |
+| `UPDATE_STATE`                        | Host   | `STATE_OK:<trial\|stable>:<attempt>` | Read-only trial-state query. |
+
+#### Trial boot, confirmation, and auto-restore
+
+A committed update is **on trial**, not immediately permanent. `boot.py`
+counts every boot into an unconfirmed candidate in the retain-previous
+journal (line 1 holds the base-10 count). Once the count passes
+`OTA_TRIAL_BOOTS` (default `3`) the device restores the entire previous
+generation from its `.bck` files and reboots onto it, with no host
+involvement. The auto-restore trigger is therefore **a reboot during the
+trial window** — a crash to reset, a panic, a brownout, the application's
+watchdog firing, or a manual power cycle. A candidate that hangs without
+resetting is *not* auto-restored; run `otampy rollback` (planned) or use the
+boot-time recovery window. Applications are expected to run their own
+watchdog, which supplies the reset.
+
+A candidate leaves trial when:
+
+- the host sends `CONFIRM` — `otampy upd` does this automatically after a
+  post-reboot `PING` unless `--no-confirm` is given; or
+- the application calls `ota.confirm()` after its own health check.
+
+Confirming flips journal line 1 to `confirmed` and **only stops the counter**.
+It does not delete the retained `.bck` set — the previous generation stays
+recoverable until the next update's `UPDATE_START` clears it. `CONFIRM` is
+idempotent and returns `CONFIRM_ERR` only if a commit marker is still present
+(a commit is mid-flight).
+
+`CONFIRM` after `PING` is a shallow check: it proves the poll loop is
+reachable, not that the application logic is correct. A candidate that
+answers `PING` then misbehaves is already confirmed.
 
 ---
 
@@ -310,11 +344,17 @@ Before `UPDATE_COMMIT`, staged files never replace their targets. If the CLI det
 `UPDATE_COMMIT` is all-or-nothing. Before the first rename the device writes
 `OTA_JOURNAL_FILE` with a `committing` marker and the target list, renames each
 target to `<target>.bck` and the staged `.ota` into place, then flips the marker
-to `0`. If a rename fails, the whole set is rolled back from the `.bck` files and
-`COMMIT_ERR` is returned — the device stays entirely on the previous generation.
-If power is lost mid-commit, the marker survives and `boot.py`'s `repair()`
-restores every journalled `.bck` on the next boot. The device is therefore never
-left on a mixed-version tree within a single commit.
+to `0` — the start of the trial-boot count. If a rename fails, the whole set is
+rolled back from the `.bck` files and `COMMIT_ERR` is returned — the device
+stays entirely on the previous generation. If power is lost mid-commit, the
+marker survives and `boot.py`'s `repair()` restores every journalled `.bck` on
+the next boot. The device is therefore never left on a mixed-version tree
+within a single commit.
+
+`COMMIT_OK` does **not** make the update permanent — the candidate is on
+trial until `CONFIRM` (or `ota.confirm()`), and a reboot before then
+auto-restores the previous generation once the boot count passes
+`OTA_TRIAL_BOOTS`. See §2.4.
 
 This is still a sequence of ordinary `rename` calls, not one filesystem-atomic
 transaction: recovery is best-effort and converges over reboots. A hard

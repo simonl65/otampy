@@ -25,7 +25,24 @@ from .core import _get_config, _resolve_path
 _BACKUP_SUFFIX = ".bck"
 _DEFAULT_JOURNAL = "otampy-update.journal"
 _ATTEMPT_LINE_DEFAULT = 0
-_COMMIT_IN_PROGRESS = "committing"
+
+# Journal line 1 grammar. "committing" means a commit is partway through;
+# a base-10 integer is a committed candidate on trial, counting boots; and
+# "confirmed" means the candidate was accepted and is no longer counted.
+_STATE_COMMITTING = "committing"
+_STATE_TRIAL = "trial"
+_STATE_CONFIRMED = "confirmed"
+
+# UPDATE_STATE label for a candidate that is no longer counting boots.
+_LABEL_STABLE = "stable"
+
+# Boots into an unconfirmed candidate before the device auto-restores the
+# previous generation. Overridden by the OTA_TRIAL_BOOTS config key.
+_DEFAULT_TRIAL_BOOTS = 3
+
+# trial() returns this so boot.run() knows to machine.reset() onto the
+# just-restored previous generation.
+_ROLLED_BACK = "rolled_back"
 
 
 def _journal_path(core):
@@ -35,30 +52,34 @@ def _journal_path(core):
 
 
 def read_journal(core):
-    """Return ``(attempt, in_progress, paths)``. Never raises.
+    """Return ``(attempt, state, paths)``. Never raises.
 
-    A missing or empty journal is ``(0, False, [])``. A first line that is
-    neither the ``committing`` sentinel nor a base-10 integer is treated as
-    ``in_progress`` -- fail safe, meaning "restore everything".
+    ``state`` is one of ``_STATE_COMMITTING`` / ``_STATE_TRIAL`` /
+    ``_STATE_CONFIRMED``. A missing or empty journal is
+    ``(0, _STATE_CONFIRMED, [])`` -- nothing is on trial, so nothing counts it.
+    A first line that is none of the two sentinels nor a base-10 integer is
+    treated as ``committing`` -- fail safe, meaning "restore everything".
     """
     try:
         with open(_journal_path(core)) as handle:
             lines = handle.read().split("\n")
     except OSError:
-        return (_ATTEMPT_LINE_DEFAULT, False, [])
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, [])
 
     if not lines or not lines[0]:
-        return (_ATTEMPT_LINE_DEFAULT, False, [])
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, [])
 
     paths = [line for line in lines[1:] if line]
 
     first = lines[0]
-    if first == _COMMIT_IN_PROGRESS:
-        return (_ATTEMPT_LINE_DEFAULT, True, paths)
+    if first == _STATE_COMMITTING:
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_COMMITTING, paths)
+    if first == _STATE_CONFIRMED:
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, paths)
     try:
-        return (int(first), False, paths)
+        return (int(first), _STATE_TRIAL, paths)
     except ValueError:
-        return (_ATTEMPT_LINE_DEFAULT, True, paths)
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_COMMITTING, paths)
 
 
 def write_journal(core, line1, paths):
@@ -111,7 +132,7 @@ def commit(core, files, delete_paths):
     targets = [
         files[i] for i in range(0, len(files), 2) if _exists(files[i + 1])
     ]
-    write_journal(core, _COMMIT_IN_PROGRESS, targets)
+    write_journal(core, _STATE_COMMITTING, targets)
 
     done = []
     for i in range(0, len(files), 2):
@@ -148,43 +169,123 @@ def commit(core, files, delete_paths):
     return True
 
 
-def repair(core):
-    """Finish or reverse an interrupted commit. Never raises.
+def restore_all(core):
+    """Restore the whole retained generation, then discard the journal.
 
-    ``committing`` (or an unrecognised) line 1 means a commit was partway
-    through: restore **every** journalled path whose ``.bck`` exists, then
-    flip line 1 to ``0``. An integer line 1 means the commit finished: only
-    restore paths whose target vanished but whose ``.bck`` survived, and write
-    line 1 back unchanged (sub-task 2 will increment it).
+    Rename every journalled ``<path>.bck`` that exists back over its target
+    (removing a partial target first), then remove the journal file. Returns
+    the count restored. Never raises. Bounded by the journal length.
     """
-    attempt, in_progress, paths = read_journal(core)
-    if not paths:
-        return
-
+    _, _, paths = read_journal(core)
+    restored = 0
     for target in paths:
         backup = target + _BACKUP_SUFFIX
         if not _exists(backup):
             continue
-        if in_progress:
-            try:
-                _os.remove(target)
-            except OSError:
-                pass
-            try:
-                _os.rename(backup, target)
-                core.logger.info(f"repair: restored {target} from backup")
-            except OSError:
-                pass
-        elif not _exists(target):
+        try:
+            _os.remove(target)
+        except OSError:
+            pass
+        try:
+            _os.rename(backup, target)
+            core.logger.info(f"restore_all: restored {target} from backup")
+            restored += 1
+        except OSError:
+            pass
+    try:
+        _os.remove(_journal_path(core))
+    except OSError:
+        pass
+    return restored
+
+
+def repair(core):
+    """Finish or reverse an interrupted commit. Never raises.
+
+    ``committing`` (or an unrecognised) line 1 means a commit was partway
+    through: ``restore_all()`` puts the whole previous generation back and
+    removes the journal. A ``trial`` line 1 (an integer) means the commit
+    finished: only restore paths whose target vanished but whose ``.bck``
+    survived, and rewrite the journal **only if** something was restored
+    (F-07). ``confirmed`` or an empty journal is a no-op.
+    """
+    attempt, state, paths = read_journal(core)
+    if not paths or state == _STATE_CONFIRMED:
+        return
+    if state == _STATE_COMMITTING:
+        restore_all(core)
+        return
+
+    restored = False
+    for target in paths:
+        backup = target + _BACKUP_SUFFIX
+        if _exists(backup) and not _exists(target):
             try:
                 _os.rename(backup, target)
                 core.logger.info(f"repair: restored missing {target}")
+                restored = True
             except OSError:
                 pass
 
-    write_journal(
-        core, _ATTEMPT_LINE_DEFAULT if in_progress else attempt, paths
-    )
+    if restored:
+        write_journal(core, attempt, paths)
+
+
+def confirm(core):
+    """Take the running candidate off trial. Never raises.
+
+    Flips a ``trial`` journal's line 1 to ``confirmed``, keeping the retained
+    path list so the previous generation stays recoverable until the next
+    ``UPDATE_START``. Idempotent: ``True`` when the candidate is (now or
+    already) confirmed or there is nothing on trial; ``False`` only while a
+    commit marker is present.
+    """
+    _, state, paths = read_journal(core)
+    if state == _STATE_COMMITTING:
+        return False
+    if state == _STATE_TRIAL:
+        write_journal(core, _STATE_CONFIRMED, paths)
+    return True
+
+
+def trial(core):
+    """Advance the trial-boot counter; auto-restore past the limit. Never raises.
+
+    Called from ``boot.run()`` on every boot. A no-op (returns ``None``, no
+    write) unless a candidate is on trial. Otherwise increments the counter;
+    once it exceeds ``OTA_TRIAL_BOOTS`` the whole previous generation is put
+    back via ``restore_all()`` and ``_ROLLED_BACK`` is returned so
+    ``boot.run()`` resets onto it. The trigger is therefore a reboot during
+    the trial window -- a crash, panic, brownout, watchdog, or power cycle.
+    """
+    attempt, st, paths = read_journal(core)
+    if st != _STATE_TRIAL:
+        return None
+    attempt += 1
+    limit = _get_config(core.config, "OTA_TRIAL_BOOTS", _DEFAULT_TRIAL_BOOTS)
+    if attempt > limit:
+        core.logger.warning(
+            f"trial: candidate failed {attempt - 1} boots, restoring previous"
+        )
+        restore_all(core)
+        return _ROLLED_BACK
+    write_journal(core, attempt, paths)
+    return None
+
+
+def state(core):
+    """Return ``(label, attempt)`` for ``UPDATE_STATE``. Never raises.
+
+    ``("trial", n)`` while a candidate is counting boots, ``("stable", 0)``
+    once confirmed or with no journal. A stray ``committing`` marker (not seen
+    at runtime -- ``repair()`` clears it first) reports ``("trial", 0)``.
+    """
+    attempt, st, _ = read_journal(core)
+    if st == _STATE_TRIAL:
+        return (_STATE_TRIAL, attempt)
+    if st == _STATE_COMMITTING:
+        return (_STATE_TRIAL, 0)
+    return (_LABEL_STABLE, 0)
 
 
 def _rollback(done):

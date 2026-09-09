@@ -99,6 +99,18 @@ def test_recover_delegates_to_restore_repair():
     mock_repair.assert_called_once_with(ota._core)
 
 
+def test_confirm_delegates_to_restore_confirm():
+    """The app calls ota.confirm() after its own health check to take the
+    running candidate off trial."""
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+
+    with patch("device_otampy.restore.confirm", return_value=True) as mock:
+        assert ota.confirm() is True
+
+    mock.assert_called_once_with(ota._core)
+
+
 def test_recover_clears_the_stale_update_flag(tmp_path):
     """The interrupted boot.run() never removed the flag; recover() must, so
     the next boot skips the dead update loop."""

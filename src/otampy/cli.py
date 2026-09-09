@@ -1234,6 +1234,42 @@ def ping(ctx: click.Context) -> None:
     _console().print("[green]Success: Received PONG from device.[/green]")
 
 
+@cli.command(name="confirm")
+@click.pass_context
+def confirm(ctx: click.Context) -> None:
+    """Take the running update candidate off trial (stop auto-rollback)."""
+    _console().print("[yellow]Confirming the running update...[/yellow]")
+    try:
+        _send_command(ctx, b"CONFIRM", b"CONFIRM_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+    _console().print("[green]Candidate confirmed (no longer on trial).[/green]")
+
+
+@cli.command(name="state")
+@click.pass_context
+def state(ctx: click.Context) -> None:
+    """Report whether the running build is on trial or confirmed (stable)."""
+    try:
+        payload, _ = _query(ctx, b"UPDATE_STATE", b"STATE_OK")
+    except DeviceError as e:
+        _handle_device_error(e)
+        return
+    try:
+        label, attempt = payload.decode().split(":")
+    except ValueError as e:
+        raise click.ClickException(
+            "Invalid UPDATE_STATE response from device."
+        ) from e
+    if label == "trial":
+        _console().print(
+            f"Candidate on trial (boot {attempt}) -- auto-restores the "
+            "previous version on the next reboot past OTA_TRIAL_BOOTS."
+        )
+    else:
+        _console().print("Running a confirmed (stable) build.")
+
+
 @cli.command(name="rtc")
 @click.pass_context
 def rtc(ctx: click.Context) -> None:
@@ -2052,6 +2088,15 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     is_flag=True,
     help="Report one plain line per file instead of transfer progress.",
 )
+@click.option(
+    "--no-confirm",
+    is_flag=True,
+    help=(
+        "Do not auto-confirm the update. It stays on trial and auto-restores "
+        "the previous version after OTA_TRIAL_BOOTS reboots unless you run "
+        "'otampy confirm' or the application calls ota.confirm()."
+    ),
+)
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
@@ -2064,6 +2109,7 @@ def update(
     all_files: bool,
     no_rtc: bool,
     no_progress: bool,
+    no_confirm: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -2187,7 +2233,12 @@ def update(
                     artifact.write_bytes(source.read_bytes())
                     staged.append((target_path, artifact))
             _update_files(
-                ctx, staged, no_rtc, delete_paths, progress=not no_progress
+                ctx,
+                staged,
+                no_rtc,
+                delete_paths,
+                progress=not no_progress,
+                no_confirm=no_confirm,
             )
         return
 
@@ -2205,6 +2256,7 @@ def update(
             no_rtc,
             bytecode_cleanup_paths,
             progress=not no_progress,
+            no_confirm=no_confirm,
         )
 
 
@@ -2214,6 +2266,7 @@ def _update_files(
     no_rtc: bool = False,
     delete_paths: list[str] | None = None,
     progress: bool = True,
+    no_confirm: bool = False,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
@@ -2418,6 +2471,50 @@ def _update_files(
         raise
     finally:
         ser.close()
+
+    _post_commit_confirm(ctx, no_confirm)
+
+
+def _post_commit_confirm(ctx: click.Context, no_confirm: bool) -> None:
+    """Take the just-committed candidate off trial (docs/protocol.md §2.4).
+
+    A committed update is on trial until something sends ``CONFIRM``; a reboot
+    during the trial window auto-restores the previous generation. By default
+    ``upd`` waits for the rebooted candidate to answer ``PING`` and then
+    sends ``CONFIRM``. ``--no-confirm`` leaves confirmation to the application
+    (``ota.confirm()``) or a later ``otampy confirm``.
+    """
+    if no_confirm:
+        _console().print(
+            "[yellow]Update is on trial (not confirmed). It auto-restores the "
+            "previous version after OTA_TRIAL_BOOTS reboots -- run "
+            "'otampy confirm' or call ota.confirm() once healthy.[/yellow]"
+        )
+        return
+
+    import time
+
+    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    backoff = float(get_config_value("query_retry_backoff_seconds"))
+    start = time.time()
+    _console().print("Waiting for the updated device to answer...")
+    while True:
+        try:
+            _query(ctx, b"PING", b"PONG")
+            break
+        except (click.ClickException, DeviceError):
+            if time.time() - start >= timeout:
+                raise click.ClickException(
+                    "Update committed but the device did not come back "
+                    f"healthy (no PONG within {timeout:.0f}s). The candidate "
+                    "is NOT confirmed and will auto-restore the previous "
+                    "version after OTA_TRIAL_BOOTS reboots. Investigate or "
+                    "re-deploy."
+                ) from None
+            time.sleep(backoff)
+
+    _send_command(ctx, b"CONFIRM", b"CONFIRM_OK")
+    _console().print("[green]Candidate confirmed.[/green]")
 
 
 @cli.command(name="ports")

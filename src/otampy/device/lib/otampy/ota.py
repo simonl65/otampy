@@ -73,6 +73,19 @@ class OTA:
             except OSError:
                 pass
 
+    def confirm(self):
+        """Take the running update candidate off trial. Never raises.
+
+        Call after the application's own health check has passed, if you do
+        not rely on ``otampy upd`` to send ``CONFIRM`` for you. Stops the
+        trial-boot counter so a later reboot no longer auto-restores the
+        previous generation; the retained ``.bck`` set is kept until the next
+        update. Returns ``True`` unless a commit is mid-flight.
+        """
+        from .restore import confirm
+
+        return confirm(self._core)
+
     def poll(self, callback=None, heartbeat=None):
         """
         Call from main.py loop. Polls UART transport for incoming OTA commands.

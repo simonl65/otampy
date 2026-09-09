@@ -17,34 +17,55 @@ def _core(tmp_path, **extra):
 
 
 def test_journal_round_trip(tmp_path):
+    """An integer line 1 is a committed candidate on trial."""
     core = _core(tmp_path)
     paths = [str(tmp_path / "main.py"), str(tmp_path / "lib" / "sensor.py")]
 
     assert restore.write_journal(core, 0, paths) is True
 
-    assert restore.read_journal(core) == (0, False, paths)
+    assert restore.read_journal(core) == (0, restore._STATE_TRIAL, paths)
+
+
+def test_journal_round_trip_counter_carries_attempt(tmp_path):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+
+    assert restore.write_journal(core, 2, paths) is True
+
+    assert restore.read_journal(core) == (2, restore._STATE_TRIAL, paths)
 
 
 def test_journal_round_trip_in_progress(tmp_path):
     core = _core(tmp_path)
     paths = [str(tmp_path / "main.py")]
 
-    assert restore.write_journal(core, restore._COMMIT_IN_PROGRESS, paths)
+    assert restore.write_journal(core, restore._STATE_COMMITTING, paths)
 
-    assert restore.read_journal(core) == (0, True, paths)
+    assert restore.read_journal(core) == (0, restore._STATE_COMMITTING, paths)
+
+
+def test_journal_round_trip_confirmed(tmp_path):
+    """A confirmed candidate keeps its path list but stops trial counting."""
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+
+    assert restore.write_journal(core, restore._STATE_CONFIRMED, paths)
+
+    assert restore.read_journal(core) == (0, restore._STATE_CONFIRMED, paths)
 
 
 def test_journal_missing_file_reads_empty(tmp_path):
+    """No journal means nothing on trial, so the state is "confirmed"."""
     core = _core(tmp_path)
 
-    assert restore.read_journal(core) == (0, False, [])
+    assert restore.read_journal(core) == (0, restore._STATE_CONFIRMED, [])
 
 
 def test_journal_empty_file_reads_empty(tmp_path):
     core = _core(tmp_path)
     (tmp_path / "otampy-update.journal").write_text("")
 
-    assert restore.read_journal(core) == (0, False, [])
+    assert restore.read_journal(core) == (0, restore._STATE_CONFIRMED, [])
 
 
 def test_journal_malformed_first_line_is_in_progress(tmp_path):
@@ -52,7 +73,11 @@ def test_journal_malformed_first_line_is_in_progress(tmp_path):
     core = _core(tmp_path)
     (tmp_path / "otampy-update.journal").write_text("garbage\n/main.py\n")
 
-    assert restore.read_journal(core) == (0, True, ["/main.py"])
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_COMMITTING,
+        ["/main.py"],
+    )
 
 
 def test_journal_uses_default_path_when_unconfigured(tmp_path, monkeypatch):
@@ -130,7 +155,7 @@ def test_commit_success_multi_file(tmp_path):
     assert Path(t1 + ".bck").read_bytes() == b"old-main"
     assert Path(t2 + ".bck").read_bytes() == b"old-sensor"
     assert not (tmp_path / "main.py.ota").exists()
-    assert restore.read_journal(core) == (0, False, [t1, t2])
+    assert restore.read_journal(core) == (0, restore._STATE_TRIAL, [t1, t2])
 
 
 def test_commit_rolls_back_whole_set_on_rename_failure(tmp_path, monkeypatch):
@@ -155,7 +180,7 @@ def test_commit_rolls_back_whole_set_on_rename_failure(tmp_path, monkeypatch):
     assert Path(t1).read_bytes() == b"old-main"
     assert Path(t2).read_bytes() == b"old-sensor"
     # Journal stays "committing" so a later repair() finishes the reversal.
-    assert restore.read_journal(core)[1] is True
+    assert restore.read_journal(core)[1] == restore._STATE_COMMITTING
 
 
 def test_commit_applies_delete_paths_and_their_backups(tmp_path):
@@ -177,7 +202,7 @@ def test_commit_applies_delete_paths_and_their_backups(tmp_path):
 # =============================================================================
 
 
-def test_repair_committing_restores_whole_set(tmp_path):
+def test_restore_all_restores_whole_set_and_removes_journal(tmp_path):
     core = _core(tmp_path)
     main = tmp_path / "main.py"
     sensor = tmp_path / "lib" / "sensor.py"
@@ -187,14 +212,56 @@ def test_repair_committing_restores_whole_set(tmp_path):
     (tmp_path / "main.py.bck").write_bytes(b"good-main")
     (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"good-sensor")
     restore.write_journal(
-        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+        core, restore._STATE_COMMITTING, [str(main), str(sensor)]
+    )
+
+    assert restore.restore_all(core) == 2
+
+    assert main.read_bytes() == b"good-main"
+    assert sensor.read_bytes() == b"good-sensor"
+    assert not (tmp_path / "main.py.bck").exists()
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_repair_committing_delegates_to_restore_all(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "lib" / "sensor.py"
+    sensor.parent.mkdir()
+    main.write_bytes(b"half-new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"good-sensor")
+    restore.write_journal(
+        core, restore._STATE_COMMITTING, [str(main), str(sensor)]
     )
 
     restore.repair(core)
 
     assert main.read_bytes() == b"good-main"
     assert sensor.read_bytes() == b"good-sensor"
-    assert restore.read_journal(core) == (0, False, [str(main), str(sensor)])
+    assert restore.read_journal(core) == (0, restore._STATE_CONFIRMED, [])
+
+
+def test_repair_trial_all_targets_present_does_not_write(tmp_path, monkeypatch):
+    """F-07: a boot after a clean update must not rewrite the journal."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"live-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, 0, [str(main)])
+
+    writes = []
+    real_write = restore.write_journal
+    monkeypatch.setattr(
+        restore,
+        "write_journal",
+        lambda *a, **kw: writes.append(a) or real_write(*a, **kw),
+    )
+
+    restore.repair(core)
+
+    assert writes == []
+    assert restore.read_journal(core) == (0, restore._STATE_TRIAL, [str(main)])
 
 
 def test_repair_finished_restores_only_missing_target(tmp_path):
@@ -207,7 +274,7 @@ def test_repair_finished_restores_only_missing_target(tmp_path):
 
     assert main.read_bytes() == b"good-main"
     # Counter written back unchanged.
-    assert restore.read_journal(core) == (3, False, [str(main)])
+    assert restore.read_journal(core) == (3, restore._STATE_TRIAL, [str(main)])
 
 
 def test_repair_finished_is_noop_when_target_present(tmp_path):
@@ -220,6 +287,115 @@ def test_repair_finished_is_noop_when_target_present(tmp_path):
     restore.repair(core)
 
     assert main.read_bytes() == b"live-main"
+
+
+# =============================================================================
+# confirm() and state()
+# =============================================================================
+
+
+def test_confirm_flips_trial_to_confirmed_and_keeps_paths(tmp_path):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, 2, paths)
+
+    assert restore.confirm(core) is True
+
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_CONFIRMED,
+        paths,
+    )
+
+
+def test_confirm_is_idempotent(tmp_path):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, 1, paths)
+
+    assert restore.confirm(core) is True
+    assert restore.confirm(core) is True
+    assert restore.read_journal(core)[1] == restore._STATE_CONFIRMED
+
+
+def test_confirm_with_no_journal_returns_true(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.confirm(core) is True
+
+
+def test_confirm_during_commit_returns_false(tmp_path):
+    core = _core(tmp_path)
+    restore.write_journal(
+        core, restore._STATE_COMMITTING, [str(tmp_path / "main.py")]
+    )
+
+    assert restore.confirm(core) is False
+    assert restore.read_journal(core)[1] == restore._STATE_COMMITTING
+
+
+def test_state_reports_trial_count(tmp_path):
+    core = _core(tmp_path)
+    restore.write_journal(core, 2, [str(tmp_path / "main.py")])
+
+    assert restore.state(core) == ("trial", 2)
+
+
+def test_state_reports_stable_when_confirmed_or_absent(tmp_path):
+    core = _core(tmp_path)
+    assert restore.state(core) == ("stable", 0)
+
+    restore.write_journal(
+        core, restore._STATE_CONFIRMED, [str(tmp_path / "main.py")]
+    )
+    assert restore.state(core) == ("stable", 0)
+
+
+# =============================================================================
+# trial() -- per-boot counter with reboot-triggered auto-rollback
+# =============================================================================
+
+
+def test_trial_counts_then_rolls_back_past_the_limit(tmp_path):
+    core = _core(tmp_path, OTA_TRIAL_BOOTS=3)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    restore.write_journal(core, 0, [str(main)])
+
+    for expected in (1, 2, 3):
+        assert restore.trial(core) is None
+        assert restore.read_journal(core) == (
+            expected,
+            restore._STATE_TRIAL,
+            [str(main)],
+        )
+
+    # The 4th boot: 4 > 3 -> restore the previous generation and signal reset.
+    assert restore.trial(core) == restore._ROLLED_BACK
+    assert main.read_bytes() == b"previous-good"
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_trial_is_a_noop_when_confirmed(tmp_path, monkeypatch):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, restore._STATE_CONFIRMED, paths)
+
+    writes = []
+    monkeypatch.setattr(
+        restore, "write_journal", lambda *a, **kw: writes.append(a)
+    )
+
+    assert restore.trial(core) is None
+    assert writes == []
+
+
+def test_trial_is_a_noop_with_no_journal(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.trial(core) is None
+    assert not (tmp_path / "otampy-update.journal").exists()
 
 
 def test_repair_no_journal_is_noop(tmp_path):

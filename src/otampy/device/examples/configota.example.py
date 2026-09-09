@@ -11,6 +11,9 @@ OTA_RX_PIN = 5
 OTA_BAUDRATE = 57600  # 115200 is unreliable with old XBee-Pro's
 # Abort an interrupted boot-time update after this period without a packet.
 OTA_TIMEOUT_MS = 5000
+# Boots into an unconfirmed update candidate before the device auto-restores
+# the previous version. `otampy upd` confirms automatically; see docs 2.4.
+OTA_TRIAL_BOOTS = 3
 
 # --- Command authentication (optional; see docs/protocol.md 1.2) -------------
 # Unset, the device accepts commands from anything that can reach the UART.

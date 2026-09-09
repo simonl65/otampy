@@ -4,9 +4,73 @@ import hashlib
 import os
 from unittest.mock import patch
 
+import machine
 import shared
 from device_otampy import boot, restore
 from device_otampy.core import OTACore
+
+
+def _no_flag_core(tmp_path, uart=None, logger=None):
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "nonexistent.flag"),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+    }
+    return OTACore(
+        uart or shared.FakeUART(),
+        config=config,
+        logger=logger or shared.FakeLogger(),
+    )
+
+
+def test_boot_trial_rollback_restores_set_and_resets(tmp_path):
+    """No flag, trial journal at the limit -> whole set back, machine.reset()."""
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"bad-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 3, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert main.read_bytes() == b"previous-good"
+    assert not (tmp_path / "otampy-update.journal").exists()
+    machine.reset.assert_called_once()
+
+
+def test_boot_trial_counts_without_reset(tmp_path):
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 0, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert restore.read_journal(core) == (1, restore._STATE_TRIAL, [str(main)])
+    assert main.read_bytes() == b"candidate"
+    machine.reset.assert_not_called()
+
+
+def test_boot_confirmed_journal_untouched_no_reset(tmp_path):
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    restore.write_journal(core, restore._STATE_CONFIRMED, [str(main)])
+
+    boot.run(core, callback=None)
+
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_CONFIRMED,
+        [str(main)],
+    )
+    machine.reset.assert_not_called()
 
 
 def test_boot_imports_staged_rtc_helper(monkeypatch):
@@ -180,7 +244,7 @@ def test_boot_handles_full_update_session(tmp_path):
     assert (tmp_path / "lib" / "helper.py.bck").read_bytes() == b"OLD helper"
     assert restore.read_journal(core) == (
         0,
-        False,
+        restore._STATE_TRIAL,
         [str(target_main), str(target_lib)],
     )
 
@@ -352,14 +416,15 @@ def test_boot_reverses_interrupted_commit(tmp_path):
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(
-        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+        core, restore._STATE_COMMITTING, [str(main), str(sensor)]
     )
 
     boot.run(core, callback=None)
 
     assert main.read_bytes() == b"good-main"
     assert sensor.read_bytes() == b"good-sensor"
-    assert restore.read_journal(core)[1] is False
+    # restore_all() removes the journal outright once the set is back.
+    assert restore.read_journal(core)[1] == restore._STATE_CONFIRMED
 
 
 def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
@@ -469,7 +534,11 @@ def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
     assert (tmp_path / "_otampy_set_rtc.py").read_bytes() == payload_rtc
     # ...but never retained or journalled.
     assert not (tmp_path / "_otampy_set_rtc.py.bck").exists()
-    assert restore.read_journal(core) == (0, False, [str(target_main)])
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_TRIAL,
+        [str(target_main)],
+    )
     # The real target still got its backup.
     assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
 

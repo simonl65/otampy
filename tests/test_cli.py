@@ -596,6 +596,39 @@ def test_cli_ping():
         mock_device_instance.send.assert_called_once_with(b"PING")
 
 
+def test_cli_confirm():
+    """The 'confirm' command takes the running candidate off trial."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = b"CONFIRM_OK"
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "confirm"])
+
+    assert result.exit_code == 0
+    assert "Candidate confirmed" in result.output
+    mock_device.return_value.send.assert_called_once_with(b"CONFIRM")
+
+
+def test_cli_state_renders_trial_and_stable():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        mock_device.return_value.read.return_value = b"STATE_OK:trial:2"
+        trial_result = runner.invoke(cli, ["-p", "/dev/ttyFake", "state"])
+
+        mock_device.return_value.read.return_value = b"STATE_OK:stable:0"
+        stable_result = runner.invoke(cli, ["-p", "/dev/ttyFake", "state"])
+
+    assert trial_result.exit_code == 0
+    assert "on trial (boot 2)" in trial_result.output
+    assert stable_result.exit_code == 0
+    assert "confirmed (stable) build" in stable_result.output
+
+
 def test_cli_rtc_displays_device_timestamp():
     """Test the read-only 'rtc' command."""
     runner = CliRunner()
@@ -1438,7 +1471,12 @@ def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
     assert result.exit_code == 0
     assert "Matching bytecode artifacts correspond" in result.output
     update_files.assert_called_once_with(
-        mock.ANY, files, False, ["configota.mpy"], progress=True
+        mock.ANY,
+        files,
+        False,
+        ["configota.mpy"],
+        progress=True,
+        no_confirm=False,
     )
 
 
@@ -1485,7 +1523,12 @@ def test_update_keeps_startup_helper_when_its_cleanup_is_declined(monkeypatch):
 
     assert result.exit_code == 0
     update_files.assert_called_once_with(
-        mock.ANY, files, False, [], progress=True
+        mock.ANY,
+        files,
+        False,
+        [],
+        progress=True,
+        no_confirm=False,
     )
 
 
@@ -1505,7 +1548,12 @@ def test_update_passes_no_progress_through_to_the_transfer(monkeypatch):
 
     assert result.exit_code == 0
     update_files.assert_called_once_with(
-        mock.ANY, files, False, [], progress=False
+        mock.ANY,
+        files,
+        False,
+        [],
+        progress=False,
+        no_confirm=False,
     )
 
 
@@ -1941,6 +1989,8 @@ def test_cli_update_handshake():
             b"CHUNK_ACK:1",
             b"FILE_OK",
             b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
         ]
 
         result = runner.invoke(
@@ -1996,6 +2046,8 @@ def test_cli_update_handshake_no_rtc():
             b"CHUNK_ACK:0",
             b"FILE_OK",
             b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
         ]
 
         result = runner.invoke(
@@ -2082,6 +2134,8 @@ def test_cli_update_full_transfer():
             b"CHUNK_ACK:0",
             b"FILE_OK",
             b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
         ]
 
         result = runner.invoke(
@@ -2105,6 +2159,97 @@ def test_cli_update_full_transfer():
         mock_device_instance.send.assert_any_call(b"UPDATE_REQUEST")
         mock_device_instance.send.assert_any_call(b"UPDATE_START:2:37")
         mock_device_instance.send.assert_any_call(b"UPDATE_COMMIT")
+        # After COMMIT_OK the CLI reconnects, PINGs, and CONFIRMs the candidate.
+        mock_device_instance.send.assert_any_call(b"CONFIRM")
+        assert "Candidate confirmed." in result.output
+
+
+def _upd_session_mocks():
+    from pathlib import Path
+
+    mock_files = [("test.py", Path("/tmp/test.py"))]
+
+    class MockFile:
+        def read(self):
+            return b"print('test')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    return mock_files, MockFile
+
+
+def test_upd_no_confirm_skips_confirm_and_exits_zero():
+    runner = CliRunner()
+    mock_files, MockFile = _upd_session_mocks()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch("otampy.cli._get_files_to_send", return_value=mock_files),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "upd", "--no-confirm"]
+        )
+
+    assert result.exit_code == 0, result.output
+    sent = [c.args[0] for c in mock_device.return_value.send.call_args_list]
+    assert b"CONFIRM" not in sent
+    assert "on trial" in result.output
+
+
+def test_upd_warns_and_fails_when_candidate_never_answers(monkeypatch):
+    runner = CliRunner()
+    mock_files, MockFile = _upd_session_mocks()
+    # A fake monotonic clock that jumps past the confirm timeout on the
+    # second reading, so the "never answers" branch is reached fast.
+    clock = iter([0.0] * 3 + [10_000.0] * 50)
+    monkeypatch.setattr("time.time", lambda: next(clock))
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch("otampy.cli._get_files_to_send", return_value=mock_files),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+        ] + [None] * 20
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+    assert result.exit_code != 0
+    assert "NOT confirmed" in result.output
+    sent = [c.args[0] for c in mock_device.return_value.send.call_args_list]
+    assert b"CONFIRM" not in sent
 
 
 def test_update_caps_legacy_chunk_size_to_single_urst_frame(monkeypatch):
@@ -2121,6 +2266,8 @@ def test_update_caps_legacy_chunk_size_to_single_urst_frame(monkeypatch):
         b"CHUNK_ACK:1",
         b"FILE_OK",
         b"COMMIT_OK",
+        b"PONG",
+        b"CONFIRM_OK",
     ]
     monkeypatch.setattr("otampy.cli._device_has_bytecode", lambda _ctx: False)
     monkeypatch.setattr(
@@ -2256,6 +2403,8 @@ def test_cli_update_retries_read_through_late_reply_without_resending():
             b"CHUNK_ACK:0",
             b"FILE_OK",
             b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
         ]
 
         result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--no-rtc"])

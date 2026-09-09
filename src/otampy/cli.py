@@ -6,7 +6,7 @@ import importlib.resources
 import logging
 import tempfile
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1032,12 +1032,18 @@ def _query(
     command: bytes,
     expected_prefix: bytes,
     transport: Urst | None = None,
+    *,
+    fast: bool = False,
 ) -> tuple[bytes, Urst | None]:
     """Query device. If transport is provided, reuse it; otherwise create new.
 
     Returns: (response_data, transport_to_close_or_none)
     If transport was provided, returns (data, None) - caller manages connection.
     If transport was created, returns (data, transport) - caller should close it.
+
+    ``fast=True`` makes a single connection attempt with no ``query_retries``
+    loop and no backoff, so ``_recover_query`` can re-issue the command several
+    times a second against the ~1s boot window (F-10).
     """
     if not ctx.obj.get("port"):
         raise click.ClickException(
@@ -1103,7 +1109,7 @@ def _query(
 
     # Create new transport with retry logic
     last_err = None
-    query_retries = int(get_config_value("query_retries"))
+    query_retries = 1 if fast else int(get_config_value("query_retries"))
     retry_backoff = float(get_config_value("query_retry_backoff_seconds"))
 
     for attempt in range(query_retries):
@@ -1218,6 +1224,33 @@ def _send_command(
     _query(ctx, command, expected_response)
 
 
+# The boot window is ~1s. A normal CONNECT against an absent device costs
+# MAX_RETRIES+1 (=4) attempts x ACK_TIMEOUT_MS (=1000) ~= 4s, so the host would
+# put a CONNECT on the wire only every ~12s (once _query's own retries are
+# counted) and almost never land inside a window (F-10). Under
+# _fast_recovery_handshake() a failed CONNECT costs ~240ms, so the blind retry
+# fires several times a second and a power-cycle reliably lands -- while 2 ACK
+# attempts still leave margin for the in-window ROLLBACK/REBOOTING reply.
+_RECOVERY_ACK_TIMEOUT_MS = 120
+_RECOVERY_MAX_RETRIES = 1
+
+
+@contextmanager
+def _fast_recovery_handshake():
+    """Shrink URST's handshake/ACK timing to a fail-fast profile, restored on
+    exit. Scoped to the ``_recover_query`` poll only -- the wider timings are
+    correct for every other command, which talks to a device that is up."""
+    from urst import constants as urst_constants
+
+    saved = (urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES)
+    urst_constants.ACK_TIMEOUT_MS = _RECOVERY_ACK_TIMEOUT_MS
+    urst_constants.MAX_RETRIES = _RECOVERY_MAX_RETRIES
+    try:
+        yield
+    finally:
+        urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES = saved
+
+
 def _recover_query(
     ctx: click.Context, command: bytes, expected_prefix: bytes
 ) -> bytes:
@@ -1225,7 +1258,8 @@ def _recover_query(
 
     The window is silent and short (``OTA_BOOT_LISTEN_MS``, ~1s per boot, see
     docs/protocol.md 2.4), so there is nothing to synchronise on: the host
-    prompts for a power cycle and then blind-retries ``_query`` until one
+    prompts for a power cycle and then blind-retries ``_query`` -- with a
+    fail-fast handshake (F-10) so it fires several times a second -- until one
     attempt lands inside a window or ``recovery_wait_seconds`` expires. A
     missed window is benign -- the operator power-cycles again.
 
@@ -1241,19 +1275,20 @@ def _recover_query(
         "command again and power-cycle when prompted."
     )
     start = time.time()
-    while True:
-        try:
-            payload, _ = _query(ctx, command, expected_prefix)
-            return payload
-        except click.ClickException:
-            if time.time() - start >= wait:
-                raise click.ClickException(
-                    f"No recovery window answered '{command.decode()}' within "
-                    f"{wait:.0f}s. Power-cycle the device and try again, or "
-                    "raise the wait with 'otampy config --set recovery-wait "
-                    "<seconds>'."
-                ) from None
-            time.sleep(backoff)
+    with _fast_recovery_handshake():
+        while True:
+            try:
+                payload, _ = _query(ctx, command, expected_prefix, fast=True)
+                return payload
+            except click.ClickException:
+                if time.time() - start >= wait:
+                    raise click.ClickException(
+                        f"No recovery window answered '{command.decode()}' "
+                        f"within {wait:.0f}s. Power-cycle the device and try "
+                        "again, or raise the wait with 'otampy config --set "
+                        "recovery-wait <seconds>'."
+                    ) from None
+                time.sleep(backoff)
 
 
 def _stage_rtc_update(ctx: click.Context) -> None:

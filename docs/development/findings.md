@@ -12,7 +12,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-10 — the boot-time recovery window is unhittable in practice: host blind-retry cadence (~12 s) vs a 1 s window
 
 - **Severity:** P1
-- **Status:** open
+- **Status:** fixed (awaiting re-review + HIL re-test)
 - **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
   URST-handshake path it drives); interacts with
   `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
@@ -50,6 +50,19 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   in favour of "silent window + host blind-retry" (spec §"Protocol decision" /
   D2) should be revisited in light of this: blind retry is viable, but only if
   the host retries an order of magnitude faster than it does today.
+- **Fix applied (2026-09-09, step 9):** `_recover_query` now runs its poll under
+  `_fast_recovery_handshake()` — `urst.constants.ACK_TIMEOUT_MS` 1000 → 120,
+  `MAX_RETRIES` 3 → 1, restored on exit — and calls `_query(fast=True)`, which
+  skips the inner `query_retries` loop and its backoff. Host CONNECT cadence
+  goes from ~1 per 12 s to several per second against the ~1 s window. Blind
+  retry is kept (the Protocol-decision D2 call stands); it is now fast enough
+  to be the mechanism it was signed off as. Verified by unit tests; **HIL
+  re-test of tests 1/2/5/6 still outstanding** before this clears.
+- **Edge noted, not fixed:** if the in-window ROLLBACK lands and the device
+  resets but its reply is lost, the CLI retries and then reports "Nothing to
+  roll back" (exit 1) though the rollback actually succeeded. Pre-existing to
+  the blind-retry design; `MAX_RETRIES = 1` (2 ACK attempts) narrows it. The
+  post-command `_wait_for_pong` still confirms real health.
 
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 

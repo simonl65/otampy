@@ -351,3 +351,32 @@ no operator action beyond the power cycles. The backstop works.
 - Note: `/dev/ttyACM0` threw `OSError: [Errno 5]` during a diagnostic mpremote
   call (after many power cycles) — the gateway `/dev/ttyUSB0` was unaffected and
   all verification above is over it.
+
+### Step 9 — F-10 fix (host-side, no rig)
+
+`urst.constants` has no per-instance override for handshake timing, and the
+house rule is to not fork URST — so `_recover_query` temporarily rebinds two
+module constants for its poll and restores them in a `finally`:
+
+- `_fast_recovery_handshake()` context manager: `ACK_TIMEOUT_MS` 1000 → 120,
+  `MAX_RETRIES` 3 → 1. A failed CONNECT drops from ~4 s to ~240 ms.
+- `_query(..., fast=True)`: new keyword-only flag, sets the inner
+  `query_retries` to 1 and takes no backoff. One `_query` call against an
+  absent device drops from ~12 s to ~0.25 s.
+
+Net: the host emits a fresh CONNECT several times a second instead of once
+every ~12 s. Against a 1 s window a power-cycle should land within a cycle or
+two. `MAX_RETRIES = 1` (not 0) keeps 2 ACK attempts for the in-window
+ROLLBACK/REBOOTING reply.
+
+`conftest.py` for the device suite installs a fake `urst` at collection time
+that pytest also exposes to `tests/` — its 2-field `fake_constants` stub was
+replaced with the real `urst.constants` (pure data, no I/O) so
+`_fast_recovery_handshake` finds `ACK_TIMEOUT_MS`.
+
+Tests (red first): `test_recover_query_polls_with_a_fail_fast_handshake_and_restores_it`,
+`test_recover_query_restores_handshake_timing_even_on_timeout`,
+`test_query_fast_mode_makes_one_attempt_with_no_backoff`.
+
+Pre-flight exit 0 (ruff + 631 tests). **Not yet HIL-verified** — needs a rig
+session to re-run tests 1, 2, 3, 5, 6.

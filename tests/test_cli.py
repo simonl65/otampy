@@ -2962,7 +2962,7 @@ def test_recover_query_returns_the_payload_once_the_device_answers(monkeypatch):
 
     attempts = []
 
-    def fake_query(_ctx, command, _expected):
+    def fake_query(_ctx, command, _expected, *, fast=False):
         attempts.append(command)
         if len(attempts) < 3:
             raise click.ClickException("Timeout waiting for response")
@@ -3009,6 +3009,77 @@ def test_recover_query_lets_a_device_error_through(monkeypatch):
 
     with pytest.raises(DeviceError):
         _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+
+def test_recover_query_polls_with_a_fail_fast_handshake_and_restores_it(
+    monkeypatch,
+):
+    """F-10: a normal CONNECT against an absent device is ~4s
+    (MAX_RETRIES+1 x ACK_TIMEOUT_MS), far slower than the ~1s boot window.
+    _recover_query must shrink URST's handshake timing while it polls -- and
+    put it back afterwards, since the wider timings are right everywhere else.
+    """
+    from urst import constants as c
+
+    from otampy.cli import _recover_query
+
+    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+    observed = {}
+
+    def fake_query(_ctx, command, _expected, *, fast=False):
+        observed["fast"] = fast
+        observed["ack_ms"] = c.ACK_TIMEOUT_MS
+        observed["max_retries"] = c.MAX_RETRIES
+        return b"", None
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert observed["fast"] is True
+    assert observed["ack_ms"] < original[0]
+    assert observed["max_retries"] < original[1]
+    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+
+
+def test_recover_query_restores_handshake_timing_even_on_timeout(monkeypatch):
+    from urst import constants as c
+
+    from otampy.cli import _recover_query
+
+    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    monkeypatch.setattr(
+        "otampy.cli._query",
+        mock.Mock(side_effect=click.ClickException("Timeout")),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(click.ClickException):
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+
+
+def test_query_fast_mode_makes_one_attempt_with_no_backoff(monkeypatch):
+    """fast=True: a single connection attempt, no query_retries loop, no
+    backoff sleep -- so _recover_query can re-issue CONNECT several times a
+    second against the boot window."""
+    from otampy.cli import _query
+
+    opens = mock.Mock(side_effect=click.ClickException("no device"))
+    slept = []
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    with pytest.raises(click.ClickException):
+        _query(ctx, b"PING", b"PONG", fast=True)
+
+    assert opens.call_count == 1
+    assert slept == []
 
 
 def test_config_cmd_show_lists_recovery_wait(tmp_path):

@@ -378,6 +378,25 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
   - Done when: that test passes, `pre_flight_check.py` is clean, and the rig
     boots to a working `main.py` (HIL test 0 below) after a clean redeploy.
 
+- [x] **9. Repair F-10 — make the recovery window hittable**
+  - What changes: `cli.py` — `_recover_query` wraps its blind-retry loop in a
+    new `_fast_recovery_handshake()` context manager that shrinks
+    `urst.constants.ACK_TIMEOUT_MS` (1000 → 120) and `MAX_RETRIES` (3 → 1) for
+    the poll only, restoring them on exit; and calls `_query(..., fast=True)`,
+    a new keyword-only flag that drops `_query`'s inner `query_retries` loop to
+    a single attempt with no backoff. Together these take the host's
+    CONNECT cadence from ~1 per 12 s to several per second, against a ~1 s
+    window. `src/otampy/device/tests/conftest.py` — the fake `urst` module it
+    installs during collection now carries the real `urst.constants` (a
+    pure-data module) instead of a 2-field stub, since `tests/` now reads
+    `ACK_TIMEOUT_MS` through it.
+  - Test: `test_recover_query_polls_with_a_fail_fast_handshake_and_restores_it`,
+    `test_recover_query_restores_handshake_timing_even_on_timeout`,
+    `test_query_fast_mode_makes_one_attempt_with_no_backoff` (all
+    `tests/test_cli.py`). Red before the change.
+  - Done when: those tests pass, `pre_flight_check.py` is clean, and HIL tests
+    1, 2, 5, 6 land a command in the window within a power-cycle or two.
+
 ## Verification
 
 - **Host:** `python3 .agents/scripts/pre_flight_check.py` (ruff + full pytest,

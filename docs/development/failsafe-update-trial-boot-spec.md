@@ -264,7 +264,7 @@ new host config key.
     still passes (no new eager import).
   - Done when: `test_ota_manager.py` + `test_ota_facade.py` pass.
 
-- [ ] **7. `ota.confirm()` facade**
+- [x] **7. `ota.confirm()` facade**
   - What changes: `OTA.confirm(self)` in `ota.py` — local
     `from .restore import confirm`, `return confirm(self._core)`, with a
     docstring pointing at the application health-check use.

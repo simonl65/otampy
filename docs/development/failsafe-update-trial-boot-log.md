@@ -172,3 +172,13 @@ Neither command resets the board, so neither calls `_persist_replay_floor`.
 
 **Evidence:** `test_ota_manager.py` + `test_ota_facade.py` → 46 passed.
 `ruff` clean. Pre-flight → exit 0.
+
+---
+
+## Step 7 — `ota.confirm()` facade (2026-09-09)
+
+Three lines: local `from .restore import confirm`, `return confirm(self._core)`,
+docstring pointing at the "call after your own health check" use. Mirrors
+`ota.recover()`'s shape exactly.
+
+**Evidence:** `test_ota_facade.py` → 9 passed. Pre-flight → exit 0.

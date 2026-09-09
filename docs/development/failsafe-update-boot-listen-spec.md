@@ -290,7 +290,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     no reset, and a correctly signed `ROLLBACK` in the same window succeeds.
   - Done when: those tests pass and `uv run ruff check .` is clean.
 
-- [ ] **4. Wire the window into `boot.run()`**
+- [x] **4. Wire the window into `boot.run()`**
   - What changes: `boot.run()` — hoist the `UPDATE_REQUEST_FLAG_FILE` `stat`
     above the window, then after `repair()`/`trial()` and before the existing
     `if has_flag:` block, add `if not has_flag and _run_boot_listen(core):

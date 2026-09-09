@@ -600,6 +600,13 @@ def run(core, callback=None):
     except OSError:
         pass
 
+    # The boot-time recovery window. Only on a boot with no update already
+    # pending, and only after repair()/trial() above, so it operates on a
+    # healed tree and never interferes with a session in progress. `return`
+    # because a mocked `machine.reset` in tests does not actually reset.
+    if not has_flag and _run_boot_listen(core):
+        return
+
     if has_flag:
         core.logger.debug("FOUND update flag-file")
         core.transport.send(b"READY")

@@ -99,3 +99,35 @@ in both docstrings.
 
 Device suite 331 passed (319 + 12). `ruff check .` clean; ruff format
 reformatted the new test file.
+
+## Step 4 — wiring the window into `boot.run()`
+
+One line of wiring (`if not has_flag and _run_boot_listen(core): return`,
+placed after the flag `stat` and before the `if has_flag:` block) plus
+`"authgate"` added to `ota.OTA.boot()`'s teardown list. Four spy-based tests
+guard the ordering.
+
+**Two consequences the spec did not anticipate**, both surfaced by an existing
+test going red rather than by inspection:
+
+1. **A no-flag boot now instantiates the transport.** `test_boot_no_flag_file`
+   asserted `core._transport is None` — the lazy-transport guarantee. The
+   window cannot listen without a transport, so on the default path that
+   guarantee is gone. It still holds exactly when `OTA_BOOT_LISTEN_MS = 0`,
+   which is how the test now expresses it, and
+   `test_boot_no_flag_opens_the_transport_for_the_window` pins the enabled-path
+   cost so it is a recorded decision rather than a surprise. Worth a line in
+   the docs at step 7: the per-boot cost is ~1 s **and** one `Urst`
+   instantiation.
+
+2. **Six existing tests began really sleeping the full 1000 ms window**, taking
+   the device suite from 4.81 s to 10.69 s. They exercise the rest of a no-flag
+   boot, not the window, so they now set `OTA_BOOT_LISTEN_MS = 0` explicitly.
+   Suite back to 4.78 s; the three slowest tests are pre-existing
+   `test_ota_manager.py` CAT-fragment tests.
+
+This is the argument for the window being tunable and disable-able landing in
+the docs plainly rather than buried — an integrator who disables it gets the
+old boot behaviour back exactly, transport included.
+
+Device suite 336 passed. `ruff check .` clean, pre-flight exit 0.

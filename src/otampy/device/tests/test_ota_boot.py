@@ -13,9 +13,13 @@ from device_otampy.core import OTACore
 
 
 def _no_flag_core(tmp_path, uart=None, logger=None):
+    # OTA_BOOT_LISTEN_MS = 0 disables the boot-time recovery window. These
+    # tests cover the rest of a no-flag boot, and an open window would make
+    # each of them really wait it out. The window has its own tests below.
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "nonexistent.flag"),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     return OTACore(
         uart or shared.FakeUART(),
@@ -92,11 +96,15 @@ def test_boot_imports_staged_rtc_helper(monkeypatch):
 
 
 def test_boot_no_flag_file(tmp_path):
+    """With the window disabled, a no-flag boot still touches no transport."""
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
     flag_file = tmp_path / "nonexistent.flag"
 
-    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_BOOT_LISTEN_MS": 0,
+    }
     core = OTACore(uart, config=config, logger=logger)
 
     callback_called = False
@@ -112,6 +120,27 @@ def test_boot_no_flag_file(tmp_path):
         "debug",
         "Checking for update flag-file...",
     ) in logger.messages
+
+
+def test_boot_no_flag_opens_the_transport_for_the_window(tmp_path):
+    """An open window necessarily costs one transport instantiation.
+
+    The lazy-transport guarantee above only survives with the window off:
+    listening requires a transport. Pinned as a test so the cost is a
+    recorded decision rather than a surprise.
+    """
+    uart = shared.FakeUART()
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "nonexistent.flag"),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_BOOT_LISTEN_MS": 20,
+    }
+    core = OTACore(uart, config=config, logger=shared.FakeLogger())
+
+    boot.run(core, callback=None)
+
+    assert core._transport is not None
+    assert core.transport.sent_messages == []
 
 
 def test_boot_with_flag_file_runs_callback_and_removes_flag(tmp_path):
@@ -182,6 +211,7 @@ def test_boot_handles_full_update_session(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -392,6 +422,7 @@ def test_boot_repairs_finished_commit_with_missing_target(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(core, 0, [str(main)])
@@ -415,6 +446,7 @@ def test_boot_reverses_interrupted_commit(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(
@@ -447,7 +479,10 @@ def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
     valid_source = tmp_path / "boot.py"
     valid_source.touch()
 
-    config = {"UPDATE_REQUEST_FLAG_FILE": str(flag_file)}
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
+        "OTA_BOOT_LISTEN_MS": 0,
+    }
     core = OTACore(uart, config=config, logger=logger)
 
     from unittest.mock import patch
@@ -505,6 +540,7 @@ def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -563,6 +599,7 @@ def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
+        "OTA_BOOT_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(core, 0, [str(kept_target)])
@@ -849,3 +886,95 @@ def test_boot_listen_rejects_replayed_counter(monkeypatch, tmp_path):
         b"ERROR:Replayed",
     ]
     machine.reset.assert_not_called()
+
+
+# =============================================================================
+# The window's wiring into boot.run()
+#
+# Ordering is the whole risk here: the window must open only on a healed
+# tree (after repair()/trial()) and only when no update is already pending.
+# =============================================================================
+
+
+def _window_spy(monkeypatch, result=False):
+    """Record whether run() opened the window, without opening one."""
+    calls = []
+
+    def spy(core):
+        calls.append(core)
+        return result
+
+    monkeypatch.setattr(boot, "_run_boot_listen", spy)
+    return calls
+
+
+def test_run_skips_the_window_when_an_update_is_pending(monkeypatch, tmp_path):
+    """(a) A flagged boot is an update session; the window must not interfere."""
+    machine.reset.reset_mock()
+    flag_file = tmp_path / "update_requested.flag"
+    flag_file.touch()
+    core = OTACore(
+        shared.FakeUART(),
+        config={"UPDATE_REQUEST_FLAG_FILE": str(flag_file)},
+        logger=shared.FakeLogger(),
+    )
+    calls = _window_spy(monkeypatch)
+
+    boot.run(core, callback=lambda _flag: None)
+
+    assert calls == []
+    assert core.transport.sent_messages == [b"READY"]
+    assert not flag_file.exists()
+
+
+def test_run_opens_the_window_then_sweeps_orphans(monkeypatch, tmp_path):
+    """(b) Window expires -> the existing no-flag cleanup still runs."""
+    machine.reset.reset_mock()
+    core = _no_flag_core(tmp_path)
+    calls = _window_spy(monkeypatch, result=False)
+    swept = []
+    monkeypatch.setattr(
+        boot, "_cleanup_orphaned_ota", lambda c, *a, **k: swept.append(c)
+    )
+
+    boot.run(core, callback=None)
+
+    assert calls == [core]
+    assert swept == [core]
+
+
+def test_run_returns_immediately_when_the_window_reset(monkeypatch, tmp_path):
+    """(c) The window reset the board; run() must not carry on sweeping."""
+    machine.reset.reset_mock()
+    core = _no_flag_core(tmp_path)
+    calls = _window_spy(monkeypatch, result=True)
+    swept = []
+    monkeypatch.setattr(
+        boot, "_cleanup_orphaned_ota", lambda c, *a, **k: swept.append(c)
+    )
+
+    boot.run(core, callback=None)
+
+    assert calls == [core]
+    assert swept == []
+
+
+def test_run_auto_restores_before_the_window_opens(monkeypatch, tmp_path):
+    """(d) A failed trial still auto-restores and resets ahead of the window.
+
+    The window must never pre-empt trial()'s own recovery path.
+    """
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"bad-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 3, [str(main)])
+    calls = _window_spy(monkeypatch)
+
+    boot.run(core, callback=None)
+
+    assert calls == []
+    assert main.read_bytes() == b"previous-good"
+    machine.reset.assert_called_once()

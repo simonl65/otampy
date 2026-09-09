@@ -31,9 +31,11 @@ class OTA:
             package_name = ota_module_name[: ota_module_name.rfind(".")]
             package = sys.modules.get(package_name)
 
-            # `boot` imports `restore` locally in run(); release both so GC
-            # can reclaim their bytecode -- a later boot() re-imports them.
-            for submodule in ("boot", "restore"):
+            # `boot` imports `restore` locally in run(), and `authgate` too
+            # when the recovery window has auth configured; release all three
+            # so GC can reclaim their bytecode and `main.py` never inherits a
+            # stale copy -- a later boot() re-imports them.
+            for submodule in ("boot", "restore", "authgate"):
                 try:
                     del sys.modules[package_name + "." + submodule]
                 except KeyError:

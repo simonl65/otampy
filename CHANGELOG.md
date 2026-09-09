@@ -4,7 +4,7 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
-## [4.7.0] - 2026-09-09
+## [Unreleased]
 
 ### Added
 

@@ -55,6 +55,14 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     stranded by a faulty `main.py` or `boot.py` still has a remote recovery path.
     Spec: `docs/development/failsafe-update-boot-listen-spec.md`.
 
+[ ] **Freeze `restore.py` / a recovery `_boot.py` into the deployed image.** Follow-up to finding F-08 (P2, `docs/development/findings.md`). The recovery logic lives in `src/otampy/device/lib/otampy/restore.py`, imported lazily by both `boot.run()` and `ota.recover()`. `commit()` renames one file at a time, so a power loss while `restore.py` itself is the current commit pair leaves `/lib/otampy/restore.py` absent with `restore.py.bck` present: the next boot's `from .restore import ...` raises `ImportError` in both `boot.py` and `main.py`, and the boot-time recovery window (sub-task 4) cannot help because its own `from .restore import ...` raises first. Only triggered by a library update (`otampy upd lib/otampy/...` or a full re-deploy) with power lost in the narrow commit window — never a normal app update — and strictly smaller than the pre-retain-previous exposure, hence P2. A real fix needs frozen code: freeze `restore.py` into the deployed image, or F-06 Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Needs a manifest/freeze change at deploy time.
+
+  - Model: Opus
+    - device-safety design touching the deploy-time freeze/manifest path and the boot chain; picks between freezing `restore.py` and a frozen `_boot.py`.
+  - Spec : yes
+    - settle the freeze mechanism and which module(s) get frozen before any code.
+  - Fresh: yes.
+
 ## Deferred - do not run these
 
 [ ] **Run the `micropython-nasa-power-of-ten` skill against this repo (and `urst-mpy`).** Surfaced 2026-08-20 as a `Needs Review`/deferred item (D-1) in `diff-drive-robot`'s own NASA Power of Ten audit (`docs/development/NASA-Power-of-Ten-review.md`), which explicitly can't audit vendored code per its own `CLAUDE.md` convention -- `diff-drive-robot/robot/device/lib/otampy`/`lib/urst` are synced verbatim from here and from `urst-mpy`, not maintained in that repo. That audit's shallow grep pass (not a deep read) flagged four spots worth a proper look, evidence as of otampy 4.5.0/urst-mpy 3.2.0:

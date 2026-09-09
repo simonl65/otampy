@@ -31,3 +31,16 @@ Starting at build step 1 (`restore.rollback()`).
   built by the caller (keeps the `{timeout:.0f}s` value) and passed in.
 - `uv run pytest tests/test_cli.py -q` → 123 passed (unchanged). The retry loop
   now appears once in cli.py. ruff clean.
+
+## 2026-09-09 — step 4
+
+- `otampy rollback`: red `click.confirm` prompt; on decline prints `Aborted.`
+  and sends nothing. Else `_query(ctx, b"ROLLBACK", b"ROLLBACK_")` -> on an
+  `ERR` payload prints the device's reason in red and `SystemExit(1)`; on `OK`
+  calls the shared `_wait_for_pong` with a rollback-specific timeout message,
+  then reports the device is on the previous (stable) version.
+- 4 tests in tests/test_cli.py: revert+PONG, nothing-to-revert (exit 1, no
+  PING after), decline (nothing sent), never-answers (non-zero + message).
+- `python3 .agents/scripts/pre_flight_check.py` -> READY FOR COMMIT (ruff +
+  full pytest, mirrors CI). ruff format folded one over-long assert in the
+  step-2 manager test.

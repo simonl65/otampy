@@ -210,7 +210,7 @@ string already lives.
   - Done when: `uv run pytest tests/test_cli.py -q` passes unchanged, and the
     `PING`-retry loop appears exactly once in `cli.py` (grep).
 
-- [ ] **4. `otampy rollback` command**
+- [x] **4. `otampy rollback` command**
   - What changes: `src/otampy/cli.py` — a new `@cli.command(name="rollback")`.
     Red `click.confirm` prompt naming what will happen ("revert the device to
     the previously retained version and reboot it"); on decline print

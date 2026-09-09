@@ -928,7 +928,9 @@ def test_manager_rollback_nothing_to_revert_does_not_reset(tmp_path):
     core.transport.incoming_queue.append(b"ROLLBACK")
     manager.poll(core)
 
-    assert core.transport.sent_messages == [b"ROLLBACK_ERR:Nothing to roll back"]
+    assert core.transport.sent_messages == [
+        b"ROLLBACK_ERR:Nothing to roll back"
+    ]
     assert main.read_bytes() == b"new-main"
     machine.reset.assert_not_called()
 

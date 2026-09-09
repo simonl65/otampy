@@ -289,6 +289,68 @@ def test_repair_finished_is_noop_when_target_present(tmp_path):
     assert main.read_bytes() == b"live-main"
 
 
+# =============================================================================
+# confirm() and state()
+# =============================================================================
+
+
+def test_confirm_flips_trial_to_confirmed_and_keeps_paths(tmp_path):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, 2, paths)
+
+    assert restore.confirm(core) is True
+
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_CONFIRMED,
+        paths,
+    )
+
+
+def test_confirm_is_idempotent(tmp_path):
+    core = _core(tmp_path)
+    paths = [str(tmp_path / "main.py")]
+    restore.write_journal(core, 1, paths)
+
+    assert restore.confirm(core) is True
+    assert restore.confirm(core) is True
+    assert restore.read_journal(core)[1] == restore._STATE_CONFIRMED
+
+
+def test_confirm_with_no_journal_returns_true(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.confirm(core) is True
+
+
+def test_confirm_during_commit_returns_false(tmp_path):
+    core = _core(tmp_path)
+    restore.write_journal(
+        core, restore._STATE_COMMITTING, [str(tmp_path / "main.py")]
+    )
+
+    assert restore.confirm(core) is False
+    assert restore.read_journal(core)[1] == restore._STATE_COMMITTING
+
+
+def test_state_reports_trial_count(tmp_path):
+    core = _core(tmp_path)
+    restore.write_journal(core, 2, [str(tmp_path / "main.py")])
+
+    assert restore.state(core) == ("trial", 2)
+
+
+def test_state_reports_stable_when_confirmed_or_absent(tmp_path):
+    core = _core(tmp_path)
+    assert restore.state(core) == ("stable", 0)
+
+    restore.write_journal(
+        core, restore._STATE_CONFIRMED, [str(tmp_path / "main.py")]
+    )
+    assert restore.state(core) == ("stable", 0)
+
+
 def test_repair_no_journal_is_noop(tmp_path):
     core = _core(tmp_path)
 

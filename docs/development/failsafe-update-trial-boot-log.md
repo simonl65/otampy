@@ -75,3 +75,25 @@ Two `test_ota_boot.py` assertions moved: an interrupted-commit boot now leaves
 
 **Evidence:** `test_restore.py` + `test_ota_boot.py` → 34 passed. `ruff check`
 clean. Pre-flight → exit 0.
+
+---
+
+## Step 3 — `restore.confirm()` and `restore.state()` (2026-09-09)
+
+Both are thin reads over `read_journal` plus at most one `write_journal`.
+
+`confirm()` returns `False` **only** when a `committing` marker is present — a
+commit is mid-flight and confirming would strand it. Every other state
+(`trial`, `confirmed`, no journal) returns `True`; only `trial` actually
+writes. This keeps the host/app `CONFIRM` command idempotent and safe to
+retry.
+
+`state()` collapses to two labels for the wire: `("trial", n)` or
+`("stable", 0)`. A stray `committing` maps to `("trial", 0)` defensively — it
+should never be observed at runtime because `boot.run()` calls `repair()`
+(which clears it) before anything answers `UPDATE_STATE`.
+
+Added `_LABEL_STABLE = "stable"`; the trial label reuses `_STATE_TRIAL` since
+the strings are identical.
+
+**Evidence:** `test_restore.py` → 26 passed. `ruff` clean. Pre-flight → exit 0.

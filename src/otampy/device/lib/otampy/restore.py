@@ -33,6 +33,9 @@ _STATE_COMMITTING = "committing"
 _STATE_TRIAL = "trial"
 _STATE_CONFIRMED = "confirmed"
 
+# UPDATE_STATE label for a candidate that is no longer counting boots.
+_LABEL_STABLE = "stable"
+
 
 def _journal_path(core):
     return _resolve_path(
@@ -218,6 +221,38 @@ def repair(core):
 
     if restored:
         write_journal(core, attempt, paths)
+
+
+def confirm(core):
+    """Take the running candidate off trial. Never raises.
+
+    Flips a ``trial`` journal's line 1 to ``confirmed``, keeping the retained
+    path list so the previous generation stays recoverable until the next
+    ``UPDATE_START``. Idempotent: ``True`` when the candidate is (now or
+    already) confirmed or there is nothing on trial; ``False`` only while a
+    commit marker is present.
+    """
+    _, state, paths = read_journal(core)
+    if state == _STATE_COMMITTING:
+        return False
+    if state == _STATE_TRIAL:
+        write_journal(core, _STATE_CONFIRMED, paths)
+    return True
+
+
+def state(core):
+    """Return ``(label, attempt)`` for ``UPDATE_STATE``. Never raises.
+
+    ``("trial", n)`` while a candidate is counting boots, ``("stable", 0)``
+    once confirmed or with no journal. A stray ``committing`` marker (not seen
+    at runtime -- ``repair()`` clears it first) reports ``("trial", 0)``.
+    """
+    attempt, st, _ = read_journal(core)
+    if st == _STATE_TRIAL:
+        return (_STATE_TRIAL, attempt)
+    if st == _STATE_COMMITTING:
+        return (_STATE_TRIAL, 0)
+    return (_LABEL_STABLE, 0)
 
 
 def _rollback(done):

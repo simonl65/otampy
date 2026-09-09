@@ -217,7 +217,7 @@ new host config key.
     no journal write (assert mtime / a write-count spy).
   - Done when: those tests pass.
 
-- [ ] **3. `restore.confirm()` and `restore.state()`**
+- [x] **3. `restore.confirm()` and `restore.state()`**
   - What changes: add both per their contract rows.
   - Test: `test_restore.py` — `confirm()` on a `trial` journal flips line 1 to
     `confirmed` and keeps the paths; second `confirm()` is a no-op returning

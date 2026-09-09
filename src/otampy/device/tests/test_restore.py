@@ -202,7 +202,7 @@ def test_commit_applies_delete_paths_and_their_backups(tmp_path):
 # =============================================================================
 
 
-def test_repair_committing_restores_whole_set(tmp_path):
+def test_restore_all_restores_whole_set_and_removes_journal(tmp_path):
     core = _core(tmp_path)
     main = tmp_path / "main.py"
     sensor = tmp_path / "lib" / "sensor.py"
@@ -215,15 +215,53 @@ def test_repair_committing_restores_whole_set(tmp_path):
         core, restore._STATE_COMMITTING, [str(main), str(sensor)]
     )
 
+    assert restore.restore_all(core) == 2
+
+    assert main.read_bytes() == b"good-main"
+    assert sensor.read_bytes() == b"good-sensor"
+    assert not (tmp_path / "main.py.bck").exists()
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_repair_committing_delegates_to_restore_all(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "lib" / "sensor.py"
+    sensor.parent.mkdir()
+    main.write_bytes(b"half-new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"good-main")
+    (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"good-sensor")
+    restore.write_journal(
+        core, restore._STATE_COMMITTING, [str(main), str(sensor)]
+    )
+
     restore.repair(core)
 
     assert main.read_bytes() == b"good-main"
     assert sensor.read_bytes() == b"good-sensor"
-    assert restore.read_journal(core) == (
-        0,
-        restore._STATE_TRIAL,
-        [str(main), str(sensor)],
+    assert restore.read_journal(core) == (0, restore._STATE_CONFIRMED, [])
+
+
+def test_repair_trial_all_targets_present_does_not_write(tmp_path, monkeypatch):
+    """F-07: a boot after a clean update must not rewrite the journal."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"live-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, 0, [str(main)])
+
+    writes = []
+    real_write = restore.write_journal
+    monkeypatch.setattr(
+        restore,
+        "write_journal",
+        lambda *a, **kw: writes.append(a) or real_write(*a, **kw),
     )
+
+    restore.repair(core)
+
+    assert writes == []
+    assert restore.read_journal(core) == (0, restore._STATE_TRIAL, [str(main)])
 
 
 def test_repair_finished_restores_only_missing_target(tmp_path):

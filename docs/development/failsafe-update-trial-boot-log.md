@@ -43,3 +43,35 @@ clean. `python3 .agents/scripts/pre_flight_check.py` → exit 0.
 No hardware involved in this step — journal parsing is pure host-testable
 logic. Per the spec's build note, HIL verification is end-of-sub-task and must
 not happen between steps 5 and 8.
+
+---
+
+## Step 2 — `restore_all()` + `repair()` delegates to it (2026-09-09)
+
+New `restore_all(core)` is the whole-set restore primitive: rename every
+journalled `.bck` back over its target and then **remove the journal**. This is
+a real behaviour change from sub-task 1, where the `committing` branch of
+`repair()` flipped line 1 to `0` and kept the journal. The old behaviour left
+a spurious `trial`-state journal behind after a reversal, which would then have
+started trial-counting a candidate that had just been rolled back. Removing the
+journal is correct: once the previous generation is fully back there is nothing
+on trial. Sub-task 3's `ROLLBACK` will reuse `restore_all()` directly.
+
+`repair()` is now a three-way branch on `state`:
+
+- `committing` → `restore_all()`, done.
+- `trial` → restore only targets that vanished (a finished commit whose target
+  was later lost), and rewrite the journal **only if** at least one file was
+  restored. This is the F-07 fix, partial: a clean boot after a good update
+  hits this branch, restores nothing, and does not touch flash.
+- `confirmed` / empty → no-op.
+
+F-07 is not closed yet — its other half (the `trial()` counter also writing
+on-change only) lands in step 4. Left `open` in the ledger until then.
+
+Two `test_ota_boot.py` assertions moved: an interrupted-commit boot now leaves
+**no** journal (`state` reads back as `confirmed`), where before it left a
+`trial` journal.
+
+**Evidence:** `test_restore.py` + `test_ota_boot.py` → 34 passed. `ruff check`
+clean. Pre-flight → exit 0.

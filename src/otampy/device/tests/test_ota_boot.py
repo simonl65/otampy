@@ -359,7 +359,8 @@ def test_boot_reverses_interrupted_commit(tmp_path):
 
     assert main.read_bytes() == b"good-main"
     assert sensor.read_bytes() == b"good-sensor"
-    assert restore.read_journal(core)[1] == restore._STATE_TRIAL
+    # restore_all() removes the journal outright once the set is back.
+    assert restore.read_journal(core)[1] == restore._STATE_CONFIRMED
 
 
 def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):

@@ -205,7 +205,7 @@ new host config key.
     src/otampy/device/tests/test_ota_boot.py -q` passes; `uv run ruff check .`
     clean.
 
-- [ ] **2. `restore.restore_all()` + `repair()` delegates to it**
+- [x] **2. `restore.restore_all()` + `repair()` delegates to it**
   - What changes: add `restore_all(core)` (whole-set rename-back, then remove
     the journal, return count). Refactor `repair()`'s `committing` branch to
     call it; the `trial`-state "restore missing only" branch stays inline and

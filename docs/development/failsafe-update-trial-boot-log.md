@@ -243,3 +243,32 @@ A commented block after `ota.recover()` in both `examples/main.py` and
 `CONFIRM`. New `test_main_scaffold_mentions_confirm` guards both.
 
 **Evidence:** `test_examples.py` → 16 passed. Pre-flight → exit 0.
+
+---
+
+## Step 11 — docs + changelog (2026-09-09)
+
+- `docs/protocol.md`: `CONFIRM` / `UPDATE_STATE` added to the §2.1 control
+  table and the §2.4 update-sequence table; a "Trial boot, confirmation, and
+  auto-restore" subsection under §2.4; §3.4 now states `COMMIT_OK` does not
+  make the update permanent.
+- `docs/architecture.md`: `OTA_TRIAL_BOOTS` in the `configota.py` block with a
+  one-line gloss; a "Trial boot, confirmation, and auto-restore" subsection
+  under the boot-time update section, noting the app supplies the watchdog.
+- `configota.example.py` (both direct and shared-uart): `OTA_TRIAL_BOOTS = 3`
+  commented.
+- `CHANGELOG.md`: an `Unreleased` → Changed entry under the retain-previous
+  block, covering the trial model, the two commands, `otampy upd`
+  auto-confirm, the new CLI/device surface, and the `read_journal` shape
+  change.
+
+**Evidence:** docs only. Pre-flight → exit 0.
+
+---
+
+## Sub-task complete — pending HIL
+
+All 11 build steps done. Host verification green (`pre_flight_check.py` exit
+0, full suite passing). Hardware verification (spec §Verification tests 1–4)
+is Simon's to run from the build branch — happy path, `--no-confirm` + manual
+confirm, auto-rollback boot-loop, and `.bck` retention past confirm.

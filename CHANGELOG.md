@@ -16,6 +16,13 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ### Changed
 
+- **A committed OTA update is now on trial until it is confirmed.** `COMMIT_OK` no longer makes an update permanent.
+  - `boot.py` counts every boot into an unconfirmed candidate in the retain-previous journal. Once the count passes `OTA_TRIAL_BOOTS` (new device setting, default `3`) the device restores the entire previous generation from its `.bck` files and reboots onto it, with no host involvement. The trigger is a reboot during the trial window — a crash, panic, brownout, watchdog, or manual power cycle. A candidate that hangs without resetting is not auto-restored (the application is expected to run its own watchdog).
+  - Two new channel-0 commands: `CONFIRM` (`CONFIRM_OK` / `CONFIRM_ERR`) takes the candidate off trial; `UPDATE_STATE` (`STATE_OK:<trial|stable>:<attempt>`) reports the trial state. `PROTOCOL_VERSION` does not move.
+  - `otampy upd` now auto-confirms: after `COMMIT_OK` it waits for the rebooted candidate to answer `PING`, then sends `CONFIRM`. `--no-confirm` leaves the candidate on trial; a candidate that never answers `PING` exits non-zero with an explicit auto-rollback warning.
+  - New CLI commands `otampy confirm` and `otampy state`. New `ota.confirm()` device facade for applications that gate on their own health check.
+  - Confirming only stops the trial counter — the retained `.bck` set is kept until the next update's `UPDATE_START`, so the previous generation stays recoverable. A plain power cycle never rolls back a confirmed candidate.
+  - `read_journal()`'s return shape changed (a `state` string replaces the `in_progress` bool) — an internal contract, load-bearing for the remaining Fail-safe Updates sub-tasks.
 - **The shipped `boot.py` / `main.py` example scaffold is direct mode again.** Since `6f2bd1b` the scaffold wired `SerialMux` unconditionally, which double-wrapped every URST frame; a plain host CLI then routed to an unknown channel and every command — including `otampy ping` — timed out silently. The default scaffold no longer uses `SerialMux`; the mux pattern moved to `examples/shared-uart/`.
 - **Boot-time `UPDATE_COMMIT` is now all-or-nothing and retains the previous generation.** Previously the commit deleted each target and renamed its `.ota` into place one file at a time, so an interruption could brick the device (a target gone, its replacement not yet renamed) or leave a mixed-version tree.
   - Before the first rename the device writes `OTA_JOURNAL_FILE` (default `otampy-update.journal`) with a `committing` marker and the target list. Each target is renamed to `<target>.bck` and the staged `.ota` moved into place; the marker is then flipped to `0`.

@@ -310,7 +310,7 @@ new host config key.
     `test_main_scaffold_calls_recover`.
   - Done when: it passes.
 
-- [ ] **11. Docs + changelog**
+- [x] **11. Docs + changelog**
   - What changes: `docs/protocol.md` — add `CONFIRM` and `UPDATE_STATE` to the
     §2.1 control-command table; a §2.4 paragraph on the trial-boot lifecycle
     (commit → trial → `CONFIRM`/auto-rollback), the `confirmed` journal state,

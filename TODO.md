@@ -37,12 +37,13 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     generation's journal and `.bck` files. Journal format and `.bck` naming are the
     load-bearing contract for sub-tasks 2-4.
     Spec: `docs/development/failsafe-update-retain-previous-spec.md`.
-  - [ ] **2. Trial boot, health confirmation, auto-restore.** `boot.py` increments the
-    journal attempt counter on each boot into an unconfirmed candidate; at
+  - [x] **2. Trial boot, health confirmation, auto-restore.** `boot.py` increments the
+    journal attempt counter on each boot into an unconfirmed candidate; past
     `OTA_TRIAL_BOOTS` it restores every `.bck` and resets. `CONFIRM` (host, after a
-    successful `PING`) and `ota.confirm()` (application) clear the journal and `.bck`.
+    successful `PING`) and `ota.confirm()` (application) flip the journal to
+    `confirmed`, stopping the counter but keeping `.bck` until the next `UPDATE_START`.
     `UPDATE_STATE` -> `STATE_OK:<trial|stable>:<attempt>`. `otampy upd` sends `CONFIRM`
-    after `COMMIT_OK` + a health `PING`.
+    after `COMMIT_OK` + a health `PING` (unless `--no-confirm`).
     Spec: `docs/development/failsafe-update-trial-boot-spec.md`.
   - [ ] **3. `ROLLBACK` command + `otampy rollback` CLI.** User-initiated revert of a
     candidate that booted and was confirmed but is wrong. Reuses sub-task 2's restore

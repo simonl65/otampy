@@ -2946,3 +2946,76 @@ def test_cli_rollback_warns_when_device_never_answers(monkeypatch):
 
     assert result.exit_code != 0
     assert "did not answer PING" in result.output
+
+
+# =============================================================================
+# _recover_query -- the boot-window retry loop (docs/protocol.md 2.4)
+# =============================================================================
+
+
+def test_recover_query_returns_the_payload_once_the_device_answers(monkeypatch):
+    """The window is ~1s per boot, so the host blind-retries until one lands."""
+    from otampy.cli import _recover_query
+
+    attempts = []
+
+    def fake_query(_ctx, command, _expected):
+        attempts.append(command)
+        if len(attempts) < 3:
+            raise click.ClickException("Timeout waiting for response")
+        return b"", None
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(
+        click.Context(cli), b"UPDATE_REQUEST", b"REBOOTING"
+    )
+
+    assert payload == b""
+    assert attempts == [b"UPDATE_REQUEST"] * 3
+
+
+def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
+    monkeypatch,
+):
+    from otampy.cli import _recover_query
+
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    monkeypatch.setattr(
+        "otampy.cli._query",
+        mock.Mock(side_effect=click.ClickException("Timeout")),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(click.ClickException) as excinfo:
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert "recovery-wait" in str(excinfo.value)
+
+
+def test_recover_query_lets_a_device_error_through(monkeypatch):
+    """A DeviceError means the device *answered* -- stop retrying."""
+    from otampy.cli import _recover_query
+
+    monkeypatch.setattr(
+        "otampy.cli._query",
+        mock.Mock(side_effect=DeviceError("Unauthenticated", b"ROLLBACK")),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(DeviceError):
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+
+def test_config_cmd_show_lists_recovery_wait(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "recovery-wait" in result.output
+    assert "60" in result.output

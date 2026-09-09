@@ -305,7 +305,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     not called). Every existing `test_ota_boot.py` test still passes.
   - Done when: full `uv run pytest src/otampy/device/tests/ -q` passes.
 
-- [ ] **5. Host `recovery_wait_seconds` + `_recover_query()`**
+- [x] **5. Host `recovery_wait_seconds` + `_recover_query()`**
   - What changes: `cli.py` — the `recovery_wait_seconds` entry in
     `_CONFIG_SPEC` (default `60.0`, env `OTAMPY_RECOVERY_WAIT`, display
     `recovery-wait`), and `_recover_query(ctx, command, expected_prefix)`:

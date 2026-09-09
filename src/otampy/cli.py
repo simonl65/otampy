@@ -65,6 +65,13 @@ CONFIG_SETTINGS = {
         "type": float,
         "description": "Seconds to wait for the boot-time READY broadcast during upd.",
     },
+    "recovery_wait_seconds": {
+        "display": "recovery-wait",
+        "env": "OTAMPY_RECOVERY_WAIT",
+        "default": 60.0,
+        "type": float,
+        "description": "Seconds to keep retrying a --recover command while the operator power-cycles the device into its boot-time recovery window.",
+    },
     "transfer_chunk_size": {
         "display": "transfer-chunk-size",
         "env": "OTAMPY_TRANSFER_CHUNK_SIZE",
@@ -1209,6 +1216,44 @@ def _send_command(
 ) -> None:
     """Send command and verify response (backward compatible)."""
     _query(ctx, command, expected_response)
+
+
+def _recover_query(
+    ctx: click.Context, command: bytes, expected_prefix: bytes
+) -> bytes:
+    """Land ``command`` in the device's boot-time recovery window.
+
+    The window is silent and short (``OTA_BOOT_LISTEN_MS``, ~1s per boot, see
+    docs/protocol.md 2.4), so there is nothing to synchronise on: the host
+    prompts for a power cycle and then blind-retries ``_query`` until one
+    attempt lands inside a window or ``recovery_wait_seconds`` expires. A
+    missed window is benign -- the operator power-cycles again.
+
+    ``DeviceError`` is deliberately *not* caught: it means the device answered
+    (a refusal, or an auth rejection), so retrying would be wrong.
+    """
+    wait = float(get_config_value("recovery_wait_seconds"))
+    backoff = float(get_config_value("query_retry_backoff_seconds"))
+    _console().print(
+        f"[yellow]Power-cycle the device now. Retrying for {wait:.0f}s...[/yellow]\n"
+        "The recovery window is only open for about a second after each boot, "
+        "so a first attempt may miss it -- if this times out, just run the "
+        "command again and power-cycle when prompted."
+    )
+    start = time.time()
+    while True:
+        try:
+            payload, _ = _query(ctx, command, expected_prefix)
+            return payload
+        except click.ClickException:
+            if time.time() - start >= wait:
+                raise click.ClickException(
+                    f"No recovery window answered '{command.decode()}' within "
+                    f"{wait:.0f}s. Power-cycle the device and try again, or "
+                    "raise the wait with 'otampy config --set recovery-wait "
+                    "<seconds>'."
+                ) from None
+            time.sleep(backoff)
 
 
 def _stage_rtc_update(ctx: click.Context) -> None:

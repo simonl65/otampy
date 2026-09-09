@@ -131,3 +131,25 @@ the docs plainly rather than buried — an integrator who disables it gets the
 old boot behaviour back exactly, transport included.
 
 Device suite 336 passed. `ruff check .` clean, pre-flight exit 0.
+
+## Step 5 — host `recovery_wait_seconds` + `_recover_query()`
+
+Four tests written first; all red on `ImportError: cannot import name
+'_recover_query'` (and the config test on a missing `recovery-wait` row).
+
+`_recover_query` is deliberately thin: print the power-cycle instruction, then
+loop `_query` until it returns or `recovery_wait_seconds` (default 60, env
+`OTAMPY_RECOVERY_WAIT`) expires, sleeping `query_retry_backoff_seconds`
+between attempts. Same shape as the existing `_wait_for_pong`, which is the
+precedent for "retry a `_query` while the device reboots".
+
+The one judgement call: **`DeviceError` is not caught.** A `ClickException`
+from `_query` means silence — no window was open, retry. A `DeviceError` means
+the device *answered* (`Unauthenticated`, `ROLLBACK_ERR:...`), so retrying
+would re-send a command the device has already refused, and with auth on would
+burn replay counters. `test_recover_query_lets_a_device_error_through` pins it.
+
+Tests patch `time.sleep` and set `OTAMPY_RECOVERY_WAIT=0`, so nothing sleeps —
+`tests/test_cli.py` runtime is unchanged.
+
+Pre-flight exit 0.

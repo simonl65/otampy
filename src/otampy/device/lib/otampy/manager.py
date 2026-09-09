@@ -356,15 +356,11 @@ def poll(core, callback=None, heartbeat=None):
         label, attempt = state(core)
         core.transport.reply(f"STATE_OK:{label}:{attempt}".encode())
     elif cmd == "ROLLBACK":
-        from .restore import _ROLLBACK_BUSY, rollback
+        from .restore import rollback_result
 
-        restored = rollback(core)
-        if restored == _ROLLBACK_BUSY:
-            core.transport.reply(b"ROLLBACK_ERR:Commit in flight")
-        elif restored == 0:
-            core.transport.reply(b"ROLLBACK_ERR:Nothing to roll back")
-        else:
-            core.transport.reply(b"ROLLBACK_OK")
+        reply, restored = rollback_result(core)
+        core.transport.reply(reply)
+        if restored:
             core.logger.info(f"Rollback restored {restored} file(s); resetting")
             _do_callback(core, callback)
             _persist_replay_floor(core)

@@ -39,3 +39,27 @@ ad-hoc probe with `OTA_REQUIRE_AUTH` absent:
 Guard suites: `test_manager_auth.py`, `test_command_auth_contract.py`,
 `test_ota_facade.py` — 109 passed. Full device suite 315 passed, identical to
 the pre-change baseline. `ruff check .` clean.
+
+## Step 2 — `restore.rollback_result()`, `manager.poll` refactored onto it
+
+Four tests written first, all failing on `AttributeError: module
+'device_otampy.restore' has no attribute 'rollback_result'` before the
+implementation existed.
+
+`rollback_result(core) -> (reply_bytes, restored_count)` wraps the unchanged
+`rollback()`. `_ROLLBACK_BUSY` now stays private to `restore.py` — it is folded
+into a reply rather than crossing a module boundary, which is the point: the
+boot window would otherwise have to import and interpret it too.
+
+`manager.poll`'s `ROLLBACK` branch drops from 12 lines to 8 and no longer
+carries the reply strings. The `ROLLBACK_ERR` strings now appear exactly once
+each in code (`restore.py:56-57`); the remaining tree hits are `docs/protocol.md`
+and `CHANGELOG.md`, which are documentation.
+
+`test_ota_manager.py`'s existing `ROLLBACK` tests passed untouched — the guard
+that the refactor changed no behaviour. Device suite 319 passed (315 + 4 new).
+
+Note: `uv run pyright` reports one pre-existing error in `restore.py` (`trial()`,
+`attempt > limit`, because `_get_config` is typed `Any | None`). Confirmed
+present on `develop` before this branch — line number moved 294 → 317 only.
+Pyright does not gate CI.

@@ -246,7 +246,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     `uv run ruff check .` is clean, and `grep -n "_authenticate\|_auth_blocks"
     src/otampy/device/lib/otampy/manager.py` returns nothing.
 
-- [ ] **2. `restore.rollback_result()` + `manager.poll` refactored onto it**
+- [x] **2. `restore.rollback_result()` + `manager.poll` refactored onto it**
   - What changes: `restore.py` — the three reply constants and
     `rollback_result(core)` per its contract, wrapping the existing
     `rollback()` (which is unchanged). `manager.py` — the `ROLLBACK` branch

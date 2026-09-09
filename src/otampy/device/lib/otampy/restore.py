@@ -25,7 +25,13 @@ from .core import _get_config, _resolve_path
 _BACKUP_SUFFIX = ".bck"
 _DEFAULT_JOURNAL = "otampy-update.journal"
 _ATTEMPT_LINE_DEFAULT = 0
-_COMMIT_IN_PROGRESS = "committing"
+
+# Journal line 1 grammar. "committing" means a commit is partway through;
+# a base-10 integer is a committed candidate on trial, counting boots; and
+# "confirmed" means the candidate was accepted and is no longer counted.
+_STATE_COMMITTING = "committing"
+_STATE_TRIAL = "trial"
+_STATE_CONFIRMED = "confirmed"
 
 
 def _journal_path(core):
@@ -35,30 +41,34 @@ def _journal_path(core):
 
 
 def read_journal(core):
-    """Return ``(attempt, in_progress, paths)``. Never raises.
+    """Return ``(attempt, state, paths)``. Never raises.
 
-    A missing or empty journal is ``(0, False, [])``. A first line that is
-    neither the ``committing`` sentinel nor a base-10 integer is treated as
-    ``in_progress`` -- fail safe, meaning "restore everything".
+    ``state`` is one of ``_STATE_COMMITTING`` / ``_STATE_TRIAL`` /
+    ``_STATE_CONFIRMED``. A missing or empty journal is
+    ``(0, _STATE_CONFIRMED, [])`` -- nothing is on trial, so nothing counts it.
+    A first line that is none of the two sentinels nor a base-10 integer is
+    treated as ``committing`` -- fail safe, meaning "restore everything".
     """
     try:
         with open(_journal_path(core)) as handle:
             lines = handle.read().split("\n")
     except OSError:
-        return (_ATTEMPT_LINE_DEFAULT, False, [])
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, [])
 
     if not lines or not lines[0]:
-        return (_ATTEMPT_LINE_DEFAULT, False, [])
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, [])
 
     paths = [line for line in lines[1:] if line]
 
     first = lines[0]
-    if first == _COMMIT_IN_PROGRESS:
-        return (_ATTEMPT_LINE_DEFAULT, True, paths)
+    if first == _STATE_COMMITTING:
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_COMMITTING, paths)
+    if first == _STATE_CONFIRMED:
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_CONFIRMED, paths)
     try:
-        return (int(first), False, paths)
+        return (int(first), _STATE_TRIAL, paths)
     except ValueError:
-        return (_ATTEMPT_LINE_DEFAULT, True, paths)
+        return (_ATTEMPT_LINE_DEFAULT, _STATE_COMMITTING, paths)
 
 
 def write_journal(core, line1, paths):
@@ -111,7 +121,7 @@ def commit(core, files, delete_paths):
     targets = [
         files[i] for i in range(0, len(files), 2) if _exists(files[i + 1])
     ]
-    write_journal(core, _COMMIT_IN_PROGRESS, targets)
+    write_journal(core, _STATE_COMMITTING, targets)
 
     done = []
     for i in range(0, len(files), 2):
@@ -157,9 +167,10 @@ def repair(core):
     restore paths whose target vanished but whose ``.bck`` survived, and write
     line 1 back unchanged (sub-task 2 will increment it).
     """
-    attempt, in_progress, paths = read_journal(core)
+    attempt, state, paths = read_journal(core)
     if not paths:
         return
+    in_progress = state == _STATE_COMMITTING
 
     for target in paths:
         backup = target + _BACKUP_SUFFIX

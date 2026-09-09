@@ -43,6 +43,7 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     successful `PING`) and `ota.confirm()` (application) clear the journal and `.bck`.
     `UPDATE_STATE` -> `STATE_OK:<trial|stable>:<attempt>`. `otampy upd` sends `CONFIRM`
     after `COMMIT_OK` + a health `PING`.
+    Spec: `docs/development/failsafe-update-trial-boot-spec.md`.
   - [ ] **3. `ROLLBACK` command + `otampy rollback` CLI.** User-initiated revert of a
     candidate that booted and was confirmed but is wrong. Reuses sub-task 2's restore
     primitive; needs `_persist_replay_floor` like `RB`.

@@ -180,7 +180,7 @@ def test_boot_handles_full_update_session(tmp_path):
     assert (tmp_path / "lib" / "helper.py.bck").read_bytes() == b"OLD helper"
     assert restore.read_journal(core) == (
         0,
-        False,
+        restore._STATE_TRIAL,
         [str(target_main), str(target_lib)],
     )
 
@@ -352,14 +352,14 @@ def test_boot_reverses_interrupted_commit(tmp_path):
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(
-        core, restore._COMMIT_IN_PROGRESS, [str(main), str(sensor)]
+        core, restore._STATE_COMMITTING, [str(main), str(sensor)]
     )
 
     boot.run(core, callback=None)
 
     assert main.read_bytes() == b"good-main"
     assert sensor.read_bytes() == b"good-sensor"
-    assert restore.read_journal(core)[1] is False
+    assert restore.read_journal(core)[1] == restore._STATE_TRIAL
 
 
 def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
@@ -469,7 +469,11 @@ def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
     assert (tmp_path / "_otampy_set_rtc.py").read_bytes() == payload_rtc
     # ...but never retained or journalled.
     assert not (tmp_path / "_otampy_set_rtc.py.bck").exists()
-    assert restore.read_journal(core) == (0, False, [str(target_main)])
+    assert restore.read_journal(core) == (
+        0,
+        restore._STATE_TRIAL,
+        [str(target_main)],
+    )
     # The real target still got its backup.
     assert (tmp_path / "main.py.bck").read_bytes() == b"OLD main"
 

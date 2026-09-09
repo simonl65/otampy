@@ -3080,6 +3080,25 @@ def test_query_fast_mode_makes_one_attempt_with_no_backoff(monkeypatch):
 
     assert opens.call_count == 1
     assert slept == []
+    # a small serial read timeout too, so an absent port returns in ~ms
+    _, kwargs = opens.call_args
+    assert 0 < kwargs["serial_timeout"] <= 0.25
+
+
+def test_query_without_fast_uses_the_default_serial_timeout(monkeypatch):
+    from otampy.cli import _query
+
+    opens = mock.Mock(side_effect=click.ClickException("no device"))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    with pytest.raises(click.ClickException):
+        _query(ctx, b"PING", b"PONG")
+
+    for call in opens.call_args_list:
+        assert call.kwargs.get("serial_timeout") is None
 
 
 def test_config_cmd_show_lists_recovery_wait(tmp_path):

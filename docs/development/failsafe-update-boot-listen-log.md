@@ -380,3 +380,35 @@ Tests (red first): `test_recover_query_polls_with_a_fail_fast_handshake_and_rest
 
 Pre-flight exit 0 (ruff + 631 tests). **Not yet HIL-verified** — needs a rig
 session to re-run tests 1, 2, 3, 5, 6.
+
+### Step 9 follow-on + HIL re-test — F-10 not yet closed
+
+Re-tuned the fail-fast profile (`ACK_TIMEOUT_MS` 120 → tried, then 500;
+`MAX_RETRIES` → 0; new `_RECOVERY_SERIAL_TIMEOUT = 0.1` threaded through
+`_open_transport`). Cadence went from ~1 CONNECT / 12 s to ~1.2 / s in HIL.
+
+Three stranded-device runs, operator power-cycling on the prompt:
+
+| run | ACK_TIMEOUT | serial | host cycles / 60–120 s | CONNECT_ACK | result |
+|-----|-------------|--------|------------------------|-------------|--------|
+| v3  | 120         | 2.0    | 14                     | 0           | timeout |
+| v4  | 120         | 0.05   | 108                    | 0           | timeout |
+| v5  | 500         | 0.1    | 93+                    | 0           | timeout |
+
+`connect()` against the **healthy** device: ~81 ms, four for four. So the link
+is fast and 500 ms is ample — the boot window itself is not answering a single
+CONNECT across a power cycle.
+
+Cadence was necessary but not sufficient. Two open leads (in F-10):
+- Simon: XBee needs ~30 ms between sends; the loop also reopens the serial
+  port every cycle (DTR/RTS toggle on the FTDI→XBee), which may disturb the
+  module.
+- `_run_boot_listen` blocks up to the device-side 1000 ms `ACK_TIMEOUT_MS` per
+  `read()`, so the 1 s window runs only ~1 read; needs on-device logging to
+  see what it receives.
+
+Stopped here. F-10 stays open. Device recovered via trial auto-restore (its
+backstop fired again, cleanly, three times tonight). `hil-scratch/` removed.
+
+Verified tonight overall: tests 0, 4 PASS; sub-task 2 trial auto-restore PASS
+(observed 3×). Tests 1, 2, 5, 6 blocked on F-10; test 3 not run.

@@ -979,7 +979,10 @@ def _read_full_reply(transport):
 
 
 def _open_transport(
-    ctx: click.Context, *, clear_queue: bool = True
+    ctx: click.Context,
+    *,
+    clear_queue: bool = True,
+    serial_timeout: float | None = None,
 ) -> tuple[serial.Serial, Urst]:
     """Open the serial port and wrap it in a URST transport.
 
@@ -987,6 +990,10 @@ def _open_transport(
     call sites share: raw ``serial.Serial``, DTR/RTS held low, input and
     output buffers reset, ``Urst`` constructed, and (unless
     ``clear_queue=False``) any stale receive-queue frames discarded.
+
+    ``serial_timeout`` overrides ``serial_timeout_seconds`` for this open --
+    the recovery poll passes a small value so a read against an absent device
+    returns in milliseconds, not the default 2 s (F-10).
 
     Returns ``(raw_serial, transport)``; callers close ``raw_serial``.
     """
@@ -1002,7 +1009,8 @@ def _open_transport(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
-    serial_timeout = float(get_config_value("serial_timeout_seconds"))
+    if serial_timeout is None:
+        serial_timeout = float(get_config_value("serial_timeout_seconds"))
     ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
     try:
         ser.dtr = False
@@ -1025,6 +1033,39 @@ def _open_transport(
             pass
 
     return ser, transport
+
+
+# The boot window is ~1s. A normal CONNECT against an absent device costs
+# MAX_RETRIES+1 (=4) handshake attempts, and each attempt's read blocks up to
+# serial_timeout_seconds (=2s) on the empty port -- ~8s, and _query retries
+# that 3x, so the host puts a CONNECT on the wire only every ~12s and almost
+# never lands inside a window (F-10). The profile below makes one CONNECT
+# attempt that gives up after ACK_TIMEOUT_MS, backed by a small serial read
+# timeout so an absent port (between windows) also returns in ~that time. So
+# the blind retry fires ~2x/s, and any attempt that starts inside the window
+# still waits long enough for a real CONNECT_ACK / reply to come back over the
+# radio link (which is well under a second but not instant).
+_RECOVERY_ACK_TIMEOUT_MS = 500
+_RECOVERY_MAX_RETRIES = 0
+_RECOVERY_SERIAL_TIMEOUT = 0.1
+
+
+@contextmanager
+def _fast_recovery_handshake():
+    """Shrink URST's handshake/ACK timing to a fail-fast profile, restored on
+    exit. Scoped to the ``_recover_query`` poll only -- the wider timings are
+    correct for every other command, which talks to a device that is up. The
+    matching serial read timeout is passed through ``_query(fast=True)`` ->
+    ``_open_transport``."""
+    from urst import constants as urst_constants
+
+    saved = (urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES)
+    urst_constants.ACK_TIMEOUT_MS = _RECOVERY_ACK_TIMEOUT_MS
+    urst_constants.MAX_RETRIES = _RECOVERY_MAX_RETRIES
+    try:
+        yield
+    finally:
+        urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES = saved
 
 
 def _query(
@@ -1112,10 +1153,13 @@ def _query(
     query_retries = 1 if fast else int(get_config_value("query_retries"))
     retry_backoff = float(get_config_value("query_retry_backoff_seconds"))
 
+    fast_serial_timeout = _RECOVERY_SERIAL_TIMEOUT if fast else None
     for attempt in range(query_retries):
         ser = None
         try:
-            ser, new_transport = _open_transport(ctx)
+            ser, new_transport = _open_transport(
+                ctx, serial_timeout=fast_serial_timeout
+            )
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not new_transport.send(outgoing()):
@@ -1222,33 +1266,6 @@ def _send_command(
 ) -> None:
     """Send command and verify response (backward compatible)."""
     _query(ctx, command, expected_response)
-
-
-# The boot window is ~1s. A normal CONNECT against an absent device costs
-# MAX_RETRIES+1 (=4) attempts x ACK_TIMEOUT_MS (=1000) ~= 4s, so the host would
-# put a CONNECT on the wire only every ~12s (once _query's own retries are
-# counted) and almost never land inside a window (F-10). Under
-# _fast_recovery_handshake() a failed CONNECT costs ~240ms, so the blind retry
-# fires several times a second and a power-cycle reliably lands -- while 2 ACK
-# attempts still leave margin for the in-window ROLLBACK/REBOOTING reply.
-_RECOVERY_ACK_TIMEOUT_MS = 120
-_RECOVERY_MAX_RETRIES = 1
-
-
-@contextmanager
-def _fast_recovery_handshake():
-    """Shrink URST's handshake/ACK timing to a fail-fast profile, restored on
-    exit. Scoped to the ``_recover_query`` poll only -- the wider timings are
-    correct for every other command, which talks to a device that is up."""
-    from urst import constants as urst_constants
-
-    saved = (urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES)
-    urst_constants.ACK_TIMEOUT_MS = _RECOVERY_ACK_TIMEOUT_MS
-    urst_constants.MAX_RETRIES = _RECOVERY_MAX_RETRIES
-    try:
-        yield
-    finally:
-        urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES = saved
 
 
 def _recover_query(

@@ -12,7 +12,8 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-10 — the boot-time recovery window is unhittable in practice: host blind-retry cadence (~12 s) vs a 1 s window
 
 - **Severity:** P1
-- **Status:** fixed (awaiting re-review + HIL re-test)
+- **Status:** open (host cadence fixed; window still not answering in HIL —
+  see "HIL re-test 2026-09-09" below)
 - **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
   URST-handshake path it drives); interacts with
   `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
@@ -50,19 +51,42 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   in favour of "silent window + host blind-retry" (spec §"Protocol decision" /
   D2) should be revisited in light of this: blind retry is viable, but only if
   the host retries an order of magnitude faster than it does today.
-- **Fix applied (2026-09-09, step 9):** `_recover_query` now runs its poll under
-  `_fast_recovery_handshake()` — `urst.constants.ACK_TIMEOUT_MS` 1000 → 120,
-  `MAX_RETRIES` 3 → 1, restored on exit — and calls `_query(fast=True)`, which
-  skips the inner `query_retries` loop and its backoff. Host CONNECT cadence
-  goes from ~1 per 12 s to several per second against the ~1 s window. Blind
-  retry is kept (the Protocol-decision D2 call stands); it is now fast enough
-  to be the mechanism it was signed off as. Verified by unit tests; **HIL
-  re-test of tests 1/2/5/6 still outstanding** before this clears.
+- **Fix applied (2026-09-09, step 9 + follow-on):** `_recover_query` now runs
+  its poll under `_fast_recovery_handshake()` (`urst.constants.ACK_TIMEOUT_MS`
+  1000 → 500, `MAX_RETRIES` 3 → 0, restored on exit) and calls
+  `_query(fast=True)` — single attempt, no `query_retries` loop, no backoff,
+  and a small serial read timeout (`_RECOVERY_SERIAL_TIMEOUT = 0.1`) threaded
+  through `_open_transport` so an absent port returns in ~ms not the default
+  2 s. Host CONNECT cadence measured in HIL went from ~1 per 12 s to ~1.2 per
+  second. Verified by unit tests.
+- **HIL re-test 2026-09-09 — still fails.** Three runs against a stranded
+  device (`ACK_TIMEOUT` 120/500, various serial timeouts), operator
+  power-cycling: **0 `CONNECT_ACK` in 48–108 host attempts per run**, every
+  run a full recovery-wait timeout. A `connect()` against the *healthy* device
+  measures ~81 ms, so the link is fast and 500 ms is not too tight — yet the
+  boot-time window never answers a single CONNECT. So the host cadence was
+  necessary but is **not sufficient**; there is a second cause, on the device
+  side or in how the retry pattern hits the XBee:
+  - Simon (hardware): XBees dislike back-to-back sends — they need a gap of
+    ~30 ms between frames or they buffer/drop. The current loop reopens the
+    serial port every cycle (toggling DTR/RTS on an FTDI→XBee) and re-sends
+    CONNECT ~1.2×/s; that open/close churn, not just the CONNECT spacing, may
+    be upsetting the module right when the freshly-booted device needs it
+    quietest.
+  - Device side unverified: `_run_boot_listen` calls `core.transport.read()`,
+    which blocks up to the *device's* `ACK_TIMEOUT_MS` (1000) per call, so the
+    ~1 s window may execute only one or two `read()` calls. Whether a CONNECT
+    that lands mid-window actually gets its `CONNECT_ACK` out before the
+    deadline needs on-device instrumentation to confirm.
+- **Next (fresh session):** (1) add temporary logging to `_run_boot_listen`,
+  deploy, watch what it receives during a power-cycle; (2) rework
+  `_recover_query` to hold **one** open transport for the whole poll and pace
+  CONNECTs with a deliberate ~30–50 ms gap (no per-cycle port reopen); (3)
+  re-measure. Only then re-run HIL tests 1/2/5/6.
 - **Edge noted, not fixed:** if the in-window ROLLBACK lands and the device
   resets but its reply is lost, the CLI retries and then reports "Nothing to
   roll back" (exit 1) though the rollback actually succeeded. Pre-existing to
-  the blind-retry design; `MAX_RETRIES = 1` (2 ACK attempts) narrows it. The
-  post-command `_wait_for_pong` still confirms real health.
+  the blind-retry design. `_wait_for_pong` still confirms real health.
 
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 

@@ -321,7 +321,7 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     a test); (c) `otampy config` lists `recovery-wait` with its default.
   - Done when: those tests pass and no test takes materially longer than before.
 
-- [ ] **6. `otampy upd --recover` and `otampy rollback --recover`**
+- [x] **6. `otampy upd --recover` and `otampy rollback --recover`**
   - What changes: `cli.py` — `--recover` on both commands. In `update()`,
     `--recover` replaces the `_send_command(ctx, b"UPDATE_REQUEST",
     b"REBOOTING")` call with `_recover_query(ctx, b"UPDATE_REQUEST",

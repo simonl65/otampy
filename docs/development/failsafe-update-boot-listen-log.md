@@ -153,3 +153,27 @@ Tests patch `time.sleep` and set `OTAMPY_RECOVERY_WAIT=0`, so nothing sleeps —
 `tests/test_cli.py` runtime is unchanged.
 
 Pre-flight exit 0.
+
+## Step 6 — `otampy upd --recover` / `otampy rollback --recover`
+
+Five tests first, red on the missing `--recover` flag / `NameError`.
+
+`--recover` on `upd` swaps the single `_send_command(ctx, b"UPDATE_REQUEST",
+b"REBOOTING")` in `_update_files` for `_recover_query(...)`; everything from the
+READY wait onward is the unchanged code path. `--recover` on `rollback` routes
+the `ROLLBACK` through `_recover_query` instead of `_query`, after the existing
+red confirm prompt (so confirm-**no** still sends nothing and prints no
+power-cycle instruction), and swaps in a recovery-specific `_wait_for_pong`
+message noting the reverted-to version may itself be unhealthy.
+
+`recover` had to be threaded through `_update_files` (the nested transfer
+helper), not just `update()` — the `UPDATE_REQUEST` send lives there. Both
+`_update_files` call sites (bytecode and plain) pass `recover=recover`.
+
+**Three existing tests updated**: `test_update_passes_no_progress_through_to_the_transfer`
+and two bytecode-cleanup tests assert `_update_files`'s exact call kwargs; each
+gained `recover=False`. These guard internal plumbing, not user behaviour — the
+no-`--recover` user path is unchanged (`test_upd_without_recover_prints_no_power_cycle_prompt`,
+plus every untouched handshake test).
+
+Pre-flight exit 0 (627 tests).

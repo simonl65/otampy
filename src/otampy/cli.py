@@ -1292,8 +1292,17 @@ def confirm(ctx: click.Context) -> None:
 
 
 @cli.command(name="rollback")
+@click.option(
+    "--recover",
+    is_flag=True,
+    help=(
+        "Land the ROLLBACK in the boot-time recovery window instead of the "
+        "running application (docs/protocol.md 2.4). Use when the device is "
+        "stranded before main.py -- you will be prompted to power-cycle it."
+    ),
+)
 @click.pass_context
-def rollback(ctx: click.Context) -> None:
+def rollback(ctx: click.Context, recover: bool) -> None:
     """Revert the device to the previously retained version over the radio.
 
     Sends ``ROLLBACK`` (docs/protocol.md §2.4): the device renames the retained
@@ -1301,6 +1310,9 @@ def rollback(ctx: click.Context) -> None:
     resets onto the previous version. Refuses (exit 1, no reset) when there is
     nothing retained or a commit is mid-flight. One generation is retained, so
     this is one-shot -- after it there is nothing left to roll back to.
+
+    ``--recover`` routes the command into the boot-time recovery window for a
+    device that never reaches ``ota.poll()``.
     """
     if not click.confirm(
         click.style(
@@ -1313,7 +1325,10 @@ def rollback(ctx: click.Context) -> None:
         _console().print("[yellow]Aborted.[/yellow]")
         return
     try:
-        payload, _ = _query(ctx, b"ROLLBACK", b"ROLLBACK_")
+        if recover:
+            payload = _recover_query(ctx, b"ROLLBACK", b"ROLLBACK_")
+        else:
+            payload, _ = _query(ctx, b"ROLLBACK", b"ROLLBACK_")
     except DeviceError as e:
         _handle_device_error(e)
         return
@@ -1325,12 +1340,18 @@ def rollback(ctx: click.Context) -> None:
         "Device is reverting to the previous version and rebooting..."
     )
     timeout = float(get_config_value("update_ready_timeout_seconds"))
-    _wait_for_pong(
-        ctx,
+    pong_timeout_message = (
         "Rollback commanded but the device did not answer PING within "
         f"{timeout:.0f}s. It may still be rebooting -- check with 'otampy "
-        "ping'.",
+        "ping'."
     )
+    if recover:
+        pong_timeout_message = (
+            "Rollback commanded but the device did not answer PING within "
+            f"{timeout:.0f}s. The previous version it reverted to may itself "
+            "be unhealthy -- check with 'otampy ping', then USB if needed."
+        )
+    _wait_for_pong(ctx, pong_timeout_message)
     _console().print(
         "[green]Rollback complete. The device is running the previous "
         "(stable) version.[/green]"
@@ -2188,6 +2209,15 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
         "'otampy confirm' or the application calls ota.confirm()."
     ),
 )
+@click.option(
+    "--recover",
+    is_flag=True,
+    help=(
+        "Drive the update through the boot-time recovery window instead of "
+        "main.py (docs/protocol.md 2.4). Use when the device is stranded "
+        "before ota.poll() -- you will be prompted to power-cycle it."
+    ),
+)
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
@@ -2201,6 +2231,7 @@ def update(
     no_rtc: bool,
     no_progress: bool,
     no_confirm: bool,
+    recover: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -2330,6 +2361,7 @@ def update(
                 delete_paths,
                 progress=not no_progress,
                 no_confirm=no_confirm,
+                recover=recover,
             )
         return
 
@@ -2348,6 +2380,7 @@ def update(
             bytecode_cleanup_paths,
             progress=not no_progress,
             no_confirm=no_confirm,
+            recover=recover,
         )
 
 
@@ -2358,6 +2391,7 @@ def _update_files(
     delete_paths: list[str] | None = None,
     progress: bool = True,
     no_confirm: bool = False,
+    recover: bool = False,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
@@ -2392,8 +2426,13 @@ def _update_files(
 
     _console().print("[yellow]Initiating update handshake...[/yellow]")
 
-    # 1. Send UPDATE_REQUEST to device runtime (main.py)
-    _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
+    # 1. Send UPDATE_REQUEST -- to main.py, or into the boot-time recovery
+    #    window with --recover. Either way the device writes the update flag
+    #    and resets; everything from the READY wait onward is identical.
+    if recover:
+        _recover_query(ctx, b"UPDATE_REQUEST", b"REBOOTING")
+    else:
+        _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
     _console().print(
         "[yellow]Device acknowledged update request. Rebooting...[/yellow]"
     )

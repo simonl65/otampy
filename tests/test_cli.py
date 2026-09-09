@@ -1477,6 +1477,7 @@ def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
         ["configota.mpy"],
         progress=True,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -1529,6 +1530,7 @@ def test_update_keeps_startup_helper_when_its_cleanup_is_declined(monkeypatch):
         [],
         progress=True,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -1554,6 +1556,7 @@ def test_update_passes_no_progress_through_to_the_transfer(monkeypatch):
         [],
         progress=False,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -3019,3 +3022,156 @@ def test_config_cmd_show_lists_recovery_wait(tmp_path):
     assert result.exit_code == 0
     assert "recovery-wait" in result.output
     assert "60" in result.output
+
+
+# =============================================================================
+# --recover: upd / rollback through the boot-time recovery window
+# =============================================================================
+
+
+def test_upd_recover_completes_a_full_session_when_a_window_lands(monkeypatch):
+    """--recover blind-retries UPDATE_REQUEST until a window answers, then the
+    normal READY -> COMMIT_OK -> CONFIRM session runs unchanged."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        inst = mock_device.return_value
+        inst.read.side_effect = [
+            None,  # first recovery attempt misses the window
+            b"REBOOTING",  # second attempt lands
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--recover"])
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" in result.output
+    assert "Device is READY. Handshake complete." in result.output
+    inst.send.assert_any_call(b"UPDATE_REQUEST")
+
+
+def test_upd_without_recover_prints_no_power_cycle_prompt():
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" not in result.output
+
+
+def test_rollback_recover_confirm_yes_succeeds(monkeypatch):
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK", b"PONG"]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" in result.output
+    mock_device.return_value.send.assert_any_call(b"ROLLBACK")
+
+
+def test_rollback_recover_confirm_no_sends_nothing_and_no_prompt():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="n\n"
+        )
+
+    assert result.exit_code == 0
+    assert "Aborted" in result.output
+    assert "Power-cycle the device now" not in result.output
+    mock_device.return_value.send.assert_not_called()
+
+
+def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = None
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "recovery-wait" in result.output

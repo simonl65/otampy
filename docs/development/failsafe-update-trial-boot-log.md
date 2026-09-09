@@ -182,3 +182,39 @@ docstring pointing at the "call after your own health check" use. Mirrors
 `ota.recover()`'s shape exactly.
 
 **Evidence:** `test_ota_facade.py` → 9 passed. Pre-flight → exit 0.
+
+---
+
+## Step 8 — `otampy upd` auto-confirm (2026-09-09)
+
+New `--no-confirm` flag on `upd`, and a `_post_commit_confirm(ctx, no_confirm)`
+call after the transfer `try/finally` closes its serial session (so the
+confirm phase opens a fresh link, as `_query` does for every other command).
+
+The confirm phase is threaded through `_update_files(..., no_confirm=...)` —
+the `try/finally` lives in `_update_files`, not `update()`, so `no_confirm`
+has to be passed down. Both `_update_files` call sites and the three
+`update_files.assert_called_once_with(...)` tests updated for the new kwarg.
+
+Default path: print "Waiting for the updated device to answer...", loop
+`_query(PING, PONG)` until it succeeds or `update_ready_timeout_seconds`
+wall-clock elapses, then `_send_command(CONFIRM, CONFIRM_OK)` and
+"Candidate confirmed." On timeout: `raise click.ClickException` with a
+message naming the auto-rollback consequence — non-zero exit. `_query`'s own
+internal 3-attempt retry means each PING poll already spans several seconds
+of real reconnect time on hardware; the outer wall-clock check bounds the
+total wait.
+
+`--no-confirm`: one yellow line explaining the candidate is on trial and how
+to confirm it, then return.
+
+Five existing full-session `upd` tests grew `b"PONG", b"CONFIRM_OK"` on the
+end of their `read.side_effect`. Two new tests: `--no-confirm` sends no
+`CONFIRM` and exits 0; a candidate that never PONGs exits non-zero with
+"NOT confirmed" (uses a fake `time.time` clock so the timeout branch is hit
+without real waiting).
+
+**Do not HIL yet** — steps 9–11 still pending; HIL is end-of-sub-task.
+
+**Evidence:** `tests/test_cli.py` + `src/otampy/device/tests/` → 425 passed.
+`ruff` clean. Pre-flight → exit 0.

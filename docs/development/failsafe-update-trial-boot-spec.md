@@ -271,7 +271,7 @@ new host config key.
   - Test: `test_ota_facade.py::test_confirm_delegates_to_restore_confirm`.
   - Done when: it passes.
 
-- [ ] **8. `otampy upd` auto-confirm**
+- [x] **8. `otampy upd` auto-confirm**
   - What changes: after the `COMMIT_OK` branch in `update()` (and outside the
     transfer `try/finally` so the transfer session is closed first), unless a
     new `--no-confirm` flag is set: loop `PING` via `_query` until success or

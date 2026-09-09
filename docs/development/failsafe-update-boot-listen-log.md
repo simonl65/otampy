@@ -274,3 +274,80 @@ repaired on the rig.
 
 **HIL tests 1–6 need an operator at the rig** (power-cycle on the CLI prompt,
 six full power cycles for test 3). Paused here for Simon.
+
+### HIL test 4 — window is not permanently open — PASS (with a spec-wording note)
+
+Device healthy, freshly deployed, no `.bck`, state "confirmed (stable)".
+`yes | otampy -p /dev/ttyUSB0 rollback --recover`, **no power cycle**.
+
+Observed: the retry loop's first attempt was answered by the *running app's*
+poll loop (sub-task 3 put `ROLLBACK` in `manager.poll`), which replied
+`ROLLBACK_ERR:Nothing to roll back`. CLI printed "Rollback refused: Nothing to
+roll back", exit 1, in ~3 s — it did **not** spin for the full 60 s
+`recovery-wait`.
+
+Safety property under test — "an un-power-cycled device is never in a window
+and never resets" — holds: immediately afterwards `otampy ping` → `PONG` and
+`state` → "Running a confirmed (stable) build" (unchanged, no reset).
+
+Spec wording note: test 4's stated evidence ("times out with the recovery-wait
+message") predates `ROLLBACK` being served by the running poll loop. On a
+healthy device the command is now answered, not timed out. The 60 s timeout
+path is still exercised — it is what happens against a *stranded* device that
+is not power-cycled (window never re-opens); captured incidentally in test 1.
+Recommend correcting the spec's test-4 evidence line rather than treating this
+as a device defect.
+
+### HIL test 1 — recover a stranded device via the window's ROLLBACK — FAIL (F-10)
+
+Setup: `otampy -p /dev/ttyUSB0 upd --no-confirm hil-scratch/main_broken.py:main.py`
+where `main_broken.py` is a single `raise RuntimeError(...)` at import, no
+watchdog. Commit OK, "on trial". Device rebooted → `otampy ping` timed out on
+every attempt: **stranded, as intended**, with `main.py.bck` retained.
+
+`otampy rollback --recover` (auto-confirm), operator power-cycled once on the
+prompt. **Attempt 1: 60 s recovery-wait expired, window never answered.**
+Re-ran with `OTAMPY_QUERY_RETRY_BACKOFF=0.05`, power-cycled again.
+**Attempt 2: 60 s expired again, window never answered.**
+
+Both attempts missed the ~1 s boot window. Then the device **self-recovered**
+via trial-boot auto-restore (the accumulated power cycles pushed the trial
+counter past `OTA_TRIAL_BOOTS = 3`; `trial()` ran `restore_all()` and reset
+onto the previous generation). `otampy ping` → `PONG`, `state` → "confirmed
+(stable)", `/main.py` is the example again, no `.bck`/journal.
+
+Diagnosis (from the URST source, not guesswork):
+`urst.constants` — `MAX_RETRIES = 3`, `ACK_TIMEOUT_MS = 1000`. One CONNECT
+handshake against an **absent** device = `MAX_RETRIES + 1 = 4` attempts x
+1000 ms = **~4 s**. `_query` wraps that in `query_retries = 3` -> **~12 s per
+`_query` call**. `_recover_query` loops `_query` with a 0.05-0.25 s backoff, so
+the host emits a fresh CONNECT roughly **every 12 s**. The device's recovery
+window is **1 s per boot**. Hit probability per power cycle ~= 1/12 ~= **8 %**;
+an operator would average ~12 power cycles to recover via the window. 0/2 here
+is the expected outcome of that maths, not bad luck.
+
+The window itself (`_run_boot_listen`, 10 ms poll) is not at fault — it would
+answer any CONNECT that arrived inside the second. The gap is host-side: the
+blind-retry cadence is ~12x too slow for the window it is trying to hit.
+
+Filed **F-10 (P1)**. Blocks tests 2, 5, 6 (all need a command to land in the
+window). Test 3 (boot-cost timing) and test 4 (already PASS) do not.
+
+### HIL bonus — trial-boot auto-restore (sub-task 2) on real hardware — PASS
+
+Not a planned test here, but observed cleanly: a device stranded by a fatal
+`main.py` with `main.py.bck` retained, power-cycled past `OTA_TRIAL_BOOTS`,
+auto-restored the previous generation and came back healthy over the radio with
+no operator action beyond the power cycles. The backstop works.
+
+### HIL run paused
+
+- Tests 0, 4: PASS. Bonus trial-restore: PASS.
+- Tests 1, 2, 5, 6: blocked on F-10 (host retry cadence vs 1 s window).
+- Test 3: not run (operator-heavy, and worth doing in the same pass as 1/2/5/6
+  once F-10 is fixed).
+- Device left healthy: example `main.py`, confirmed/stable, no `.bck`/journal,
+  `OTA_BOOT_LISTEN_MS` at default, no auth. `hil-scratch/` removed.
+- Note: `/dev/ttyACM0` threw `OSError: [Errno 5]` during a diagnostic mpremote
+  call (after many power cycles) — the gateway `/dev/ttyUSB0` was unaffected and
+  all verification above is over it.

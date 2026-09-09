@@ -9,6 +9,48 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-10 — the boot-time recovery window is unhittable in practice: host blind-retry cadence (~12 s) vs a 1 s window
+
+- **Severity:** P1
+- **Status:** open
+- **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
+  URST-handshake path it drives); interacts with
+  `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
+  default 1000)
+- **Found:** 2026-09-09, HIL verification of sub-task 4. `otampy rollback
+  --recover` against a genuinely stranded device (fatal `main.py`, no watchdog),
+  operator power-cycling on the prompt: **0 hits in 2 attempts**, each a full
+  60 s `recovery-wait` expiry. The device was then recovered by trial-boot
+  auto-restore, not by the window.
+- **Evidence:** `urst.constants` — `MAX_RETRIES = 3`, `ACK_TIMEOUT_MS = 1000`.
+  A CONNECT handshake against an **absent** peer runs `MAX_RETRIES + 1 = 4`
+  attempts × 1000 ms ≈ **4 s**. `_query` retries that `query_retries = 3`
+  times ≈ **12 s per call**. `_recover_query` loops `_query` with only a
+  0.05–0.25 s backoff between calls, so the host puts a fresh CONNECT on the
+  wire roughly **once every 12 s**. `_run_boot_listen`'s window is **1 s per
+  boot** (`OTA_BOOT_LISTEN_MS` default 1000, 10 ms poll). Per-power-cycle hit
+  probability ≈ 1 s / 12 s ≈ **8 %**; expected power cycles to recover ≈ 12.
+  Observed 0/2 is consistent with that, not with variance.
+- **Impact:** The headline capability of sub-task 4 — recover a device stranded
+  before `ota.poll()` over the radio with no USB — does not work in practice.
+  An operator following the CLI's own instructions ("power-cycle when
+  prompted") would give up long before landing a command. HIL tests 1, 2, 5
+  and 6 all depend on a command reaching the window and cannot pass until this
+  is fixed. The window code itself (`_run_boot_listen`) is correct: it polls
+  every 10 ms and would answer any CONNECT inside the second — the fault is
+  that the host never sends one fast enough.
+- **Suggested fix (host-side):** `_recover_query` should drive `_query` (or a
+  dedicated fast path) with a **fail-fast transport** — 1 handshake attempt,
+  short ACK timeout (~100–150 ms), no inner `query_retries` — so it emits many
+  CONNECTs per second and reliably catches a 1 s window. The retry loop, not
+  the per-attempt timeout, is what should span `recovery_wait_seconds`. A
+  device-side-only mitigation (larger `OTA_BOOT_LISTEN_MS`) trades directly
+  against the per-boot cost the spec set out to minimise and is not the right
+  lever. The signed-off Protocol decision that dropped the `RECOVERY` beacon
+  in favour of "silent window + host blind-retry" (spec §"Protocol decision" /
+  D2) should be revisited in light of this: blind retry is viable, but only if
+  the host retries an order of magnitude faster than it does today.
+
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 
 - **Severity:** P0

@@ -186,3 +186,85 @@ def test_poll_passes_heartbeat_through_to_manager():
         mock_manager_poll.assert_called_once_with(
             ota._core, None, heartbeat=heartbeat
         )
+
+
+# =============================================================================
+# Clearing the boot marker
+#
+# Reaching poll() is the only proof the runtime OTA surface is alive, so this
+# -- not recover(), which runs before the application has proved anything --
+# is where the marker written by boot.run() is cleared. Once per process.
+# See docs/development/failsafe-update-window-reachability-spec.md.
+# =============================================================================
+
+
+def _mark_config(tmp_path, **extra):
+    config = {"OTA_BOOT_MARK_FILE": str(tmp_path / "otampy-boot.mark")}
+    config.update(extra)
+    return config
+
+
+def test_first_poll_clears_the_boot_marker(tmp_path):
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with patch("device_otampy.manager.poll"):
+        ota.poll()
+
+    assert not mark.exists()
+
+
+def test_later_polls_do_no_filesystem_work(tmp_path):
+    """The hot path pays one boolean check per call, not a syscall."""
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with patch("device_otampy.manager.poll"):
+        ota.poll()
+        with patch("os.remove") as mock_remove:
+            ota.poll()
+            ota.poll()
+
+    mock_remove.assert_not_called()
+
+
+def test_poll_survives_a_marker_remove_failure_and_still_delegates(tmp_path):
+    """A read-only filesystem must never stop the application polling.
+
+    The flag is set regardless of outcome, so one failing remove is not
+    repaid on every poll() for the life of the process.
+    """
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with (
+        patch("os.remove", side_effect=OSError(30, "Read-only file system")),
+        patch("device_otampy.manager.poll") as mock_manager_poll,
+    ):
+        ota.poll()
+        mock_manager_poll.assert_called_once_with(
+            ota._core, None, heartbeat=None
+        )
+
+        with patch("os.remove") as mock_remove:
+            ota.poll()
+
+    mock_remove.assert_not_called()
+
+
+def test_poll_does_no_filesystem_work_when_recovery_window_disabled(tmp_path):
+    """OTA_BOOT_RECOVERY_LISTEN_MS = 0 switches the marker off at both ends."""
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    config = _mark_config(tmp_path, OTA_BOOT_RECOVERY_LISTEN_MS=0)
+    ota = OTA(shared.FakeUART(), config=config)
+
+    with (
+        patch("os.remove") as mock_remove,
+        patch("device_otampy.manager.poll"),
+    ):
+        ota.poll()
+
+    mock_remove.assert_not_called()
+    assert mark.exists()

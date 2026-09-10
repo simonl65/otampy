@@ -11,6 +11,8 @@ class OTA:
 
     def __init__(self, uart, config=None, logger=None):
         self._core = OTACore(uart, config, logger)
+        # Cleared by the first poll() of this process; see poll().
+        self._boot_mark_cleared = False
 
     def boot(self, callback=None):
         """
@@ -99,7 +101,40 @@ class OTA:
         response's fragment transfer, which can otherwise legitimately take
         far longer than one `poll()` call normally would -- see
         `manager.poll`'s own docstring for how it differs from `callback`.
+
+        The first call also clears the boot marker ``boot.run()`` wrote.
+        Reaching here is the only proof the runtime OTA surface is alive --
+        ``recover()`` deliberately does not clear it, running before the
+        application has proved anything -- so its absence on the next boot is
+        what says that boot got as far as the application.
         """
+        if not self._boot_mark_cleared:
+            self._clear_boot_mark()
+
         from .manager import poll
 
         poll(self._core, callback, heartbeat=heartbeat)
+
+    def _clear_boot_mark(self):
+        """Remove the boot marker, once per process. Never raises.
+
+        The flag is set regardless of outcome, so a read-only or full
+        filesystem costs one failed remove rather than one on every poll()
+        for the life of the process. Kept out of ``poll()``'s body so the hot
+        path is a single boolean attribute check.
+        """
+        self._boot_mark_cleared = True
+
+        from .core import _boot_mark_path
+
+        path = _boot_mark_path(self._core.config)
+        if not path:
+            return
+        try:
+            import uos as _os
+        except ImportError:
+            import os as _os
+        try:
+            _os.remove(path)
+        except OSError:
+            pass

@@ -265,7 +265,7 @@ boot, because nothing removes the marker yet.
   - Done when: those tests pass and
     `python3 .agents/scripts/pre_flight_check.py` is clean.
 
-- [ ] **2. Clear the marker on the first `OTA.poll()`**
+- [x] **2. Clear the marker on the first `OTA.poll()`**
   - What changes: `OTA.__init__` sets `self._boot_mark_cleared = False`;
     `OTA.poll()` removes the marker on its first call and sets the flag
     regardless of outcome, then delegates to `manager.poll` unchanged. Never

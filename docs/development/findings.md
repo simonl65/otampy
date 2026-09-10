@@ -44,6 +44,9 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   configuration is optional and was not exercised on the rig: no watchdog was
   armed, so the reset was never observed. The measurement and the code path
   are confirmed; the resulting reset loop is inference from them.
+  The margin is worse than first filed — see the logging-overhead correction
+  under **Evidence**: the 8899 ms span is clean as measured, not inflated, so
+  the configured `8000` really does overrun 8388 on its own.
 - **Status:** open
 - **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_boot_listen`, and the
   window selection in `run()`); `src/otampy/device/examples/configota.example.py`
@@ -66,12 +69,25 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   which `boot()` never calls.
   Raw log in `docs/development/failsafe-update-window-reachability-log.md`
   (2026-09-10, step 5 run 1).
-  **Caveat, and it matters:** those figures were taken at `LOG_LEVEL = "DEBUG"`
-  with `LOG_USE_TICKS = True`, so both are inflated by seven flash writes.
-  The conclusion survives the discount — the window cannot start before ~0.4 s
-  into boot even silent, and `400 + 8000 > 8388` — but the true margin is
-  unmeasured. A clean figure at `LOG_LEVEL = "ERROR"` is owed and is listed as
-  a follow-up on the step 5 resume.
+  **On logging overhead (corrected 2026-09-10, after first filing):** the
+  figures were taken at `LOG_LEVEL = "DEBUG"`, and this entry initially
+  discounted them as inflated by flash writes, with "a clean figure at
+  `LOG_LEVEL = \"ERROR\"`" listed as owed. That was wrong twice over, and the
+  correction strengthens the finding rather than weakening it.
+  First, `_run_boot_listen`'s idle path (`boot.py:432-435`) is
+  `read()` → `_sleep_ms(_BOOT_LISTEN_POLL_MS)` → `continue`, with **no
+  `logger` call at all**; the only logging in the body is on anomalies (a
+  non-UTF-8 packet, a matched command). On an idle window — which is every
+  window that is not being actively recovered, including the one measured —
+  the interior of the 8899 ms span contains **zero** DEBUG writes. The span is
+  therefore essentially clean as measured: the ~899 ms of excess over the
+  configured `8000` is `state(core)`'s journal read, loop granularity, and the
+  flush of the bracketing log line, not logging inside the window.
+  Second, a figure at `LOG_LEVEL = "ERROR"` is not obtainable anyway — both
+  bracketing lines are `logger.debug`, so at `ERROR` the measurement
+  disappears entirely. Any re-measurement needs a different technique
+  (temporary `print()` instrumentation, as the 2026-09-10 root-cause run
+  used), and is no longer needed to establish this finding.
 - **Impact:** An integrator arming `WDT(8388)` before `OTA(...).boot()` is
   reset part-way through every wide-window boot. The device that qualifies for
   the wide window is by definition the stranded one, so the inferred dynamic is

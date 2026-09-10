@@ -58,7 +58,19 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     power-cycled XBee is awake, so a boot following one that never reached
     `OTA.poll()` now opens `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) instead.
     Spec: `docs/development/failsafe-update-window-reachability-spec.md`.
-    **HIL verification outstanding — step 5, Opus only.**
+  - [ ] **5. Land a `--recover` command in the boot-time recovery window.**
+    Sub-task 4's window is open and reachable on hardware — 9006 / 9017 /
+    8977 ms on three consecutive stranded boots, and a normal-path `PING` drew
+    the window's own `ERROR:Recovery window` refusal from inside one. But
+    `_recover_query`'s fail-fast handshake profile (one CONNECT attempt, a
+    0.1 s serial timeout, the port reopened every cycle) cannot complete a
+    handshake over an XBee, so radio recovery still fails (F-15). The host
+    opens the port once and retries `connect()` at stock URST timings instead.
+    Folds in F-13 (a `--recover` timeout test that passes on a validation error
+    and never reaches the path it names) and F-14 (a trial boot gets no listen
+    window at all when the wide window is disabled). Closes F-10.
+    Spec: `docs/development/failsafe-update-recovery-handshake-spec.md`.
+    **HIL verification outstanding — this sub-task's step 7, Opus only.**
 
 [ ] **Freeze `restore.py` / a recovery `_boot.py` into the deployed image.** Follow-up to finding F-08 (P2, `docs/development/findings.md`). The recovery logic lives in `src/otampy/device/lib/otampy/restore.py`, imported lazily by both `boot.run()` and `ota.recover()`. `commit()` renames one file at a time, so a power loss while `restore.py` itself is the current commit pair leaves `/lib/otampy/restore.py` absent with `restore.py.bck` present: the next boot's `from .restore import ...` raises `ImportError` in both `boot.py` and `main.py`, and the boot-time recovery window (sub-task 4) cannot help because its own `from .restore import ...` raises first. Only triggered by a library update (`otampy upd lib/otampy/...` or a full re-deploy) with power lost in the narrow commit window — never a normal app update — and strictly smaller than the pre-retain-previous exposure, hence P2. A real fix needs frozen code: freeze `restore.py` into the deployed image, or F-06 Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Needs a manifest/freeze change at deploy time.
 

@@ -43,27 +43,33 @@ def _resolve_path(path):
     return "/" + path
 
 
+def _config_int(config, name, default):
+    """Read an integer setting, falling back to ``default`` on garbage.
+
+    A value ``int()`` cannot read is a **typo, not an off-switch**. Failing
+    closed on one would let a single mistyped config key silently disable
+    whatever it guards -- for the recovery window that means removing the only
+    radio recovery path. Only an explicit, in-range sentinel turns something
+    off, matching ``OTA_TIMEOUT_MS`` and ``restore.read_journal``.
+    """
+    value = _get_config(config, name, default)
+    try:
+        return int(value)  # type: ignore
+    except (TypeError, ValueError):
+        return default
+
+
 def _boot_recovery_window_ms(config):
     """The wide recovery window in ms. The single parse of that key.
 
     ``boot`` needs the duration and ``_boot_mark_path`` needs to know whether
     the feature is on at all; parsing in both places is how the two drift.
-
-    A value ``int()`` cannot read is a **typo, not an off-switch**, and falls
-    back to the default: failing closed here would let one mistyped config key
-    silently remove the only radio recovery path. Only an explicit ``<= 0``
-    turns the feature off, matching ``OTA_BOOT_LISTEN_MS``, ``OTA_TIMEOUT_MS``
-    and ``restore.read_journal``.
     """
-    window_ms = _get_config(
+    return _config_int(
         config,
         "OTA_BOOT_RECOVERY_LISTEN_MS",
         _DEFAULT_BOOT_RECOVERY_LISTEN_MS,
     )
-    try:
-        return int(window_ms)  # type: ignore
-    except (TypeError, ValueError):
-        return _DEFAULT_BOOT_RECOVERY_LISTEN_MS
 
 
 def _boot_mark_path(config):

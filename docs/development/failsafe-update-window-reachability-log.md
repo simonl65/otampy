@@ -46,3 +46,46 @@ returns `None` iff that is `<= 0`; step 3's `run()` calls it for the duration
 rather than parsing the key a second time. A shared helper rather than just
 fixing the wording, because step 3 needs the parsed duration anyway — two parse
 sites is the drift that produced the contradiction in the first place.
+
+---
+
+## 2026-09-10 — step 3: two findings the host tests surfaced
+
+**1. The wide window is real, and the test suite proved it the hard way.**
+On first running step 3 the device suite went from ~0.5 s to **32 s**. Cause:
+`_no_flag_core` and eight inline configs disabled only `OTA_BOOT_LISTEN_MS`.
+Any test writing a `trial` journal now correctly selects the *wide* key, and at
+its 8000 ms default that is a real 8 s wait per test. Fixed by disabling both
+tiers in the "no window" configs (`OTA_BOOT_RECOVERY_LISTEN_MS = 0`) and giving
+`_no_flag_core` 1 ms rather than 0, since 0 also switches the marker off and
+step 1's tests need it written. Back to 0.54 s.
+
+This is worth recording because it is the *first* independent confirmation
+that the selection logic actually fires: nothing was mocked, the tests simply
+started paying the wide window because they qualified for it.
+
+**2. The spec's `committing -> wide` row is unreachable through `run()`.**
+The spec's *Window duration selection* table lists a stray `committing`
+journal as selecting the wide window. It cannot: `repair()` runs first and
+reverses a stray `committing` marker, so by the time the duration is chosen
+the journal reads confirmed and the short window is correct. `restore.state`'s
+own docstring already says as much ("not seen at runtime -- `repair()` clears
+it first").
+
+Not a broken premise about device behaviour, and not a reason to change the
+code: `!= _LABEL_STABLE` is still the right defensive form, and is strictly
+safer than an equality test against `"trial"`. The test was rewritten to pin
+what is actually true --
+`test_a_stray_committing_journal_never_reaches_the_selection` asserts the
+short window *and* that `state()` still maps `committing` to a non-stable
+label, so the guard stays honest if `repair()` ever leaves one behind.
+Flagged to Simon rather than silently dropped.
+
+**3. A conftest wart, found in step 1 and still open.** `conftest.py`
+glob-loads submodules in arbitrary order, so `boot`'s `from .core import ...`
+can bind to a `device_otampy.core` instance the loop later replaces in
+`sys.modules` -- there are two live `core` modules during a run. Harmless
+today (nothing mutates module state) but it makes `monkeypatch.setattr` on a
+device module silently no-op. Worked around locally by patching the resolver's
+own `__globals__`. Adjacent to the existing `test_ota_facade.py` `sys.modules`
+item in `TODO.md`; not fixed here.

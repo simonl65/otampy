@@ -39,10 +39,16 @@ def _no_flag_core(tmp_path, uart=None, logger=None):
     # OTA_BOOT_LISTEN_MS = 0 disables the boot-time recovery window. These
     # tests cover the rest of a no-flag boot, and an open window would make
     # each of them really wait it out. The window has its own tests below.
+    #
+    # The recovery key must be > 0 or no marker is written at all, so it is
+    # 1ms rather than 0: any test here whose journal is unproven, or that has
+    # a marker from a previous boot, now selects the *wide* window, and at
+    # the 8000ms default that is a real 8s wait per test.
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / "nonexistent.flag"),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 1,
     }
     return OTACore(
         uart or shared.FakeUART(),
@@ -127,6 +133,7 @@ def test_boot_no_flag_file(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -235,6 +242,7 @@ def test_boot_handles_full_update_session(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -446,6 +454,7 @@ def test_boot_repairs_finished_commit_with_missing_target(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(core, 0, [str(main)])
@@ -470,6 +479,7 @@ def test_boot_reverses_interrupted_commit(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(
@@ -505,6 +515,7 @@ def test_boot_cleans_orphaned_ota_on_normal_boot(tmp_path):
     config = {
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -564,6 +575,7 @@ def test_commit_does_not_retain_the_transient_rtc_helper(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
 
@@ -623,6 +635,7 @@ def test_boot_removes_orphan_bck_but_keeps_journalled_one(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag_file),
         "OTA_JOURNAL_FILE": str(journal),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 0,
     }
     core = OTACore(uart, config=config, logger=logger)
     restore.write_journal(core, 0, [str(kept_target)])
@@ -725,6 +738,7 @@ def test_boot_writes_marker_on_the_flagged_update_path(tmp_path):
         "UPDATE_REQUEST_FLAG_FILE": str(flag),
         "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
         "OTA_BOOT_LISTEN_MS": 0,
+        "OTA_BOOT_RECOVERY_LISTEN_MS": 1,
     }
     core = OTACore(shared.FakeUART(), config=config, logger=shared.FakeLogger())
 
@@ -825,7 +839,7 @@ def test_boot_listen_expires_with_no_traffic(monkeypatch, tmp_path):
     core = _window_core(tmp_path)
     _fake_clock(monkeypatch)
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     machine.reset.assert_not_called()
     assert core.transport.sent_messages == []
@@ -841,7 +855,7 @@ def test_boot_listen_deadline_is_absolute_not_inactivity(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.extend([b"PING"] * 500)
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     # 1000ms window / 10ms per tick -> ~100 packets served, not all 500.
     assert 0 < len(core.transport.sent_messages) < 200
@@ -849,28 +863,21 @@ def test_boot_listen_deadline_is_absolute_not_inactivity(monkeypatch, tmp_path):
     machine.reset.assert_not_called()
 
 
-def test_boot_listen_disabled_never_reads(monkeypatch, tmp_path):
-    """(b) OTA_BOOT_LISTEN_MS = 0 disables the window outright."""
-    core = _window_core(tmp_path, OTA_BOOT_LISTEN_MS=0)
+@pytest.mark.parametrize("window_ms", [0, -1])
+def test_boot_listen_disabled_never_reads(monkeypatch, tmp_path, window_ms):
+    """(b) A window of 0 disables it outright -- not one read is issued.
+
+    run() now chooses the duration, so this guards the argument rather than
+    the config key. Which key produced the 0 is tested at run() level below.
+    """
+    core = _window_core(tmp_path)
     reads = []
     monkeypatch.setattr(core.transport, "read", lambda: reads.append(1) or None)
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, window_ms) is False
 
     assert reads == []
     machine.reset.assert_not_called()
-
-
-def test_boot_listen_non_integer_window_falls_back_to_default(
-    monkeypatch, tmp_path
-):
-    core = _window_core(tmp_path, OTA_BOOT_LISTEN_MS="not-a-number")
-    _fake_clock(monkeypatch)
-    core.transport.incoming_queue.append(b"PING")
-
-    assert boot._run_boot_listen(core) is False
-
-    assert core.transport.sent_messages == [b"ERROR:Recovery window"]
 
 
 def test_boot_listen_update_request_sets_flag_and_resets(monkeypatch, tmp_path):
@@ -879,7 +886,7 @@ def test_boot_listen_update_request_sets_flag_and_resets(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.append(b"UPDATE_REQUEST")
 
-    assert boot._run_boot_listen(core) is True
+    assert boot._run_boot_listen(core, WINDOW_MS) is True
 
     assert core.transport.sent_messages == [b"REBOOTING"]
     assert (tmp_path / "update_requested.flag").exists()
@@ -896,7 +903,7 @@ def test_boot_listen_rollback_restores_and_resets(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.append(b"ROLLBACK")
 
-    assert boot._run_boot_listen(core) is True
+    assert boot._run_boot_listen(core, WINDOW_MS) is True
 
     assert core.transport.sent_messages == [b"ROLLBACK_OK"]
     assert main.read_bytes() == b"previous-good"
@@ -914,7 +921,7 @@ def test_boot_listen_refusal_does_not_consume_the_window(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.extend([b"ROLLBACK", b"UPDATE_REQUEST"])
 
-    assert boot._run_boot_listen(core) is True
+    assert boot._run_boot_listen(core, WINDOW_MS) is True
 
     assert core.transport.sent_messages == [
         b"ROLLBACK_ERR:Nothing to roll back",
@@ -933,7 +940,7 @@ def test_boot_listen_rollback_refuses_while_committing(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.append(b"ROLLBACK")
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     assert core.transport.sent_messages == [b"ROLLBACK_ERR:Commit in flight"]
     assert main.read_bytes() == b"half-written"
@@ -946,7 +953,7 @@ def test_boot_listen_refuses_ping(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.append(b"PING")
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     assert core.transport.sent_messages == [b"ERROR:Recovery window"]
     machine.reset.assert_not_called()
@@ -957,7 +964,7 @@ def test_boot_listen_ignores_empty_and_non_utf8_packets(monkeypatch, tmp_path):
     _fake_clock(monkeypatch)
     core.transport.incoming_queue.extend([b"", b"   ", b"\xff\xfe"])
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     assert core.transport.sent_messages == []
     machine.reset.assert_not_called()
@@ -980,7 +987,7 @@ def test_boot_listen_rejects_unauthenticated_rollback(monkeypatch, tmp_path):
     core.transport.incoming_queue.append(b"ROLLBACK")
     core.transport.incoming_queue.append(_envelope(b"ROLLBACK", 1))
 
-    assert boot._run_boot_listen(core) is True
+    assert boot._run_boot_listen(core, WINDOW_MS) is True
 
     assert core.transport.sent_messages == [
         b"ERROR:Unauthenticated",
@@ -998,7 +1005,7 @@ def test_boot_listen_rejects_replayed_counter(monkeypatch, tmp_path):
     core.transport.incoming_queue.append(_envelope(b"PING", 5))
     core.transport.incoming_queue.append(_envelope(b"PING", 5))
 
-    assert boot._run_boot_listen(core) is False
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
 
     assert core.transport.sent_messages == [
         b"ERROR:Recovery window",
@@ -1016,11 +1023,15 @@ def test_boot_listen_rejects_replayed_counter(monkeypatch, tmp_path):
 
 
 def _window_spy(monkeypatch, result=False):
-    """Record whether run() opened the window, without opening one."""
+    """Record whether run() opened the window -- and for how long.
+
+    Returns a list of (core, window_ms) so the duration run() selected is
+    observable without waiting one out.
+    """
     calls = []
 
-    def spy(core):
-        calls.append(core)
+    def spy(core, window_ms):
+        calls.append((core, window_ms))
         return result
 
     monkeypatch.setattr(boot, "_run_boot_listen", spy)
@@ -1058,7 +1069,7 @@ def test_run_opens_the_window_then_sweeps_orphans(monkeypatch, tmp_path):
 
     boot.run(core, callback=None)
 
-    assert calls == [core]
+    assert [c for c, _ in calls] == [core]
     assert swept == [core]
 
 
@@ -1074,8 +1085,130 @@ def test_run_returns_immediately_when_the_window_reset(monkeypatch, tmp_path):
 
     boot.run(core, callback=None)
 
-    assert calls == [core]
+    assert [c for c, _ in calls] == [core]
     assert swept == []
+
+
+SHORT_MS = 111
+WIDE_MS = 9999
+
+
+def _selected_window(
+    monkeypatch, tmp_path, marker=False, journal=None, **extra
+):
+    """Run a no-flag boot and return the window duration run() chose."""
+    machine.reset.reset_mock()
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_BOOT_LISTEN_MS"] = SHORT_MS
+    core.config["OTA_BOOT_RECOVERY_LISTEN_MS"] = WIDE_MS
+    core.config.update(extra)
+    if marker:
+        (tmp_path / "otampy-boot.mark").write_text("1")
+    if journal is not None:
+        (tmp_path / "main.py").write_bytes(b"candidate")
+        (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+        restore.write_journal(core, journal, [str(tmp_path / "main.py")])
+    calls = _window_spy(monkeypatch)
+
+    boot.run(core, callback=None)
+
+    assert len(calls) == 1, calls
+    return calls[0][1]
+
+
+def test_run_picks_the_short_window_on_a_healthy_boot(monkeypatch, tmp_path):
+    """No marker, confirmed journal -> the existing ~1s cost, unchanged.
+
+    This is the whole point of the conditional design: a healthy fleet must
+    not pay the wide window.
+    """
+    assert _selected_window(monkeypatch, tmp_path) == SHORT_MS
+
+
+def test_run_picks_the_wide_window_when_the_marker_survived(
+    monkeypatch, tmp_path
+):
+    """The previous boot never reached OTA.poll() -- the rollback --recover
+    case, which a journal-only test cannot see because the fatal generation
+    was already confirmed."""
+    assert _selected_window(monkeypatch, tmp_path, marker=True) == WIDE_MS
+
+
+def test_run_picks_the_wide_window_for_a_candidate_on_trial(
+    monkeypatch, tmp_path
+):
+    """An unconfirmed candidate can strand the device on its very first boot,
+    before any marker has ever survived one."""
+    assert _selected_window(monkeypatch, tmp_path, journal=0) == WIDE_MS
+
+
+def test_a_stray_committing_journal_never_reaches_the_selection(
+    monkeypatch, tmp_path
+):
+    """The spec's `committing -> wide` row is unreachable through run().
+
+    repair() runs first and reverses a stray committing marker, so by the
+    time the duration is chosen the journal reads confirmed and the short
+    window is the correct answer. restore.state() still maps committing to a
+    non-stable label, which is why `!= _LABEL_STABLE` -- rather than an
+    equality test against "trial" -- remains the right defensive form should
+    repair() ever leave one behind.
+    """
+    assert (
+        _selected_window(
+            monkeypatch, tmp_path, journal=restore._STATE_COMMITTING
+        )
+        == SHORT_MS
+    )
+
+    stray = _no_flag_core(tmp_path)
+    restore.write_journal(
+        stray, restore._STATE_COMMITTING, [str(tmp_path / "main.py")]
+    )
+    assert restore.state(stray)[0] != restore._LABEL_STABLE
+
+
+def test_run_opens_no_window_at_all_when_the_wide_key_is_zero(
+    monkeypatch, tmp_path
+):
+    """0 disables the wide window for a boot that qualifies for it -- it does
+    not fall back to the short one."""
+    assert (
+        _selected_window(
+            monkeypatch,
+            tmp_path,
+            journal=0,
+            **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0},
+        )
+        == 0
+    )
+
+
+def test_run_falls_back_to_the_default_on_a_garbage_wide_key(
+    monkeypatch, tmp_path
+):
+    """A typo must not silently shorten the only radio recovery path."""
+    from device_otampy.core import _DEFAULT_BOOT_RECOVERY_LISTEN_MS
+
+    assert (
+        _selected_window(
+            monkeypatch,
+            tmp_path,
+            marker=True,
+            **{"OTA_BOOT_RECOVERY_LISTEN_MS": "8s"},
+        )
+        == _DEFAULT_BOOT_RECOVERY_LISTEN_MS
+    )
+
+
+def test_run_keeps_the_two_keys_independent(monkeypatch, tmp_path):
+    """A short key of 0 does not disable the wide window."""
+    assert (
+        _selected_window(
+            monkeypatch, tmp_path, marker=True, **{"OTA_BOOT_LISTEN_MS": 0}
+        )
+        == WIDE_MS
+    )
 
 
 def test_run_auto_restores_before_the_window_opens(monkeypatch, tmp_path):

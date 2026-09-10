@@ -277,7 +277,7 @@ boot, because nothing removes the marker yet.
     *Notes for the build*).
   - Done when: those tests pass and `pre_flight_check.py` is clean.
 
-- [ ] **3. Select the window duration**
+- [x] **3. Select the window duration**
   - What changes: `_run_boot_listen(core, window_ms)` takes the duration as an
     argument; the parse/fall-back/`<= 0` logic moves to `run()`, which picks
     wide vs short per the *Window duration selection* table. The wide duration

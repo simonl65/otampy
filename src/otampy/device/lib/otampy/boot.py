@@ -3,7 +3,13 @@ try:
 except ImportError:
     import os as _os
 
-from .core import _boot_mark_path, _get_config, _resolve_path
+from .core import (
+    _boot_mark_path,
+    _boot_recovery_window_ms,
+    _config_int,
+    _get_config,
+    _resolve_path,
+)
 
 # The host stages this one-shot RTC helper in every ``otampy upd`` manifest
 # (unless ``--no-rtc``). It self-deletes on the next boot, so it must be placed
@@ -394,14 +400,18 @@ def _persist_replay_floor(core):
     persist_replay_floor(core)
 
 
-def _run_boot_listen(core):
+def _run_boot_listen(core, window_ms):
     """The boot-time recovery window. Never raises.
 
-    Listens silently for ``OTA_BOOT_LISTEN_MS`` and serves exactly two
-    commands, ``UPDATE_REQUEST`` and ``ROLLBACK``. Returns ``True`` when it
-    handled a command that reset the board (so the caller returns -- a mocked
+    Listens silently for ``window_ms`` and serves exactly two commands,
+    ``UPDATE_REQUEST`` and ``ROLLBACK``. Returns ``True`` when it handled a
+    command that reset the board (so the caller returns -- a mocked
     ``machine.reset`` in tests does not actually reset), ``False`` when the
-    window simply expired.
+    window simply expired or was disabled.
+
+    ``run()`` chooses the duration -- wide after a boot that never reached
+    the application, short otherwise -- so this body serves both tiers
+    unchanged. ``<= 0`` disables the window and reads nothing at all.
 
     A refusal does not consume the window: the deadline is **absolute** and
     is never extended by activity, unlike ``_run_default_update_loop``'s
@@ -411,13 +421,6 @@ def _run_boot_listen(core):
     running its application, and a ``PONG`` would report it healthy -- the
     absence of one is the signal that recovery is needed.
     """
-    window_ms = _get_config(
-        core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
-    )
-    try:
-        window_ms = int(window_ms)  # type: ignore
-    except (TypeError, ValueError):
-        window_ms = _DEFAULT_BOOT_LISTEN_MS
     if window_ms <= 0:
         return False
 
@@ -568,7 +571,7 @@ def run(core, callback=None):
     # Finish or reverse an interrupted retain-previous commit before anything
     # else touches the filesystem -- runs on every boot, flagged or not.
     # Local import so it stays GC-eligible alongside `boot` itself.
-    from .restore import _ROLLED_BACK, repair, trial
+    from .restore import _LABEL_STABLE, _ROLLED_BACK, repair, state, trial
 
     repair(core)
 
@@ -596,9 +599,11 @@ def run(core, callback=None):
     # Never raises -- a failed write degrades to the short window rather than
     # stranding the boot.
     boot_mark = _boot_mark_path(core.config)
+    had_boot_mark = False
     if boot_mark:
         try:
             _os.stat(boot_mark)
+            had_boot_mark = True
         except OSError:
             try:
                 with open(boot_mark, "w") as handle:
@@ -625,8 +630,27 @@ def run(core, callback=None):
     # pending, and only after repair()/trial() above, so it operates on a
     # healed tree and never interferes with a session in progress. `return`
     # because a mocked `machine.reset` in tests does not actually reset.
-    if not has_flag and _run_boot_listen(core):
-        return
+    #
+    # Two tiers. A boot that follows one which never reached OTA.poll(), or
+    # that still carries an unconfirmed candidate, gets the wide window --
+    # long enough to overlap a power-cycled XBee's wake-up, which the ~1s
+    # window never did (F-10). Every other boot keeps paying only the short
+    # one, which is the whole point: a healthy fleet does not carry the cost.
+    #
+    # Both tests are needed and neither subsumes the other. The journal test
+    # catches an unconfirmed candidate that strands the device on its very
+    # first boot, and is free -- the journal is already read. The marker
+    # catches a *confirmed* generation that later proves fatal, which the
+    # journal cannot see and which is exactly the `rollback --recover` case.
+    if not has_flag:
+        if had_boot_mark or state(core)[0] != _LABEL_STABLE:
+            window_ms = _boot_recovery_window_ms(core.config)
+        else:
+            window_ms = _config_int(
+                core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
+            )
+        if _run_boot_listen(core, window_ms):
+            return
 
     if has_flag:
         core.logger.debug("FOUND update flag-file")

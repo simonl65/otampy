@@ -3,7 +3,7 @@ try:
 except ImportError:
     import os as _os
 
-from .core import _get_config, _resolve_path
+from .core import _boot_mark_path, _get_config, _resolve_path
 
 # The host stages this one-shot RTC helper in every ``otampy upd`` manifest
 # (unless ``--no-rtc``). It self-deletes on the next boot, so it must be placed
@@ -584,6 +584,27 @@ def run(core, callback=None):
 
         machine.reset()
         return
+
+    # Record that this boot started. Its presence on the *next* boot means
+    # this one never reached OTA.poll(), which is what selects the wide
+    # recovery window. Written after trial() -- a boot that exhausts the trial
+    # limit resets above and must leave no stale marker -- and before the flag
+    # lookup, so an update boot is marked too.
+    #
+    # Existence is tested before writing, never after: the mechanism inverts
+    # otherwise, and a device already in a boot loop must do zero writes.
+    # Never raises -- a failed write degrades to the short window rather than
+    # stranding the boot.
+    boot_mark = _boot_mark_path(core.config)
+    if boot_mark:
+        try:
+            _os.stat(boot_mark)
+        except OSError:
+            try:
+                with open(boot_mark, "w") as handle:
+                    handle.write("1")
+            except OSError as err:
+                core.logger.error(f"Failed to write boot marker: {err}")
 
     core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")

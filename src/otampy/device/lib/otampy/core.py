@@ -13,6 +13,14 @@ class UartRequiredError(Exception):
     pass
 
 
+# The boot marker. Its presence at boot means the *previous* boot never
+# reached OTA.poll(), so that boot gets the wide recovery window instead of
+# the short one -- long enough to overlap a power-cycled XBee's wake-up, which
+# the 1s window never did (F-10).
+_DEFAULT_BOOT_MARK_FILE = "otampy-boot.mark"
+_DEFAULT_BOOT_RECOVERY_LISTEN_MS = 8000
+
+
 def _get_config(config, name, default=None):
     getter = getattr(config, "get", None)
     if getter is not None:
@@ -33,6 +41,44 @@ def _resolve_path(path):
     if sys.implementation.name != "micropython":
         return path
     return "/" + path
+
+
+def _boot_recovery_window_ms(config):
+    """The wide recovery window in ms. The single parse of that key.
+
+    ``boot`` needs the duration and ``_boot_mark_path`` needs to know whether
+    the feature is on at all; parsing in both places is how the two drift.
+
+    A value ``int()`` cannot read is a **typo, not an off-switch**, and falls
+    back to the default: failing closed here would let one mistyped config key
+    silently remove the only radio recovery path. Only an explicit ``<= 0``
+    turns the feature off, matching ``OTA_BOOT_LISTEN_MS``, ``OTA_TIMEOUT_MS``
+    and ``restore.read_journal``.
+    """
+    window_ms = _get_config(
+        config,
+        "OTA_BOOT_RECOVERY_LISTEN_MS",
+        _DEFAULT_BOOT_RECOVERY_LISTEN_MS,
+    )
+    try:
+        return int(window_ms)  # type: ignore
+    except (TypeError, ValueError):
+        return _DEFAULT_BOOT_RECOVERY_LISTEN_MS
+
+
+def _boot_mark_path(config):
+    """Resolved boot-marker path, or ``None`` when the wide window is off.
+
+    The off-switch lives here rather than at the call sites, so ``boot`` and
+    ``ota`` both read ``path = _boot_mark_path(...)`` / ``if path:`` and
+    neither repeats the guard. ``0`` is therefore a true off-switch with zero
+    filesystem cost.
+    """
+    if _boot_recovery_window_ms(config) <= 0:
+        return None
+    return _resolve_path(
+        str(_get_config(config, "OTA_BOOT_MARK_FILE", _DEFAULT_BOOT_MARK_FILE))
+    )
 
 
 class OTACore:

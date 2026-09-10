@@ -7,9 +7,32 @@ from unittest.mock import patch
 
 import device_otampy.auth as device_auth
 import machine
+import pytest
 import shared
 from device_otampy import boot, restore
 from device_otampy.core import OTACore
+
+
+@pytest.fixture(autouse=True)
+def _boot_mark_in_tmp(tmp_path, monkeypatch):
+    """Keep the default boot marker out of the repo root.
+
+    Almost every config in this file omits OTA_BOOT_MARK_FILE, so run() would
+    otherwise write `otampy-boot.mark` into the working directory on each of
+    them. Redirecting the default -- rather than adding the key to fifteen
+    inline configs -- keeps the default path itself under test.
+
+    Patched on the resolver's own globals, not on an imported `core` module:
+    conftest glob-loads the submodules in arbitrary order, so `boot`'s
+    `from .core import ...` can bind to a `device_otampy.core` instance that
+    the loop later replaces in sys.modules. Setting the attribute on the
+    module this file imports would land on the wrong instance.
+    """
+    monkeypatch.setitem(
+        boot._boot_mark_path.__globals__,
+        "_DEFAULT_BOOT_MARK_FILE",
+        str(tmp_path / "otampy-boot.mark"),
+    )
 
 
 def _no_flag_core(tmp_path, uart=None, logger=None):
@@ -660,6 +683,102 @@ def test_cleanup_keeps_journalled_bck_with_real_resolve_path(tmp_path):
 
     assert not any(r.endswith("main.py.bck") for r in removed), removed
     assert any(r.endswith("stale.py.bck") for r in removed), removed
+
+
+# =============================================================================
+# The boot marker
+#
+# Its presence at boot means the *previous* boot never reached OTA.poll().
+# run() writes it once per boot, only when absent, after trial() and before
+# the flag lookup. Nothing reads it yet -- step 3 selects the window from it.
+# See docs/development/failsafe-update-window-reachability-spec.md.
+# =============================================================================
+
+
+def _mark(tmp_path):
+    return tmp_path / "otampy-boot.mark"
+
+
+def test_boot_writes_marker_when_absent(tmp_path):
+    core = _no_flag_core(tmp_path)
+
+    boot.run(core, callback=None)
+
+    assert _mark(tmp_path).exists()
+
+
+def test_boot_leaves_an_existing_marker_untouched(tmp_path):
+    """A stranded device in a boot loop does zero writes -- flash wear."""
+    _mark(tmp_path).write_bytes(b"previous-boot")
+    core = _no_flag_core(tmp_path)
+
+    boot.run(core, callback=None)
+
+    assert _mark(tmp_path).read_bytes() == b"previous-boot"
+
+
+def test_boot_writes_marker_on_the_flagged_update_path(tmp_path):
+    """Written before the flag lookup, so an update boot is marked too."""
+    flag = tmp_path / "update_requested.flag"
+    flag.write_text("1")
+    config = {
+        "UPDATE_REQUEST_FLAG_FILE": str(flag),
+        "OTA_JOURNAL_FILE": str(tmp_path / "otampy-update.journal"),
+        "OTA_BOOT_LISTEN_MS": 0,
+    }
+    core = OTACore(shared.FakeUART(), config=config, logger=shared.FakeLogger())
+
+    boot.run(core, callback=lambda _flag: None)
+
+    assert _mark(tmp_path).exists()
+
+
+def test_boot_writes_no_marker_when_recovery_window_disabled(tmp_path):
+    """OTA_BOOT_RECOVERY_LISTEN_MS = 0 is a true off-switch, filesystem too."""
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_BOOT_RECOVERY_LISTEN_MS"] = 0
+
+    boot.run(core, callback=None)
+
+    assert not _mark(tmp_path).exists()
+
+
+def test_boot_writes_no_marker_when_trial_rolls_back(tmp_path):
+    """trial() resets onto the previous generation: leave no stale marker.
+
+    That reset is why the marker is written after trial(), not before it.
+    """
+    machine.reset.reset_mock()
+    main = tmp_path / "main.py"
+    main.write_bytes(b"bad-candidate")
+    (tmp_path / "main.py.bck").write_bytes(b"previous-good")
+    core = _no_flag_core(tmp_path)
+    core.config["OTA_TRIAL_BOOTS"] = 3
+    restore.write_journal(core, 3, [str(main)])
+
+    boot.run(core, callback=None)
+
+    machine.reset.assert_called_once()
+    assert not _mark(tmp_path).exists()
+
+
+def test_boot_marker_write_failure_does_not_strand_the_boot(tmp_path):
+    """A full or read-only filesystem degrades to the short window silently.
+
+    A boot must never be stranded by a failed marker write.
+    """
+    core = _no_flag_core(tmp_path)
+    real_open = builtins.open
+
+    def _explode(path, *args, **kwargs):
+        if str(path).endswith("otampy-boot.mark"):
+            raise OSError(28, "No space left on device")
+        return real_open(path, *args, **kwargs)
+
+    with patch("builtins.open", _explode):
+        boot.run(core, callback=None)
+
+    assert not _mark(tmp_path).exists()
 
 
 # =============================================================================

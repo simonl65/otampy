@@ -29,7 +29,7 @@ what changes is entirely how the host drives the serial port while it waits.
 - **F-13 (P2).** The `--recover` timeout tests that pass on a config-validation
   error and never reach the path they name.
 - **F-14 (P3).** A trial boot with `OTA_BOOT_RECOVERY_LISTEN_MS = 0` currently
-  gets *no* listen window at all; it should fall back to `OTA_BOOT_LISTEN_MS`.
+  gets _no_ listen window at all; it should fall back to `OTA_BOOT_LISTEN_MS`.
 - The operator-facing prompt and timeout text on the `--recover` path.
 - `docs/protocol.md` §2.4 and `docs/architecture.md` where they describe the
   window and its host-side counterpart; `CHANGELOG.md`.
@@ -43,27 +43,27 @@ what changes is entirely how the host drives the serial port while it waits.
   table, the auth envelope and the two-tier duration selection are proven
   correct on hardware and are not touched, except for F-14's one branch.
 - **F-12 (P2, the 8952 ms window vs the 8388 ms WDT cap).** Real, measured
-  twice, and orthogonal — it is about the *device's* window duration against a
+  twice, and orthogonal — it is about the _device's_ window duration against a
   watchdog an integrator may arm, not about the host reaching it. Left open.
 - **F-08 (P2, a power loss while `restore.py` is the commit pair).** Its own
   TODO item; no window, wide or narrow, can help it.
 - **Making `OTA_BOOT_RECOVERY_LISTEN_MS` larger.** If this spec's host fix
-  still proves marginal on HIL, the device-side lever is the *next* decision,
+  still proves marginal on HIL, the device-side lever is the _next_ decision,
   not a silent tweak inside this one.
-- **A device-side beacon.** Rejected for the third time — see *Protocol
-  decision*.
+- **A device-side beacon.** Rejected for the third time — see _Protocol
+  decision_.
 
 ## Protocol decision
 
 - **Existing OTAmpy/URST command reusable?** Yes, unchanged. The window still
-  serves exactly `UPDATE_REQUEST` and `ROLLBACK`. Nothing about *what* is
+  serves exactly `UPDATE_REQUEST` and `ROLLBACK`. Nothing about _what_ is
   spoken changes; only how the host works the serial port while it waits for a
   window to open.
 - **Channel:** 0 (reliable). Unchanged.
 - **Wire format change?** **None.** No new verb, no new response token,
   `PROTOCOL_VERSION` does not move. Every change is host-side, plus one
   device-side branch for F-14 and doc text.
-- **URST change?** **None.** In particular this spec *stops* mutating
+- **URST change?** **None.** In particular this spec _stops_ mutating
   `urst.constants` at runtime, which is a reduction in coupling, not an
   increase.
 - **Signed off:** parent decision 2026-09-08 by Simon (no URST change, channel
@@ -73,7 +73,7 @@ what changes is entirely how the host drives the serial port while it waits.
 ### What this replaces
 
 `failsafe-update-window-reachability-spec.md` replaced signed-off **D2**
-("silent window + host blind-retry") only on its *device* half: the window is
+("silent window + host blind-retry") only on its _device_ half: the window is
 now wide enough to overlap a cold XBee's wake-up, which HIL proved
 (9006 / 9017 / 8977 ms on three consecutive stranded boots). Blind retry
 survives as the host's strategy; what is falsified is the **profile** the
@@ -98,20 +98,20 @@ Rejected again, for the record:
 
 The contract `_recover_query` owes its callers is unchanged and must stay
 unchanged: given a command and an expected prefix, return the reply payload,
-raise `DeviceError` if the device *answered* with a refusal, and raise
+raise `DeviceError` if the device _answered_ with a refusal, and raise
 `click.ClickException` naming `recovery-wait` if nothing answered in time.
 `rollback --recover` and `upd --recover` both depend on exactly that shape.
 
 What changes is the body:
 
-| | Today (F-15) | This spec |
-| --- | --- | --- |
-| Serial port | reopened every cycle (~1.2/s), DTR/RTS toggled each time | opened **once**, held for the whole poll |
-| Handshake | `_query(fast=True)` → one CONNECT, `ACK_TIMEOUT_MS` 500, `MAX_RETRIES` 0 | `transport.protocol.connect()` at stock URST timings — 4 CONNECT frames, 1 s listen after each |
-| `urst.constants` | mutated and restored around the poll | **not touched** |
-| Serial read timeout | `0.1 s` | `_RECOVERY_SERIAL_TIMEOUT` (below) |
-| CONNECT cadence | ~1.2/s, 500 ms listen each | ~1/s, a full 1 s listen each |
-| Command sent | every cycle, blind | only after a handshake has actually completed |
+|                     | Today (F-15)                                                             | This spec                                                                                      |
+| ------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Serial port         | reopened every cycle (~1.2/s), DTR/RTS toggled each time                 | opened **once**, held for the whole poll                                                       |
+| Handshake           | `_query(fast=True)` → one CONNECT, `ACK_TIMEOUT_MS` 500, `MAX_RETRIES` 0 | `transport.protocol.connect()` at stock URST timings — 4 CONNECT frames, 1 s listen after each |
+| `urst.constants`    | mutated and restored around the poll                                     | **not touched**                                                                                |
+| Serial read timeout | `0.1 s`                                                                  | `_RECOVERY_SERIAL_TIMEOUT` (below)                                                             |
+| CONNECT cadence     | ~1.2/s, 500 ms listen each                                               | ~1/s, a full 1 s listen each                                                                   |
+| Command sent        | every cycle, blind                                                       | only after a handshake has actually completed                                                  |
 
 ### Why the serial read timeout is load-bearing, not a taste knob
 
@@ -133,10 +133,10 @@ either number silently un-does the fix.
 
 All in `src/otampy/cli.py`, next to the poll they serve:
 
-| Constant | Value | Why |
-| --- | --- | --- |
-| `_RECOVERY_SERIAL_TIMEOUT` | `0.2` | Bounds one `read_frame` iteration so `ACK_TIMEOUT_MS` is the real per-attempt deadline (above). Already exists at `0.1`; the value moves and the docstring changes. |
-| `_RECOVERY_HANDSHAKE_GAP_S` | `0.05` | Quiet gap between `connect()` calls. XBees drop or buffer back-to-back frames without a ~30 ms gap (Simon, recorded under F-10). New. |
+| Constant                    | Value  | Why                                                                                                                                                                 |
+| --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_RECOVERY_SERIAL_TIMEOUT`  | `0.2`  | Bounds one `read_frame` iteration so `ACK_TIMEOUT_MS` is the real per-attempt deadline (above). Already exists at `0.1`; the value moves and the docstring changes. |
+| `_RECOVERY_HANDSHAKE_GAP_S` | `0.05` | Quiet gap between `connect()` calls. XBees drop or buffer back-to-back frames without a ~30 ms gap (Simon, recorded under F-10). New.                               |
 
 Deleted: `_RECOVERY_ACK_TIMEOUT_MS`, `_RECOVERY_MAX_RETRIES`.
 
@@ -147,27 +147,27 @@ default 60) still bounds the whole poll and remains the operator's lever.
 
 `boot.py` `run()`, the `if not has_flag:` branch:
 
-| Condition at boot | Today | This spec |
-| --- | --- | --- |
-| Marker present or journal `!= stable`, `OTA_BOOT_RECOVERY_LISTEN_MS > 0` | wide | wide (unchanged) |
-| Marker present or journal `!= stable`, key is `0` | **no window at all** | `OTA_BOOT_LISTEN_MS` (short) |
-| Neither | short | short (unchanged) |
+| Condition at boot                                                        | Today                | This spec                    |
+| ------------------------------------------------------------------------ | -------------------- | ---------------------------- |
+| Marker present or journal `!= stable`, `OTA_BOOT_RECOVERY_LISTEN_MS > 0` | wide                 | wide (unchanged)             |
+| Marker present or journal `!= stable`, key is `0`                        | **no window at all** | `OTA_BOOT_LISTEN_MS` (short) |
+| Neither                                                                  | short                | short (unchanged)            |
 
 The invariant this restores, and which belongs in `docs/protocol.md` §2.4:
 **a boot that is more at risk never gets a shorter window than an ordinary
-boot.** `0` disables the *wide* window and the marker; it was never documented
+boot.** `0` disables the _wide_ window and the marker; it was never documented
 as removing the short window from the one boot most likely to need it.
 
 ## Device cost
 
 - **Hot-path allocation:** none. `manager.poll` and `OTA.poll()` are untouched.
 - **Per-boot cost:** F-14 adds one `_config_int` read of `OTA_BOOT_LISTEN_MS`
-  on a branch that is only taken when the wide window is disabled *and* the
+  on a branch that is only taken when the wide window is disabled _and_ the
   boot is at-risk. Zero cost on the default configuration.
 - **Blocking operations:** none added on the device. The window's duration is
   unchanged by this spec (F-12 owns that question).
 - **Watchdog:** unchanged. F-14's fallback makes an at-risk boot's window
-  *shorter or equal* to what a wide-window device already pays, so it cannot
+  _shorter or equal_ to what a wide-window device already pays, so it cannot
   worsen any WDT margin.
 - **Everything else here is host-side** and costs the device nothing.
 
@@ -195,7 +195,7 @@ as removing the short window from the one boot most likely to need it.
 - [ ] **2. Fix the `--recover` timeout tests before touching the code (F-13)**
   - What changes: `tests/test_cli.py` only. Three tests set
     `OTAMPY_RECOVERY_WAIT=0`, which `_coerce_config_value` (`cli.py:369-372`)
-    rejects outright — they assert on an error message that is the *validation*
+    rejects outright — they assert on an error message that is the _validation_
     failure, not the recovery timeout, and never enter the retry loop:
     `test_rollback_recover_times_out_with_recovery_wait_message`,
     `test_recover_query_raises_naming_recovery_wait_when_nothing_answers`, and
@@ -203,7 +203,7 @@ as removing the short window from the one boot most likely to need it.
     deletes). Use a tiny positive wait (`0.001`, the pattern the F-11 tests
     already use) and assert on the real wording — `No recovery window answered`
     and the command name — not the bare key.
-  - Test: this step *is* the test change.
+  - Test: this step _is_ the test change.
   - Done when: each fixed test fails when `_recover_query`'s timeout message is
     altered, and passes otherwise. Demonstrate it: temporarily change the
     message, show the reds, revert. Record both outputs in the dev log — that
@@ -235,15 +235,15 @@ as removing the short window from the one boot most likely to need it.
     (a) the port is opened **once** across many failed handshakes;
     (b) `_open_transport` is called with `serial_timeout=_RECOVERY_SERIAL_TIMEOUT`;
     (c) `_RECOVERY_SERIAL_TIMEOUT <= urst.constants.ACK_TIMEOUT_MS / 1000`
-        (the invariant, asserted directly);
+    (the invariant, asserted directly);
     (d) `urst.constants.ACK_TIMEOUT_MS` / `MAX_RETRIES` are the same objects
-        before and during the poll — nothing is mutated;
+    before and during the poll — nothing is mutated;
     (e) a `connect()` that succeeds but whose reply never arrives loops again
-        and succeeds on a later attempt, and the second send re-wraps with a
-        fresh auth counter;
+    and succeeds on a later attempt, and the second send re-wraps with a
+    fresh auth counter;
     (f) an `OSError` mid-poll reopens the transport and the poll continues;
     (g) `DeviceError` propagates; (h) the timeout raises the `recovery-wait`
-        message from step 2.
+    message from step 2.
   - Done when: all of the above pass, `grep -c fast= src/otampy/cli.py` is 0,
     and `python3 .agents/scripts/pre_flight_check.py` is green.
 
@@ -253,7 +253,7 @@ as removing the short window from the one boot most likely to need it.
     stops being true. It should say: power-cycle now; the host is handshaking
     once a second for `<wait>`s; a device that failed before reaching its
     application opens a wide window on the next boot, so one power cycle is
-    normally enough; a device that crashed *after* polling needs two. The
+    normally enough; a device that crashed _after_ polling needs two. The
     timeout message keeps naming `recovery-wait` and the `otampy config --set`
     lever.
   - Test: `tests/test_cli.py` — assert the prompt no longer claims a
@@ -296,7 +296,7 @@ as removing the short window from the one boot most likely to need it.
 
 - [ ] **7. HIL verification and finding closure**
   - What changes: no code. Re-runs the outstanding hardware tests of
-    `failsafe-update-window-reachability-spec.md` step 5 — see *Verification*.
+    `failsafe-update-window-reachability-spec.md` step 5 — see _Verification_.
   - Test: none — hardware evidence, recorded in this spec's dev log **and**
     appended to the window-reachability log so F-10's trail stays in one place.
   - Done when: HIL 1 passes on the first power cycle **three times running**,
@@ -320,7 +320,6 @@ as removing the short window from the one boot most likely to need it.
     unavoidable, batch it into one `mpremote ... + ...` session and follow it
     with a genuine `mpremote connect <port> reset` and a full settle before
     trusting the device again.
-
   1. **HIL 1 — recover a device stranded by a fatal `main.py`, on the first
      power cycle, three times running.** Strand with
      `otampy upd --no-confirm main.py` where `main.py` raises on import and
@@ -358,6 +357,7 @@ as removing the short window from the one boot most likely to need it.
     nowhere. Install it, or instrument with prints, before relying on device
     logs. `LOG_LEVEL = "DEBUG"` + `LOG_USE_TICKS = True` pushed over the radio
     is how the 2026-09-10 measurements were taken.
+
 - **Manual:** Simon runs HIL 1 three times and confirms by eye that a device he
   has deliberately bricked at the application level comes back over the radio
   on **one** power cycle, with no USB, every time.
@@ -401,7 +401,7 @@ as removing the short window from the one boot most likely to need it.
 
 - **`_recover_query` is called by two commands with different follow-on
   behaviour.** `rollback --recover` expects `ROLLBACK_` and the device resets
-  immediately; `upd --recover` expects `REBOOTING` and then runs a *fresh*
+  immediately; `upd --recover` expects `REBOOTING` and then runs a _fresh_
   update session on a newly-opened transport (`cli.py:2494`). The held-open
   transport therefore never needs to be handed onward — close it and let the
   existing session code reopen. Do not "optimise" that.
@@ -411,7 +411,7 @@ as removing the short window from the one boot most likely to need it.
   the wrapped bytes were hoisted. The recovery loop inherits that rule exactly
   — wrap at each send, never once before the loop.
 - **`send_reliable` auto-connects** (`urst/protocol_layer.py:239`), so an
-  explicit `connect()` is a *probe*, not a prerequisite. Probing explicitly is
+  explicit `connect()` is a _probe_, not a prerequisite. Probing explicitly is
   the point: it is how the loop learns a window is open without spending an
   auth counter or putting a command on the wire.
 - **`connect()` already retries 4× internally** with a full `ACK_TIMEOUT_MS`
@@ -420,7 +420,7 @@ as removing the short window from the one boot most likely to need it.
   is ~4 s of continuous, correctly-spaced attempts.
 - **Do not reintroduce `urst.constants` mutation.** It was a workaround for a
   1 s window and it made every attempt too fragile to finish a handshake. The
-  irony is worth keeping in mind: F-15 *is* F-10's own earlier repair
+  irony is worth keeping in mind: F-15 _is_ F-10's own earlier repair
   (commit `172d93c`).
 - Related: **F-15**, **F-14**, **F-13**, **F-10** in
   `docs/development/findings.md`; dev logs

@@ -72,6 +72,8 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     Spec: `docs/development/failsafe-update-recovery-handshake-spec.md`.
     **HIL verification outstanding — this sub-task's step 7, Opus only.**
 
+[ ] Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
+
 [ ] **Freeze `restore.py` / a recovery `_boot.py` into the deployed image.** Follow-up to finding F-08 (P2, `docs/development/findings.md`). The recovery logic lives in `src/otampy/device/lib/otampy/restore.py`, imported lazily by both `boot.run()` and `ota.recover()`. `commit()` renames one file at a time, so a power loss while `restore.py` itself is the current commit pair leaves `/lib/otampy/restore.py` absent with `restore.py.bck` present: the next boot's `from .restore import ...` raises `ImportError` in both `boot.py` and `main.py`, and the boot-time recovery window (sub-task 4) cannot help because its own `from .restore import ...` raises first. Only triggered by a library update (`otampy upd lib/otampy/...` or a full re-deploy) with power lost in the narrow commit window — never a normal app update — and strictly smaller than the pre-retain-previous exposure, hence P2. A real fix needs frozen code: freeze `restore.py` into the deployed image, or F-06 Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Needs a manifest/freeze change at deploy time.
 
   - Model: Opus
@@ -84,13 +86,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
   - Model: Sonnet
     - contained test-infrastructure fix; the failure mode is understood, the fix is a fixture.
-  - Spec : no.
-  - Fresh: yes.
-
-[ ] **Resolve or discard the stale `deploy.py` git stash.** Noticed 2026-09-09: `git stash list` shows `stash@{0}: wip: deploy dynamic location (Copilot limit hit)` — 68 insertions / 27 deletions in `src/otampy/deploy.py` around `_find_device_root` / `ROOT`, from an earlier interrupted session. Not touched since. Decide whether that work is still wanted (finish and commit it) or drop it (`git stash drop`), so it stops shadowing the working tree. Two ~20 B stub files (`main.py`, `_otampy_set_rtc.py`) that were also littering the repo root from an earlier session — they broke `test_cli_update_default`, which scans cwd — have already been cleared.
-
-  - Model: Haiku
-    - a triage decision plus one git command; only becomes real work if the stashed change is worth finishing.
   - Spec : no.
   - Fresh: yes.
 

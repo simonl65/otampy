@@ -290,7 +290,7 @@ boot, because nothing removes the marker yet.
   - Done when: those tests pass, every pre-existing `_run_boot_listen` test
     still passes, and `pre_flight_check.py` is clean.
 
-- [ ] **4. Documentation, CHANGELOG and CLI wording**
+- [x] **4. Documentation, CHANGELOG and CLI wording**
   - What changes: `docs/architecture.md` (the `configota.py` block and the
     recovery-window prose, including the corrected watchdog constraint),
     `docs/protocol.md` §2.4 (**When** / **Duration** now two-tier, plus the

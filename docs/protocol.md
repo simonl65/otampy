@@ -290,13 +290,37 @@ boot where no update is already pending.
 
 - **When:** after `repair()` and `trial()` — so it runs on a healed tree — and
   only when `UPDATE_REQUEST_FLAG_FILE` is *absent* (an update session already
-  in progress is never interrupted). It is skipped entirely when
-  `OTA_BOOT_LISTEN_MS` is `0`.
-- **Duration:** `OTA_BOOT_LISTEN_MS` (default `1000`), rounded up to one
-  `read()` granule. This is added to every boot that is not applying an
-  update, boot-loop iterations included — the cost of the recovery guarantee,
-  which is why the key is tunable and `0` disables it (a device with the
-  window disabled has no recovery path for a pre-`poll()` strand).
+  in progress is never interrupted). It is skipped entirely when the selected
+  duration is `0`.
+- **Duration — two tiers**, rounded up to one `read()` granule:
+
+  | Condition at boot | Window |
+  | --- | --- |
+  | Boot marker present — the previous boot never reached `OTA.poll()` | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
+  | Journal shows an unconfirmed candidate (`trial`) | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
+  | Neither | `OTA_BOOT_LISTEN_MS` (default `1000`) |
+
+  Both tests are needed and neither subsumes the other. The journal test
+  catches a candidate that strands the device on its very first boot; the
+  marker catches a **confirmed** generation that later proves fatal, which the
+  journal cannot see and which is exactly the `otampy rollback --recover` case.
+
+  The wide tier exists because the short one cannot be hit after a power
+  cycle: it opens at t≈2.05 s and shuts at t≈3.15 s, while a power-cycled
+  XBee does not deliver its first frame to the device UART until t+3.6 s to
+  t+8.7 s. `8000` holds the window open to t≈10.05 s. Only a device that has
+  actually failed pays it — a healthy device still costs ~1 s per boot. Each
+  key is independent, and a non-integer value in either is treated as a typo
+  and falls back to that key's default rather than disabling recovery.
+- **The boot marker:** `OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is
+  written by `boot.run()` once per boot, only when absent — so a device in a
+  boot loop does zero writes — and removed by the first `OTA.poll()` of a
+  process. Reaching `poll()` is the only proof the runtime OTA surface is
+  alive, which is why `ota.recover()` deliberately does **not** clear it. A
+  failed write or remove is swallowed: a boot is never stranded by the marker,
+  though a full or read-only filesystem then silently degrades that device to
+  the short window. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` disables the wide window
+  and the marker together, at zero filesystem cost.
 - **Silent:** the window sends no beacon. `Urst.send()` is stop-and-wait
   reliable, so an unacknowledged announcement would cost up to ~8 s per boot.
   The host instead blind-retries (`otampy upd --recover` /
@@ -336,7 +360,15 @@ before the window falls through to `main.py` (where poll-loop `ROLLBACK`
 applies), and if neither runs, recovery is USB. Nothing arms a watchdog this
 early; a hardware fault that wedges the UART is not recoverable in software. A
 custom `boot.py` that arms a watchdog before `OTA(...).boot()` must keep
-`OTA_BOOT_LISTEN_MS` under its period.
+**whichever tier can apply** under its period — now the wide one. `8000` was
+chosen to sit under the RP2040's ~8388 ms WDT cap so the default stays usable
+by such an integrator, provided their WDT period is at that cap; raising
+`OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 gives up pre-`boot()` RP2040 watchdog
+compatibility entirely, as no WDT period can cover it.
+
+A device whose application crashes only *after* it has already polled costs
+two power cycles rather than one: that boot cleared the marker, the next sets
+it, and the one after gets the wide window.
 
 ---
 

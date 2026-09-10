@@ -15,11 +15,22 @@ OTA_TIMEOUT_MS = 5000
 # the previous version. `otampy upd` confirms automatically; see docs 2.4.
 OTA_TRIAL_BOOTS = 3
 # Milliseconds `boot.py` listens for a recovery command (`otampy upd --recover`
-# / `otampy rollback --recover`) on every boot with no update pending. This is
-# added to each such boot, ~1 s at the default, boot-loop iterations included.
-# `0` disables the window -- and with it the only recovery path for a device
-# stranded before `main.py`. See docs/protocol.md 2.4.
+# / `otampy rollback --recover`) on a boot that followed a healthy application
+# run. Added to each such boot, ~1 s at the default. `0` disables it.
 OTA_BOOT_LISTEN_MS = 1000
+# The window on a boot that followed one which never reached `ota.poll()`, or
+# that still carries an unconfirmed candidate. A power-cycled XBee takes
+# t+3.6-8.7 s to deliver its first frame, which the ~1 s window above opens and
+# shuts long before -- so this is the tier that makes radio recovery actually
+# work. Only a device that has already failed pays it. `0` disables the wide
+# window and the boot marker below entirely. Keep this under your watchdog
+# period if a custom `boot.py` arms one before `OTA(...).boot()`: 8000 is just
+# under the RP2040's ~8388 ms cap. See docs/protocol.md 2.4.
+OTA_BOOT_RECOVERY_LISTEN_MS = 8000
+# Marker written once per boot and removed by the first `ota.poll()`. Its
+# presence at boot is what says the previous boot never reached the
+# application. Must be a dedicated scratch path.
+OTA_BOOT_MARK_FILE = "otampy-boot.mark"
 
 # --- Command authentication (optional; see docs/protocol.md 1.2) -------------
 # Unset, the device accepts commands from anything that can reach the UART.

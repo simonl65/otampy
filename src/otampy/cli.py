@@ -1287,9 +1287,12 @@ def _recover_query(
     backoff = float(get_config_value("query_retry_backoff_seconds"))
     _console().print(
         f"[yellow]Power-cycle the device now. Retrying for {wait:.0f}s...[/yellow]\n"
-        "The recovery window is only open for about a second after each boot, "
-        "so a first attempt may miss it -- if this times out, just run the "
-        "command again and power-cycle when prompted."
+        "A device that failed before reaching its application opens a wide "
+        "recovery window (~8s by default) on the next boot, so one power cycle "
+        "should be enough. If the application had been running and only "
+        "crashed later, that boot cleared the marker -- a second power cycle "
+        "may be needed. If this times out, run the command again and "
+        "power-cycle when prompted."
     )
     start = time.time()
     with _fast_recovery_handshake():

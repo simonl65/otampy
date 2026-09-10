@@ -310,6 +310,20 @@ boot, because nothing removes the marker yet.
   - Test: none (hardware evidence, see *Verification*).
   - Done when: HIL tests 1, 2, 3 and 4 below all pass, their figures are in the
     dev log, and F-10 records the fix.
+  - **Run 2, 2026-09-10 — partial, still unchecked.** HIL 3 **passes** (mean
+    4171 ms to the application loop with the wide window configured vs 4192 ms
+    with it disabled, three power cycles each, against a ~300 ms allowance) and
+    HIL 4's absent-marker half passes over the radio. HIL 1 **fails**: the
+    window opened for 9006/9017/8977 ms on three stranded boots, yet
+    `rollback --recover` missed two consecutive genuine power cycles, and the
+    device was rescued by trial-boot auto-restore instead. Root cause is
+    host-side and is F-10's own earlier repair — filed as **F-15** (P1). HIL 2
+    not attempted: it drives the same `--recover` path. Two further findings
+    from the same run: **F-14** (P3, recovery key `0` leaves a trial boot with
+    no window) and a second measurement strengthening **F-12** (8952 ms).
+    Figures and reasoning in the dev log.
+  - **Blocked on F-15.** Step 5 resumes once a `--recover` command can land in
+    the window repeatably; nothing else in this spec is outstanding.
 
 - [x] **6. Repair F-11 — the post-reboot waits need their own timeout**
   - **Found during step 5, 2026-09-10**, which is blocked on it: HIL test 2's
@@ -380,7 +394,19 @@ boot, because nothing removes the marker yet.
   4. **The marker survives and selects correctly.** On the stranded device
      from test 1, before recovering it: one batched `mpremote` session shows
      `otampy-boot.mark` **present**. After a successful recovery and a normal
-     boot into a polling application, one batched session shows it **absent**.
+     boot into a polling application, `otampy ls /` **over the radio** shows it
+     **absent**.
+     **Amended 2026-09-10 (run 2): the absent half must not be checked over
+     USB.** `mpremote` parks `main.py` before `poll()` ever runs, so connecting
+     writes a fresh marker and the check reports `present` no matter what —
+     the act of looking creates what is being looked for. Observed directly:
+     `KeyboardInterrupt` at 46287 ticks, fresh boot at 49251, and that boot's
+     marker is what `fs ls` reported, while `otampy ls /` on the same settled
+     device showed none. The present-while-stranded half is unaffected (a
+     stranded device is not polling anyway), but prefer `otampy ls` there too
+     once `--recover` works. More generally: **`/ota.log` is readable over the
+     radio with `otampy cat`**, which is a better instrument than USB for
+     everything in this section.
   - Tests 4, 5 and 6 of `failsafe-update-boot-listen-spec.md` (window not
     permanently open; not an auth bypass; refusal does not consume the window)
     are re-run unchanged — the window body is untouched, so these are

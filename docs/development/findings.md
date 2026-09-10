@@ -196,8 +196,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-11 — the wide recovery window pushes the post-commit boot past `upd`'s 10 s health check, so every successful update reports failure
 
 - **Severity:** P1
-- **Status:** fixed (awaiting re-review) — 2026-09-10, step 6 of
-  `failsafe-update-window-reachability-spec.md`
+- **Status:** closed — 2026-09-10, reviewed independently of the fix
 - **Area:** `src/otampy/cli.py` (`_post_commit_confirm`, `_wait_for_pong`,
   `update_ready_timeout_seconds` at `cli.py:61`); consequence of the window
   selection in `src/otampy/device/lib/otampy/boot.py` `run()`
@@ -254,7 +253,18 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   the `trial -> wide` selection rule, which would re-open F-10 — that boot is
   precisely the one that needs radio recovery if the candidate bricks the
   application.)_
-- **Closed:** _(pending)_
+- **Closed:** 2026-09-10 (`/sl-findings review`). Verified independently:
+  `post_commit_ready_timeout_seconds` present at `cli.py:68` (default `30.0`,
+  env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); its three claimed call sites
+  (`cli.py:1404`, `2691`, `2721`) all read it; the READY-broadcast wait at
+  `cli.py:2514` still reads the old `update_ready_timeout_seconds`, as
+  intended. `uv run pytest tests/test_cli.py -k "post_commit_ready_timeout or
+  rollback_message or wait_for_pong"` — 4 passed. Beyond the tests, three
+  independent hardware runs the same session (`docs/development/failsafe-
+  update-window-reachability-log.md`, step 5 run 2) each printed `Candidate
+  confirmed.` with no manual intervention — the exact failure this finding
+  named, now absent on real hardware three times running. No new defect
+  introduced.
 
 ---
 
@@ -403,7 +413,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 
 - **Severity:** P0
-- **Status:** fixed (awaiting re-review)
+- **Status:** closed — 2026-09-10, reviewed independently of the fix
 - **Area:** `src/otampy/device/lib/otampy/ota.py` (`OTA.boot()` `finally` teardown)
 - **Found:** 2026-09-09, HIL verification of the boot-time recovery window
   (sub-task 4). Device was unreachable over the radio after a clean deploy of
@@ -434,6 +444,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   `pytest-randomly` seed that orders it before `test_ota_boot.py` tests, those
   tests then patch a stale module and fail. Pre-existing, masked by
   alphabetical collection order. Worth a `TODO.md` item.
+- **Closed:** 2026-09-10 (`/sl-findings review`). Verified independently:
+  `ota.py:47`'s `delattr` call is wrapped in `except (AttributeError,
+  KeyError)` exactly as described; `test_boot_teardown_survives_micropython_
+  delattr_keyerror` passes in isolation and the full device suite is green
+  (`uv run pytest src/otampy/device/tests/ -q` — 373 passed). Since this
+  finding's own evidence was a CPython-test blind spot, host tests alone don't
+  clear it — the device has run this session's branch build, undeployed and
+  redeployed several times, **without** `OTA_REQUIRE_AUTH` set, and answered
+  `otampy ping` cleanly every time (most recently after step 5's HIL work).
+  That is the exact configuration this finding named as bricking the device;
+  it now boots correctly on real hardware. No new defect introduced.
 
 ### F-08 — a power loss while updating `restore.py` itself strands the device with no radio recovery
 

@@ -104,6 +104,26 @@ reinstating the beacon (dead, above).
 guard. `0` therefore remains a true off-switch with zero filesystem cost, and
 the feature has exactly one place that decides it is off.
 
+**`core._boot_recovery_window_ms(config)` is the single parse of that key**
+(amended 2026-09-10, signed off by Simon). It returns the parsed integer,
+falling back to `_DEFAULT_BOOT_RECOVERY_LISTEN_MS` on a non-integer value.
+`_boot_mark_path` returns `None` iff this returns `<= 0`; `boot.run()` calls it
+for the duration in step 3. Without it the key is parsed in two places and the
+two can disagree — which the pre-amendment draft already did, step 1 requiring
+a non-integer to disable the marker while step 3 required it to mean the
+default.
+
+**A non-integer value is a typo, not an off-switch, and must fail open.**
+`int("8000")` and `int(8000.5)` both succeed, so only genuine garbage (`None`,
+`"8s"`, `""`) reaches the fall-back. Fail-closed there would let one typo
+silently remove the only radio recovery path — F-10 reintroduced through a
+config mistake. This matches the house rule already set by
+`_run_boot_listen`'s `OTA_BOOT_LISTEN_MS` (garbage → default, `<= 0` → off),
+`_run_default_update_loop`'s `OTA_TIMEOUT_MS` (garbage → default) and
+`restore.read_journal` (an unparseable first line is "fail safe, meaning
+restore everything"): **only an explicit, in-range sentinel turns something
+off.**
+
 Never raises: every access is wrapped, and a failed write or remove degrades to
 the pre-existing short-window behaviour rather than stranding a boot.
 
@@ -156,10 +176,10 @@ envelope, refusal semantics — is **unchanged**; it was already correct.
 
 Named constants, all in `core.py` so nothing is defined twice:
 `_DEFAULT_BOOT_MARK_FILE = "otampy-boot.mark"` and
-`_DEFAULT_BOOT_RECOVERY_LISTEN_MS = 8000` (needed by `_boot_mark_path`'s guard
-as well as by `boot.py`'s duration choice — `boot.py` imports it rather than
-redeclaring). `core._boot_mark_path(config)` is the single path resolver,
-shared by `boot.py` and `ota.py`.
+`_DEFAULT_BOOT_RECOVERY_LISTEN_MS = 8000`. `core._boot_recovery_window_ms(config)`
+is the single parse of the key and `core._boot_mark_path(config)` the single
+path resolver; `boot.py` imports both rather than redeclaring the constant or
+repeating the parse, and `ota.py` imports the resolver.
 
 This repo documents settings in `docs/architecture.md` (the `configota.py`
 block at ~L126 and the prose at ~L134) and `docs/protocol.md` §2.4; there is no
@@ -208,15 +228,36 @@ and only then does anything **read** it (3). Any other order leaves an
 intermediate commit on which a healthy device pays the wide window on every
 boot, because nothing removes the marker yet.
 
-- [ ] **1. `core._boot_mark_path` + the marker written at boot**
+> ### 🛑 MODEL GATE — steps 1–4 Sonnet, step 5 Opus
+>
+> Steps 1–4 are mechanical execution against a pinned spec: **Sonnet is fine.**
+>
+> **Step 5 must not be started on Sonnet.** It is HIL evidence interpretation
+> and the closure of a P1 finding. The precedent is on this branch: step 9 of
+> `failsafe-update-boot-listen-spec.md` was ticked in error, having "repaired"
+> F-10 against a premise that on-device instrumentation later falsified.
+> Misreading hardware timing is the exact failure this spec exists to undo.
+>
+> **On finishing step 4: STOP. Tell Simon, loudly and unprompted, to `/clear`
+> and switch to Opus (`/model opus`) before step 5 begins.** Do not begin
+> step 5's HIL work in the same session, whatever the momentum.
+>
+> Same stop applies mid-build if a test goes red for a reason this spec did
+> not anticipate — that is a broken premise, not a bug to improvise around.
+
+- [x] **1. `core._boot_mark_path` + the marker written at boot**
   - What changes: `core.py` gains `_DEFAULT_BOOT_MARK_FILE`,
-    `_DEFAULT_BOOT_RECOVERY_LISTEN_MS` and `_boot_mark_path(config)` (returning
-    `None` when the recovery key is `<= 0`). `boot.run()` reads the marker's
+    `_DEFAULT_BOOT_RECOVERY_LISTEN_MS`, `_boot_recovery_window_ms(config)` (the
+    single parse — non-integer falls back to the default) and
+    `_boot_mark_path(config)` (returning `None` when that parse is `<= 0`).
+    `boot.run()` reads the marker's
     existence into a local **before** writing it, and writes it only when
     absent, at the position pinned under *Data and contracts*. The local is not
     used yet. No window behaviour change.
-  - Test: `src/otampy/device/tests/test_ota_core.py` (path resolution — default,
-    override, and `None` when the recovery key is `0`/negative/non-integer);
+  - Test: `src/otampy/device/tests/test_ota_core.py` (the parse — default when
+    absent, override, and fall-back to the default on a non-integer; path
+    resolution — default, override, and `None` when the recovery key is `0` or
+    negative, but **not** when it is non-integer);
     `test_ota_boot.py` (written when absent; **not** rewritten when present;
     absent entirely when the recovery key is `0`; not written when `trial()`
     returns `_ROLLED_BACK`; an `OSError` on write does not propagate out of
@@ -239,7 +280,8 @@ boot, because nothing removes the marker yet.
 - [ ] **3. Select the window duration**
   - What changes: `_run_boot_listen(core, window_ms)` takes the duration as an
     argument; the parse/fall-back/`<= 0` logic moves to `run()`, which picks
-    wide vs short per the *Window duration selection* table.
+    wide vs short per the *Window duration selection* table. The wide duration
+    comes from `core._boot_recovery_window_ms` (step 1), not a second parse.
   - Test: `test_ota_boot.py` — marker present → wide; journal `trial` with no
     marker → wide; `committing` → wide; neither → short (existing tests must
     still pass unchanged); wide key `0` → no window at all; non-integer wide
@@ -260,7 +302,9 @@ boot, because nothing removes the marker yet.
   - Done when: `pre_flight_check.py` is clean and `docs/protocol.md` §2.4
     describes both durations, the marker, and the 8388 ms cap.
 
-- [ ] **5. HIL verification and F-10 closure**
+- [ ] **5. HIL verification and F-10 closure** — 🛑 **OPUS ONLY. Do not start
+      this step on Sonnet.** If the running model is not Opus, stop and tell
+      Simon to `/clear` and `/model opus` first. See the model gate above.
   - What changes: `docs/development/findings.md` — F-10 to **fixed (awaiting
     re-review)** with the measured figures; the dev log carries the raw runs.
   - Test: none (hardware evidence, see *Verification*).

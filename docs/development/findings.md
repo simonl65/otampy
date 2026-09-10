@@ -9,6 +9,89 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-15 — `--recover`'s fail-fast handshake cannot land in a window that is demonstrably open, so radio recovery still fails
+
+- **Severity:** P1
+- **Status:** open
+- **Area:** `src/otampy/cli.py` — `_fast_recovery_handshake` (`cli.py:1061`),
+  `_RECOVERY_ACK_TIMEOUT_MS`/`_RECOVERY_MAX_RETRIES`/`_RECOVERY_SERIAL_TIMEOUT`
+  (`cli.py:1055-1057`), `_query(fast=True)` (`cli.py:1160-1168`),
+  `_recover_query` (`cli.py:1278`)
+- **Found:** 2026-09-10, step 5 HIL test 1 of
+  `failsafe-update-window-reachability-spec.md`. Attempt 1 recovered on the
+  first power cycle; attempt 2 failed on two consecutive genuine power cycles.
+- **Evidence:** device-side ticks (read over the radio with `otampy cat
+  /ota.log`, no USB) show the wide window open on **every** boot of the failed
+  attempt: **9006 ms**, **9017 ms**, **8977 ms**, each from t≈1.5 s to
+  t≈10.5 s after power-on. The host blind-retried `ROLLBACK` for 60 s across
+  both and landed nothing. That the window is reachable at all was then shown
+  accidentally: a `PING` on the **normal** handshake path (serial timeout 2.0,
+  `query_retries` 3) landed inside a window and was refused with
+  `ERROR:Recovery window` (`boot.py:31`) — the window's own reply. The fast
+  profile is one CONNECT attempt, `ACK_TIMEOUT_MS = 500`, `MAX_RETRIES = 0`,
+  serial read timeout `0.1 s`. Corroborating: **nearly every normal `otampy`
+  command in the session logged one or more `Handshake timeout` warnings
+  before connecting**, against a healthy polling device at the 2.0 s timeout —
+  so on this link a single attempt with a 0.1 s read timeout is close to a
+  coin flip, which matches 1 success in 3 attempts.
+- **Impact:** The headline capability of sub-task 4 — recover a stranded
+  device over the radio with no USB — is unreliable in exactly the situation
+  it exists for, and the operator has no way to tell a missed window from a
+  dead device. F-10 cannot close, and HIL tests 1 and 2 of the active spec
+  cannot pass, while this stands. The device-side work is not implicated: the
+  window is open, correct, and answers the normal path.
+  Note the irony worth keeping — this profile *is* F-10's earlier repair
+  (commit `172d93c`), adopted when the cadence theory looked right. It made
+  the host retry fast; it also made each retry too fragile to complete a
+  handshake over an XBee.
+- **Resolution:** _(not yet fixed — needs design, not a constant tweak. The
+  tension is real: retries must be frequent enough to hit a window, yet each
+  attempt must survive a link whose handshake routinely needs a retry. With a
+  ~9 s window the original justification for fail-fast is largely gone —
+  a normal-profile attempt takes ~1-2 s and several fit inside 9 s. Candidate
+  shapes: drop `fast=True` back to something near the normal profile now that
+  the window is wide; keep one CONNECT attempt but raise the serial read
+  timeout to ~1 s; or reinstate a device-side beacon so the host synchronises
+  instead of guessing (revisits Protocol decision D2 again). Whichever is
+  chosen, HIL test 1's "three first-cycle passes" bar is what proves it.)_
+- **Closed:** _(pending)_
+
+---
+
+### F-14 — with the recovery key at `0`, a trial boot gets no listen window at all — less than an ordinary boot
+
+- **Severity:** P3
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/boot.py` `run()` (`boot.py:645-651`);
+  `src/otampy/device/examples/configota.example.py` (the
+  `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
+- **Found:** 2026-09-10, as the control half of step 5's HIL test 3 — not the
+  thing being measured.
+- **Evidence:** the selection is `if had_boot_mark or state != stable:
+  window_ms = _boot_recovery_window_ms(config)`, and
+  `_boot_recovery_window_ms` returns the configured value, so with the key at
+  `0` that branch yields `0`. Measured on device: the post-commit trial boot
+  bracketed `Checking for update flag-file...` → `update_requested.flag not
+  found` in **56 ms** (no window), against ~1.87 s on healthy boots of the
+  same half, which still paid their 1 s `OTA_BOOT_LISTEN_MS`.
+- **Impact:** On a deployment that has deliberately disabled the wide window,
+  the boot most likely to need rescuing — running an unconfirmed candidate
+  that may be about to strand the device — is the one boot with no listen
+  window, while every healthy boot keeps its 1 s. `configota.example.py`
+  promises only that `0` "disables the wide window and the boot marker",
+  not that it removes the short window from trial boots. P3 because F-10
+  established that the 1 s window is unhittable after a power cycle anyway, so
+  what is lost was barely there — but the code says something different from
+  the documentation, and the next reader will trip on it.
+- **Resolution:** _(not yet fixed — either fall back to `OTA_BOOT_LISTEN_MS`
+  when the recovery window is disabled, i.e. `window_ms = recovery or short`,
+  or state the current behaviour explicitly in `configota.example.py` and
+  `docs/protocol.md` §2.4. The one-line fallback looks right, but it should be
+  decided alongside F-15 rather than patched in isolation.)_
+- **Closed:** _(pending)_
+
+---
+
 ### F-13 — `test_rollback_recover_times_out_with_recovery_wait_message` passes on a validation error and never reaches the path it names
 
 - **Severity:** P2
@@ -300,6 +383,22 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   resets but its reply is lost, the CLI retries and then reports "Nothing to
   roll back" (exit 1) though the rollback actually succeeded. Pre-existing to
   the blind-retry design. `_wait_for_pong` still confirms real health.
+- **Stays open after the 2026-09-10 wide-window HIL (step 5, run 2).** The
+  device half of F-10 is fixed and measured: the wide window opened for
+  **9006 / 9017 / 8977 ms** on three consecutive stranded boots, from
+  t≈1.5 s to t≈10.5 s after power-on, comfortably spanning the cold XBee's
+  t+3.6–8.7 s first frame. It is now demonstrably reachable — a `PING` on the
+  **normal** handshake path landed inside one and drew the window's own
+  `ERROR:Recovery window` refusal. But `otampy rollback --recover` still
+  **failed on two consecutive genuine power cycles** (60 s `recovery-wait`
+  expiry each, operator cycling ~5 s after the prompt), and the device was
+  rescued by trial-boot auto-restore, not by the radio. The remaining cause is
+  host-side and is F-10's *own* earlier repair — the fail-fast handshake
+  profile — split out as **F-15**. F-10 closes when a `--recover` command
+  actually recovers a stranded device across repeated attempts; the widened
+  window is a necessary part of that, not the whole of it.
+  Evidence: `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 2).
 
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 

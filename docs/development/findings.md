@@ -9,11 +9,14 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
-### F-10 — the boot-time recovery window is unhittable in practice: host blind-retry cadence (~12 s) vs a 1 s window
+### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
 
 - **Severity:** P1
-- **Status:** open (host cadence fixed; window still not answering in HIL —
-  see "HIL re-test 2026-09-09" below)
+- **Status:** open — **root-caused 2026-09-10, fix not yet designed.** The
+  original title/diagnosis (host blind-retry cadence) was wrong; the cadence
+  fix was necessary housekeeping but never the binding constraint. See
+  "Root cause established 2026-09-10" below. The fix is a spec-level decision
+  (it falsifies Protocol decision D2), not a patch.
 - **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
   URST-handshake path it drives); interacts with
   `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
@@ -78,11 +81,55 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
     ~1 s window may execute only one or two `read()` calls. Whether a CONNECT
     that lands mid-window actually gets its `CONNECT_ACK` out before the
     deadline needs on-device instrumentation to confirm.
-- **Next (fresh session):** (1) add temporary logging to `_run_boot_listen`,
-  deploy, watch what it receives during a power-cycle; (2) rework
-  `_recover_query` to hold **one** open transport for the whole poll and pace
-  CONNECTs with a deliberate ~30–50 ms gap (no per-cycle port reopen); (3)
-  re-measure. Only then re-run HIL tests 1/2/5/6.
+- **Next (fresh session):** ~~(1) add temporary logging...~~ **Done — see
+  below. Steps (2)/(3) are moot: the host retry pattern is not the fault.**
+- **Root cause established 2026-09-10 (HIL, on-device instrumentation).** The
+  window opens at a strikingly consistent **`ticks_ms` ≈ 2050–2170** after
+  power-on and listens for its full second (`elapsed ≈ 1017`), i.e. it is open
+  from about **t+2.05 s to t+3.15 s**. After a *power cycle* the XBee loses
+  power too, and the first frame it delivers to the device UART arrives at
+  **t+3.6 s to t+8.7 s** — always after the window has shut. Measured with a
+  15 s window: first packet at `ts=5704` on one boot, `ts=10885` (a `ROLLBACK`,
+  which matched and successfully recovered the device) on another.
+  **Control:** on a boot following a *software* `machine.reset()`, where the
+  XBee never lost power, the first packet arrives at `ts=2275` — **80 ms**
+  after the window opens. Cold radio vs warm radio is the entire effect.
+- **Why the cadence theory was wrong:** the failure was always **100 %**, never
+  probabilistic — 0/48, 0/93, 0/108, and 0/3 on a clean instrumented run. A
+  race against a 1 s window at ~1.2 CONNECT/s would have landed something well
+  inside 100 attempts. Total systematic exclusion means the window and the
+  radio's readiness never overlap, which is why making the host retry 10×
+  faster changed nothing measurable.
+- **Retired lead:** "the ~1 s window may execute only one or two `read()` calls
+  and miss a mid-window CONNECT" is **false**. `read()` blocks for the device's
+  `ACK_TIMEOUT_MS` (1000 ms), so one call *is* a continuous full-window listen
+  (`iters=15` over a 15 s window). The window code is correct as written.
+- **Implication for the fix — spec-level, not a patch.** The prior "suggested
+  fix (host-side)" and the dismissal of a larger `OTA_BOOT_LISTEN_MS` as "not
+  the right lever" are both **backwards**: overlapping the radio's wake-up is
+  the only lever that matters. This falsifies the premise of signed-off
+  **Protocol decision D2** ("silent window + host blind-retry"): against a cold
+  radio a short silent window cannot work however fast the host retries. The
+  trade to settle is per-boot cost (a wide window delays `main.py` on *every*
+  healthy boot) against recovery reliability — e.g. widen unconditionally,
+  delay-then-listen, open a long window only when the journal shows an
+  unconfirmed candidate, or revisit the dropped beacon. Needs `/sl-spec`.
+- **First successful recovery:** with the window at 15 s, a genuinely stranded
+  device (fatal `main.py`) was recovered over the radio by an in-window
+  `ROLLBACK`, no USB — **HIL test 2 PASS**, the first in this saga. Confirmed
+  healthy afterwards with `otampy ping` over the gateway.
+- **Methodology traps found (both had been corrupting earlier evidence):**
+  (a) `rollback --recover` against a *healthy* device proves nothing — the
+  running `manager.poll` serves `ROLLBACK` and returns an identical reply, so
+  the test must use a genuinely stranded device; (b) **every `mpremote`
+  invocation soft-reboots the device on exit**, including `fs ls`/`fs cat`/
+  `fs rm`, appending phantom window entries (recognisable by a large `ts`,
+  since a soft reset does not clear `ticks_ms()`). Batch all device
+  interaction into one `mpremote ... + ...` session and touch USB not at all
+  between a run's power cycles.
+- **Also noted:** `log_to_file` is not installed on the HIL device, so
+  `core.logger` is a `NullLogger` — every `logger.*` call inside the window
+  (and elsewhere in `boot.py`) currently goes nowhere on that rig.
 - **Edge noted, not fixed:** if the in-window ROLLBACK lands and the device
   resets but its reply is lost, the CLI retries and then reports "Nothing to
   roll back" (exit 1) though the rollback actually succeeded. Pre-existing to

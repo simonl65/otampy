@@ -412,3 +412,91 @@ backstop fired again, cleanly, three times tonight). `hil-scratch/` removed.
 
 Verified tonight overall: tests 0, 4 PASS; sub-task 2 trial auto-restore PASS
 (observed 3×). Tests 1, 2, 5, 6 blocked on F-10; test 3 not run.
+
+### 2026-09-10 HIL — F-10 root-caused: the XBee is still cold when the window opens
+
+Instrumented `_run_boot_listen` (temporary `_diag()` writing to `/boot_diag.log`,
+independent of `core.logger` — `log_to_file` is not installed on this device, so
+`core.logger` is a `NullLogger` and every `logger.*` call in the window was going
+nowhere). Deployed by hand over `mpremote`; the repo was never modified.
+
+**Two methodology faults found first, both of which had been corrupting earlier
+evidence:**
+
+1. A `rollback --recover` against a *healthy* device proves nothing about the
+   window. `manager.poll` serves `ROLLBACK` too, so the command lands in the
+   running application and returns an identical reply. The first run of the day
+   "succeeded" this way — device-side log showed `nonempty=0` on all 7 windows.
+   A real test needs the device genuinely stranded.
+2. **Every `mpremote` invocation soft-reboots the device on exit** — even
+   `fs ls` / `fs cat` / `fs rm`. Each one runs `boot.py` again and appends a
+   spurious window entry. Because a soft reset does not clear `ticks_ms()`,
+   these show up with large, non-boot-relative `ts` values. Separate back-to-back
+   `mpremote` calls were adding phantom "boots" to the log. Fix: batch every
+   device interaction into ONE `mpremote` session with `+`, and touch USB not at
+   all between the power cycles of a run.
+
+**Clean run (log verified empty first, no USB contact during the test):** device
+stranded with a one-line `raise RuntimeError` `main.py`, `--no-confirm`, host
+blasting ~90 CONNECTs over 50 s, operator power-cycling.
+
+| window | `ts` at open | packets seen |
+|--------|--------------|--------------|
+| trial boot 1 (auto, post-commit) | 2171 | **0** |
+| trial boot 2 (power cycle) | 2161 | **0** |
+| trial boot 3 (power cycle) | 2132 | **0** |
+
+Boot-to-window time is strikingly consistent at **`ts` ≈ 2050–2170 ms**, and
+`elapsed ≈ 1017` confirms the full second is spent in `read()`. So the 1 s window
+is open from roughly **t+2.05 s to t+3.15 s** after power-on.
+
+**Decisive experiment — `OTA_BOOT_LISTEN_MS` raised to 15000, same setup:**
+
+| window | `ts` at open | first packet | what arrived |
+|--------|--------------|--------------|--------------|
+| A (power cycle) | 2045 | **ts=5704** | `LS`, then `UPDATE_REQUEST` at 5883 → matched, reset |
+| B (power cycle) | 2139 | — | nothing (host gap) |
+| C (power cycle) | 2171 | **ts=10885** | `ROLLBACK` → **matched, rolled back, device recovered** |
+| D (**software** reset from C's rollback) | 2195 | **ts=2275** | `PING` ×15, all correctly refused |
+
+**Row D is the proof of mechanism.** After a `machine.reset()` — where the XBee
+never lost power — the first packet arrives **80 ms** after the window opens.
+After a *power cycle*, where the XBee is cold, the first packet takes
+**3.6 s to 8.7 s**. The radio is simply not passing traffic yet when the 1 s
+window at t+2.05 s opens and closes.
+
+That accounts for every observation, including the ones the cadence theory could
+not: the failure was always **100 %**, never probabilistic (0/48, 0/93, 0/108,
+and 0/3 here). A timing race against a 1 s window at ~1.2 CONNECT/s would have
+landed something within ~100 attempts. Total systematic exclusion means the
+window and the radio's readiness never overlap at all — which is also why making
+the host retry 10× faster changed precisely nothing.
+
+`iters=15` on a 15 s window confirms ~1 `read()` per second: `read()` blocks for
+the device's `ACK_TIMEOUT_MS` (1000), so the window listens continuously rather
+than sampling. The earlier ledger lead that the window might "execute only one or
+two `read()` calls and miss a mid-window CONNECT" is **retired** — one `read()`
+*is* a full-window listen.
+
+The trailing `Rollback commanded but the device did not answer PING within 10s`
+is an artifact of the 15 s test setting, not a fault: `main.py` cannot start
+until the window closes, and the window refuses `PING` by design (rows of
+refused `PING` in D are the CLI's own `_wait_for_pong` health check).
+
+**Outcome: HIL test 2 PASSED for the first time** — a genuinely stranded device
+was recovered over the radio via the boot-time window, with no USB. Verified
+afterwards with `otampy ping` over the gateway: `PONG`.
+
+Device left restored: original `configota.py` (622 B, byte-identical, no
+`OTA_BOOT_LISTEN_MS` key), clean repo `boot.py`, healthy `main.py`, hard reset,
+health confirmed over the radio. Evidence kept at
+`scratchpad/f10_window_evidence.log`.
+
+**F-10's recorded fix direction is wrong.** The host cadence was never the
+binding constraint, and the ledger's dismissal of a larger `OTA_BOOT_LISTEN_MS`
+as "not the right lever" is backwards — overlapping the radio's wake-up is the
+*only* lever that matters. This also falsifies the premise of signed-off
+Protocol decision D2 ("silent window + host blind-retry"): against a cold radio,
+a short silent window is structurally unable to work, however fast the host
+retries. The window duration / beacon question needs re-deciding at spec level,
+not patching here.

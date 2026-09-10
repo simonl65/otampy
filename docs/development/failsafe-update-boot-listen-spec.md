@@ -396,6 +396,30 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
     `tests/test_cli.py`). Red before the change.
   - Done when: those tests pass, `pre_flight_check.py` is clean, and HIL tests
     1, 2, 5, 6 land a command in the window within a power-cycle or two.
+  - **⚠ Ticked in error (corrected 2026-09-10).** The code and unit tests
+    landed and are sound, but the "done when" was never met: the HIL tests
+    still failed 0/N afterwards. The premise was also wrong — see step 10.
+    Kept ticked because the change itself is committed and worth keeping
+    (a ~12 s CONNECT cadence was genuinely bad); the *finding* it claimed to
+    repair is still open.
+
+- [ ] **10. Repair F-10 (real) — make the window overlap the radio's wake-up**
+  - **Blocked on a spec decision.** Root-caused 2026-09-10 by on-device
+    instrumentation: the window opens at t+2.05 s and closes at t+3.15 s, but
+    a power-cycled XBee does not deliver its first frame until t+3.6 s–8.7 s.
+    Cold radio vs warm radio is the whole effect (control: after a *software*
+    reset, the first packet lands 80 ms into the window). Host retry cadence
+    was never the binding constraint. Full evidence in
+    `f10-window-evidence.md`, analysis in the dev log and F-10.
+  - This falsifies signed-off **Protocol decision D2** ("silent window + host
+    blind-retry"), so it is not mine to improvise. The trade to settle: a wide
+    window delays `main.py` on *every* healthy boot; candidate shapes include
+    widening unconditionally, delay-then-listen, opening a long window only
+    when the journal shows an unconfirmed candidate, or reinstating the
+    dropped beacon. Route through `/sl-spec` before any code.
+  - Done when: a genuinely stranded device is recovered over the radio at the
+    *shipped* default config, repeatably, across several power cycles — plus
+    a decision recorded for the per-boot cost it imposes.
 
 ## Verification
 

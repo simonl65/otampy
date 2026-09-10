@@ -44,6 +44,10 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   - The interrupted file can be `boot.py` itself, which would leave no `boot.py` to run the recovery. The shipped `main.py` scaffold now also calls `OTA(...).recover()` once at startup — `repair()` plus removal of the stale update flag; since `commit()` renames one file at a time, whichever of `boot.py`/`main.py` survives restores the set. A custom `main.py` should keep that call.
   - Recovery is best-effort and converges over reboots; it is not a power-loss-atomic filesystem transaction.
 
+### Fixed
+
+- **Every successful `otampy upd` reported failure, because the post-commit health check was racing the recovery window.** A post-commit boot still carries a `trial` journal, so it takes the *wide* boot-time recovery window by design — putting the device's polling main loop about 11 s out, against the 10 s `update-ready-timeout` the confirm wait used to share. The result: `Update committed but the device did not come back healthy (no PONG within 10s)` on a device that was perfectly healthy, with the candidate left unconfirmed and an operator invited to re-deploy against a device already on trial boot 2 of 3. The post-commit and `rollback` waits now use their own **`post-commit-ready-timeout`** config key (default `30`, env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); the READY-broadcast wait keeps `update-ready-timeout`, since a boot with the update flag set opens no window at all. Found on hardware during the recovery-window HIL verification.
+
 ### Compatibility
 
 - **A device deployed from the `6f2bd1b`..this range's mux scaffold, driven by a CLI with no `--mux`, was silently timing out.** After upgrading, recover it either by running the CLI with `otampy --mux …` (or `otampy mux --enable`), or by re-running `otampy init` (no `--mux`) + `otampy deploy` to move the device to direct mode.

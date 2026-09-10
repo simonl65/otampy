@@ -3265,3 +3265,99 @@ def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
 
     assert result.exit_code != 0
     assert "recovery-wait" in result.output
+
+
+# =============================================================================
+# F-11: the post-reboot waits need their own timeout
+# =============================================================================
+
+
+def test_config_cmd_show_lists_post_commit_ready_timeout(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "post-commit-ready-timeout" in result.output
+    assert "30" in result.output
+
+
+def test_post_commit_ready_timeout_default_and_env_override(monkeypatch):
+    monkeypatch.delenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", raising=False)
+    assert get_config_value("post_commit_ready_timeout_seconds") == 30.0
+
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "45")
+    assert get_config_value("post_commit_ready_timeout_seconds") == 45.0
+
+
+def test_wait_for_pong_retries_past_the_update_ready_timeout(monkeypatch):
+    """F-11: a post-reboot wait must not be bounded by update-ready-timeout.
+
+    A post-commit boot has journal ``trial`` and so pays the *wide* recovery
+    window, reaching its polling main loop ~11 s after the commit reply. The
+    10 s READY budget is a different measurement entirely and must not cut
+    this wait short.
+    """
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "0")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "30")
+    monkeypatch.setenv("OTAMPY_QUERY_RETRY_BACKOFF", "0.001")
+
+    from otampy.cli import _wait_for_pong
+
+    attempts = []
+
+    def fake_query(ctx, send, expect):
+        attempts.append(send)
+        if len(attempts) < 3:
+            raise DeviceError("device still rebooting")
+        return b"PONG"
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    _wait_for_pong(ctx, "should not be raised")
+
+    assert attempts == [b"PING", b"PING", b"PING"]
+
+
+def test_wait_for_pong_gives_up_on_the_post_commit_timeout(monkeypatch):
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "600")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "0.001")
+    monkeypatch.setenv("OTAMPY_QUERY_RETRY_BACKOFF", "0.001")
+
+    from otampy.cli import _wait_for_pong
+
+    def fake_query(ctx, send, expect):
+        raise DeviceError("device never answered")
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    with pytest.raises(click.ClickException, match="gave up"):
+        _wait_for_pong(ctx, "gave up")
+
+
+def test_rollback_timeout_message_quotes_the_post_commit_timeout(monkeypatch):
+    """The operator-facing wait message must quote the timeout actually used."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "7")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "0.001")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK", None]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "did not answer PING within 0s" in result.output
+    assert "within 7s" not in result.output

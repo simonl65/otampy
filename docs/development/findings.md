@@ -9,6 +9,156 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-13 — `test_rollback_recover_times_out_with_recovery_wait_message` passes on a validation error and never reaches the path it names
+
+- **Severity:** P2
+- **Status:** open
+- **Area:** `tests/test_cli.py`
+- **Found:** 2026-09-10, while writing the F-11 tests — the same `"0"` trick
+  failed for me with `post-commit-ready-timeout must be greater than 0.`,
+  which prompted a check of the existing test using it.
+- **Evidence:** the test sets `OTAMPY_RECOVERY_WAIT=0`, but
+  `_coerce_config_value` (`cli.py:369-372`) rejects any non-`query_retries`,
+  non-`transfer_chunk_size` value `<= 0`. Reproduced directly: the command
+  exits 1 with output `Error: recovery-wait must be greater than 0.` and
+  nothing else. The test's two assertions — `result.exit_code != 0` and
+  `"recovery-wait" in result.output` — are both satisfied by that error
+  message, so it passes without the `--recover` retry loop ever running.
+- **Impact:** `rollback --recover`'s recovery-wait expiry path has no test
+  coverage while appearing to have some, which is worse than none. That path
+  is in F-10's blast radius: the operator-facing message on a failed radio
+  recovery is exactly what a stranded-device session depends on. A regression
+  there would ship green.
+- **Resolution:** _(not yet fixed — needs a positive-but-tiny wait, e.g.
+  `0.001`, as the F-11 tests now use, plus an assertion on the actual
+  timeout wording rather than the bare key name. Check the sibling
+  `--recover` tests for the same pattern while there.)_
+- **Closed:** _(pending)_
+
+---
+
+### F-12 — the 8000 ms wide recovery window overruns an 8388 ms watchdog armed before `OTA(...).boot()`, and nothing feeds it
+
+- **Severity:** P2 — **upgrade to P1 if any integrator actually arms a
+  watchdog before `OTA(...).boot()`.** Filed P2 because the affected
+  configuration is optional and was not exercised on the rig: no watchdog was
+  armed, so the reset was never observed. The measurement and the code path
+  are confirmed; the resulting reset loop is inference from them.
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_boot_listen`, and the
+  window selection in `run()`); `src/otampy/device/examples/configota.example.py`
+  (the `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
+- **Found:** 2026-09-10, during step 5 HIL instrumentation of
+  `failsafe-update-window-reachability-spec.md`. Not the thing being tested —
+  surfaced by Simon asking how the F-11 fix would interact with a watchdog.
+- **Evidence:** `configota.example.py:29` tells the integrator to "keep this
+  under your watchdog period if a custom `boot.py` arms one before
+  `OTA(...).boot()`: 8000 is just under the RP2040's ~8388 ms cap", and the
+  spec's risk section chose `8000` for exactly that reason. Device-side ticks
+  measurement contradicts it. In `boot.py:614-652` the log lines `Checking for
+  update flag-file...` and `update_requested.flag not found` bracket
+  `state(core)` plus `_run_boot_listen()`; on a wide-window boot they were
+  **1454 ms** and **10353 ms**, a blocking span of **8899 ms** for a configured
+  `8000` — already past 8388 on its own, before adding the 1454 ms taken to
+  reach the window. Nothing feeds a watchdog anywhere in that span: the device
+  library has no WDT awareness at all, and `manager.py:85`/`manager.py:119`
+  deliberately place watchdog feeding on the caller, once per `poll()` —
+  which `boot()` never calls.
+  Raw log in `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 1).
+  **Caveat, and it matters:** those figures were taken at `LOG_LEVEL = "DEBUG"`
+  with `LOG_USE_TICKS = True`, so both are inflated by seven flash writes.
+  The conclusion survives the discount — the window cannot start before ~0.4 s
+  into boot even silent, and `400 + 8000 > 8388` — but the true margin is
+  unmeasured. A clean figure at `LOG_LEVEL = "ERROR"` is owed and is listed as
+  a follow-up on the step 5 resume.
+- **Impact:** An integrator arming `WDT(8388)` before `OTA(...).boot()` is
+  reset part-way through every wide-window boot. The device that qualifies for
+  the wide window is by definition the stranded one, so the inferred dynamic is
+  a loop: boot → marker/`trial` → wide window → WDT reset at 8388 ms → boot →
+  … never reaching `main.py`. Recovery may still succeed by luck, since a WDT
+  reset does not power-cycle the XBee and the radio is warm on the second pass
+  (F-10's control measurement: first packet 80 ms into the window after a
+  software reset). Untested either way. The confirmed part is narrower and
+  still real: shipped configuration guidance makes a promise the shipped
+  default cannot keep.
+- **Resolution:** _(not yet fixed — design work, not a repair. Candidate
+  shapes: lower the default wide window to fit 8388 including pre-window boot,
+  which spends recovery margin that F-10 already called the tightest number in
+  the spec; document a pre-`boot()` watchdog as incompatible with the wide
+  window; or let `OTA` take a caller-supplied watchdog and feed it inside
+  `_run_boot_listen`'s read loop. The third keeps both the wide window and
+  boot-path WDT cover and has a natural feed point, but it changes the `OTA`
+  constructor signature, so it needs a spec.)_
+- **Closed:** _(pending)_
+
+---
+
+### F-11 — the wide recovery window pushes the post-commit boot past `upd`'s 10 s health check, so every successful update reports failure
+
+- **Severity:** P1
+- **Status:** fixed (awaiting re-review) — 2026-09-10, step 6 of
+  `failsafe-update-window-reachability-spec.md`
+- **Area:** `src/otampy/cli.py` (`_post_commit_confirm`, `_wait_for_pong`,
+  `update_ready_timeout_seconds` at `cli.py:61`); consequence of the window
+  selection in `src/otampy/device/lib/otampy/boot.py` `run()`
+- **Found:** 2026-09-10, step 5 HIL verification of
+  `failsafe-update-window-reachability-spec.md`. Hit on the first `otampy upd`
+  of the session — a routine config push, not a test.
+- **Evidence:** A post-commit boot has journal `trial`, so `boot.py:646-651`
+  selects the **wide** window by design. Device-side ticks on that boot put
+  `Loading MAIN...` at **10661 ms** and `Application main loop started` at
+  **11044 ms**. `_post_commit_confirm` (`cli.py:2704`) waits
+  `update_ready_timeout_seconds`, default **10.0** (`cli.py:61`), timed from
+  the commit reply. The device cannot win that race. Observed:
+  `Update completed successfully! Device is rebooting.` →
+  `Error: Update committed but the device did not come back healthy (no PONG
+  within 10s).` — followed immediately by a successful `otampy ping`, an
+  `otampy state` of `Candidate on trial (boot 1)`, and a normal
+  `otampy confirm`. The device was never unhealthy.
+  Raw log in `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 1).
+  **Not a radio-flake observation**, despite being seen once over the link: the
+  corroborating measurement is device-side `ticks_ms` from `/ota.log`,
+  independent of the radio, and the arithmetic is structural — 8 s of window
+  plus ~1.4 s of pre-window boot plus ~0.7 s of startup against a 10 s budget.
+  Any device at the shipped default loses.
+- **Impact:** Every successful default `otampy upd` reports failure and leaves
+  the candidate unconfirmed. It self-heals if the operator runs
+  `otampy confirm`, but the primary update path tells the operator their update
+  failed when it did not — and an operator who believes the error and
+  re-deploys does so against a device already on trial boot 2 of 3.
+  `_wait_for_pong` is shared with `otampy rollback` (`cli.py:2663`), whose
+  post-restore boot has also not polled and so also carries the marker and
+  selects the wide window; the same arithmetic applies there, untested.
+  This also blocks step 5 of the active spec outright: HIL test 2's required
+  evidence is literally `COMMIT_OK`, then `Candidate confirmed.`, which cannot
+  currently occur.
+- **Resolution:** 2026-09-10 — added the `post_commit_ready_timeout_seconds`
+  config key (display `post-commit-ready-timeout`, env
+  `OTAMPY_POST_COMMIT_READY_TIMEOUT`, default `30.0`) at `cli.py:68`.
+  `_wait_for_pong` and both of its callers — `rollback` (`cli.py:1401`) and
+  `_post_commit_confirm` (`cli.py:2721`) — now read it instead of
+  `update_ready_timeout_seconds`. The READY-broadcast wait keeps the old key:
+  that boot has the update flag set, so `run()` opens no window at all.
+  Five tests in `tests/test_cli.py` (default/env override, `config --show`
+  display, retries past the old timeout, gives up on the new one, and the
+  rollback message quoting the new value), all red beforehand.
+  **Hardware evidence:** a real `otampy upd` over the XBee gateway printed
+  `Update completed successfully! Device is rebooting.` →
+  `Waiting for the updated device to answer...` → `Candidate confirmed.`
+  with no manual `otampy confirm`. Same command failed at the same point
+  before the change.
+  _(Original agreed approach 2026-09-10, unchanged in implementation. Rejected: raising
+  `update_ready_timeout_seconds` globally, which is used in four places and
+  would triple the time every unrelated failure takes to report; and narrowing
+  the `trial -> wide` selection rule, which would re-open F-10 — that boot is
+  precisely the one that needs radio recovery if the candidate bricks the
+  application.)_
+- **Closed:** _(pending)_
+
+---
+
 ### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
 
 - **Severity:** P1

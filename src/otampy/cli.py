@@ -65,6 +65,13 @@ CONFIG_SETTINGS = {
         "type": float,
         "description": "Seconds to wait for the boot-time READY broadcast during upd.",
     },
+    "post_commit_ready_timeout_seconds": {
+        "display": "post-commit-ready-timeout",
+        "env": "OTAMPY_POST_COMMIT_READY_TIMEOUT",
+        "default": 30.0,
+        "type": float,
+        "description": "Seconds to wait for a PING answer after a commit or rollback reboot. Longer than update-ready-timeout because such a boot pays the wide boot-time recovery window (docs/protocol.md 2.4).",
+    },
     "recovery_wait_seconds": {
         "display": "recovery-wait",
         "env": "OTAMPY_RECOVERY_WAIT",
@@ -1394,7 +1401,7 @@ def rollback(ctx: click.Context, recover: bool) -> None:
     _console().print(
         "Device is reverting to the previous version and rebooting..."
     )
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
     pong_timeout_message = (
         "Rollback commanded but the device did not answer PING within "
         f"{timeout:.0f}s. It may still be rebooting -- check with 'otampy "
@@ -2666,12 +2673,22 @@ def _wait_for_pong(ctx: click.Context, timeout_message: str) -> None:
     One "the device is rebooting, keep trying" implementation, shared by the
     post-commit confirm wait and ``otampy rollback``. Retries on
     ``ClickException``/``DeviceError`` with ``query_retry_backoff_seconds``
-    between attempts, up to ``update_ready_timeout_seconds`` total, then raises
-    ``click.ClickException(timeout_message)``.
+    between attempts, up to ``post_commit_ready_timeout_seconds`` total, then
+    raises ``click.ClickException(timeout_message)``.
+
+    Both callers wait on a device that has just *rebooted*, and such a boot
+    pays the wide boot-time recovery window: a post-commit boot still has a
+    ``trial`` journal, and a post-rollback boot has not reached ``ota.poll()``
+    so still carries the boot marker. Either way ``boot.run()`` selects
+    ``OTA_BOOT_RECOVERY_LISTEN_MS`` (default 8000), which puts the device's
+    polling main loop ~11 s out -- past the 10 s ``update_ready_timeout``
+    budget this used to share (F-11). That budget measures a different thing:
+    the READY broadcast on a boot whose update flag is set, which opens no
+    window at all.
     """
     import time
 
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
     backoff = float(get_config_value("query_retry_backoff_seconds"))
     start = time.time()
     while True:
@@ -2701,7 +2718,7 @@ def _post_commit_confirm(ctx: click.Context, no_confirm: bool) -> None:
         )
         return
 
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
     _console().print("Waiting for the updated device to answer...")
     _wait_for_pong(
         ctx,

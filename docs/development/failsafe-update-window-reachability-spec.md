@@ -311,6 +311,30 @@ boot, because nothing removes the marker yet.
   - Done when: HIL tests 1, 2, 3 and 4 below all pass, their figures are in the
     dev log, and F-10 records the fix.
 
+- [x] **6. Repair F-11 — the post-reboot waits need their own timeout**
+  - **Found during step 5, 2026-09-10**, which is blocked on it: HIL test 2's
+    required evidence is `COMMIT_OK` then `Candidate confirmed.`, and the
+    latter cannot currently occur. A post-commit boot has journal `trial` and
+    so takes the wide window by design, putting the polling main loop at
+    ticks ~11044 against `_post_commit_confirm`'s 10 s budget.
+  - What changes: `src/otampy/cli.py` gains a
+    `post_commit_ready_timeout_seconds` config key (display
+    `post-commit-ready-timeout`, env `OTAMPY_POST_COMMIT_READY_TIMEOUT`,
+    default `30.0`). `_wait_for_pong` reads it instead of
+    `update_ready_timeout_seconds`, as do the two callers that build its
+    message text (`rollback` at `cli.py:1397`, `_post_commit_confirm` at
+    `cli.py:2704`) — those are its only callers and both are post-reboot
+    waits that pay the window. The READY-broadcast wait (`cli.py:2507`) keeps
+    `update_ready_timeout_seconds`: that boot has the update flag set, so
+    `run()` opens no window at all.
+  - Test: `tests/test_cli.py` — the new key's default, env override and
+    `otampy config` display; `_wait_for_pong` honours the new key and not the
+    old one; the post-commit and rollback timeout messages quote the new
+    value. Red before the change.
+  - Done when: those tests pass, `pre_flight_check.py` is clean, and a real
+    `otampy upd` over the radio prints `Candidate confirmed.` without manual
+    intervention.
+
 ## Verification
 
 - **Host:** `python3 .agents/scripts/pre_flight_check.py` (ruff + full pytest,

@@ -8,7 +8,7 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Fail-safe Updates** The current solution overwrites working code once it's been verified but this leaves the chance that the new firmware might "brick" the device. I want to understand what options we have to ensure that we can always get back to a known working firmware. I'd prefer not make any changes to the underlying URST package if possible, but may consider it if it has advantages.
+[x] **Fail-safe Updates** (completed 2026-09-11) The current solution overwrites working code once it's been verified but this leaves the chance that the new firmware might "brick" the device. I want to understand what options we have to ensure that we can always get back to a known working firmware. I'd prefer not make any changes to the underlying URST package if possible, but may consider it if it has advantages.
 
   Truly remote-safe updates need rollback: retain the previous application, reboot into the candidate, require a health confirmation, and restore the previous version if startup fails. Without that, a validly transferred but faulty boot.py, main.py or configota.py can still strand the device. For OTAmpy's actual purpose, "never destroy the only remote recovery path" should be a core invariant, enforced on the device — not merely a CLI precaution.
 
@@ -70,6 +70,24 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     and never reaches the path it names) and F-14 (a trial boot gets no listen
     window at all when the wide window is disabled). Closes F-10.
     Spec: `docs/development/failsafe-update-recovery-handshake-spec.md`.
+
+  **Completed 2026-09-11.** All five sub-tasks built, HIL-verified and their
+  findings closed. The protocol decision held: no URST change was made. Every
+  deliverable the item asked for shipped — retain-previous, trial boot with
+  health confirmation and auto-restore, `ROLLBACK`, the boot-time recovery
+  window, and `--recover`. The watchdog follow-up (F-12) that came out of
+  sub-task 4 shipped too, as `OTA.boot(heartbeat=...)`.
+
+  Two residual gaps, both tracked elsewhere rather than lost:
+  - **F-08** — a power loss while updating `restore.py` *itself* still strands
+    the device, because the recovery code lives in the file being replaced.
+    Needs frozen code, so it has its own item below rather than blocking this
+    one. This is the one remaining hole in "never destroy the only remote
+    recovery path".
+  - **A blocking `reply()` inside `urst`'s retry loop** (~3-4 s) cannot be fed
+    by the watchdog heartbeat. Closing it would need a URST change, which this
+    item explicitly set out to avoid, so it is documented as a known limit in
+    `docs/protocol.md` §2.4 and the F-12 entry.
 
 [ ] Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
 

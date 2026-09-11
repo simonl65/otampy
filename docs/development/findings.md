@@ -441,7 +441,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   window; or let `OTA` take a caller-supplied watchdog and feed it inside
   `_run_boot_listen`'s read loop. The third keeps both the wide window and
   boot-path WDT cover and has a natural feed point, but it changes the `OTA`
-  constructor signature, so it needs a spec.)_
+  constructor signature, so it needs a spec.
+  **2026-09-11: direction decided.** Simon chose the caller-fed watchdog —
+  the only option that keeps the promise `configota.example.py` already
+  makes rather than walking it back or spending F-10's recovery margin.
+  Confirmed still open before deciding: this session's own F-18 HIL run
+  measured the wide window at ~9.57 s (`ts` 906 -> 10476), wider than the
+  8899 ms originally recorded, so the overrun is if anything worse than
+  filed. Too large for a single fix cycle (constructor-signature change) —
+  filed as its own `TODO.md` item ("Feed a caller-supplied watchdog inside
+  the boot-time recovery window") pointing at `/sl-spec` rather than
+  attempted here. No code changed by this session.)_
 - **Closed:** _(pending)_
 
 ---

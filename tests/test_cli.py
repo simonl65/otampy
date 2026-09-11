@@ -3401,7 +3401,13 @@ def test_rollback_recover_confirm_yes_succeeds(monkeypatch):
         mock.patch("urst.Urst") as mock_device,
         mock.patch("time.sleep"),
     ):
-        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK", b"PONG"]
+        # Leading `None`: the F-17 alive-probe's PING misses (device really
+        # is stranded), so it falls through to the recovery poll unchanged.
+        mock_device.return_value.read.side_effect = [
+            None,
+            b"ROLLBACK_OK",
+            b"PONG",
+        ]
         result = runner.invoke(
             cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
         )
@@ -3425,6 +3431,31 @@ def test_rollback_recover_confirm_no_sends_nothing_and_no_prompt():
     assert "Aborted" in result.output
     assert "Power-cycle the device now" not in result.output
     mock_device.return_value.send.assert_not_called()
+
+
+def test_rollback_recover_refuses_a_healthy_device(monkeypatch):
+    """F-17: ROLLBACK is served identically by the window and by a running
+    app's manager.poll, so --recover against a healthy device must refuse
+    instead of performing an ordinary, irreversible rollback on the spot."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = b"PONG"
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "already running" in result.output
+    assert "Power-cycle the device now" not in result.output
+    mock_device.return_value.send.assert_any_call(b"PING")
+    assert (
+        mock.call(b"ROLLBACK")
+        not in mock_device.return_value.send.call_args_list
+    )
 
 
 def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
@@ -3535,7 +3566,8 @@ def test_rollback_timeout_message_quotes_the_post_commit_timeout(monkeypatch):
         mock.patch("urst.Urst") as mock_device,
         mock.patch("time.sleep"),
     ):
-        mock_device.return_value.read.side_effect = [b"ROLLBACK_OK", None]
+        # Leading `None`: the F-17 alive-probe's PING misses first.
+        mock_device.return_value.read.side_effect = [None, b"ROLLBACK_OK", None]
         result = runner.invoke(
             cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
         )

@@ -446,17 +446,31 @@ sleep), `boot._RECOVERY_REFUSED = b"ERROR:Recovery window"`;
      fully between runs. Evidence: the difference is ~1 s ±0.3 s. A difference
      near 8 s fails the step — it would mean a blocking reliable send with no
      listener (see the D2 note). Record all six figures in the dev log.
-  4. **The window is not permanently open.** With the device healthy and
-     running, `otampy rollback --recover` **without** power-cycling. Evidence:
-     it times out with the recovery-wait message and `otampy ping` still
-     answers `PONG` immediately — the device never reset and was never in a
-     window.
+  4. **`rollback --recover` refuses a healthy device instead of rolling it
+     back silently (F-17).** With the device healthy and running, `otampy
+     rollback --recover`, no power cycle. Evidence: the CLI refuses
+     immediately — before printing the power-cycle prompt — telling the
+     operator to use plain `rollback`; exit 1; `otampy ping` still answers
+     `PONG`; `otampy ls /` shows the `.bck` set untouched. (`ROLLBACK` is
+     served identically by the window and by `manager.poll`, so without this
+     guard the command would perform an ordinary, irreversible rollback on
+     the spot rather than wait for a window — this is what F-17 found and
+     what this guard fixes; do not skip confirming the refusal happens
+     *before* any power-cycle prompt, or the guard isn't actually gating
+     anything.)
   5. **The window is not an auth bypass.** Set `OTA_REQUIRE_AUTH = True` and
      `COMMAND_AUTH_KEY` on the device. With `OTAMPY_COMMAND_AUTH_KEY` **unset**
      on the host, `otampy rollback --recover` + power cycle. Evidence: the CLI
-     reports the device's `Unauthenticated` error, and `otampy ls /` (with the
-     key set) shows the `.bck` set still present — nothing was reverted. Repeat
-     with the key set: it succeeds.
+     reports the device's `Unauthenticated` error (the PING probe from test 4's
+     guard is itself unsigned and gets silently dropped by the device with
+     auth on, so it does not short-circuit this case), and `otampy ls /` (with
+     the key set) shows the `.bck` set still present — nothing was reverted.
+     Then strand the device as in test 1 (fatal `main.py`, no watchdog) and
+     repeat with the key set: `otampy rollback --recover` + power cycle
+     succeeds via the window. (Stranding first is required post-F-17: with the
+     key set and the device healthy, the guard would now correctly refuse
+     before ever reaching the window, which would prove the guard rather than
+     the window's auth path.)
   6. **Refusal does not consume the window.** On a device with no retained
      generation, `otampy rollback --recover` + power cycle → `Nothing to roll
      back`, exit 1. Then, without a further power cycle being *required* by the

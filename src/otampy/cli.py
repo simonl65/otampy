@@ -1301,8 +1301,40 @@ def _send_command(
     _query(ctx, command, expected_response)
 
 
+def _device_alive(ctx: click.Context) -> bool:
+    """One quick, single-attempt ``PING`` -- ``True`` only on a real ``PONG``.
+
+    Used by ``_recover_query`` (F-17) to tell a healthy, running device from
+    one genuinely stranded before a window poll begins. Reuses the recovery
+    handshake's short timeout so a device that really is stranded (the
+    common case) only pays about one extra connect cycle here, not a full
+    retry storm. Any failure to confirm aliveness -- no reply, a device
+    error, a dropped port -- returns ``False`` and lets the caller fall back
+    to the normal recovery poll; a false negative here is safe; a false
+    positive would block a legitimate recovery.
+    """
+    try:
+        signer = _command_signer()
+    except auth.CommandAuthError:
+        return False
+    ser, transport = _open_transport(
+        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+    )
+    try:
+        _recovery_attempt(transport, b"PING", b"PONG", signer)
+        return True
+    except (_RecoveryMiss, DeviceError, OSError):
+        return False
+    finally:
+        _close_quietly(ser)
+
+
 def _recover_query(
-    ctx: click.Context, command: bytes, expected_prefix: bytes
+    ctx: click.Context,
+    command: bytes,
+    expected_prefix: bytes,
+    *,
+    refuse_if_alive: bool = False,
 ) -> bytes:
     """Land ``command`` in the device's boot-time recovery window.
 
@@ -1311,6 +1343,12 @@ def _recover_query(
     the dark until one attempt lands inside a window or
     ``recovery_wait_seconds`` expires. A missed window is benign -- the
     operator power-cycles again.
+
+    ``refuse_if_alive`` (F-17): the window and ``manager.poll`` can serve the
+    same command identically (``ROLLBACK`` does), so blind-retrying into a
+    device that is already running would perform that command immediately
+    and silently instead of waiting for a window. When set, a device that
+    answers ``PING`` up front makes this raise instead of proceeding.
 
     The port is opened **once** and held for the whole poll (F-15). Reopening
     per cycle toggled DTR/RTS on the FTDI->XBee roughly once a second, at
@@ -1323,6 +1361,14 @@ def _recover_query(
     ``DeviceError`` is deliberately *not* caught: it means the device answered
     (a refusal, or an auth rejection), so retrying would be wrong.
     """
+    if refuse_if_alive and _device_alive(ctx):
+        raise click.ClickException(
+            "Device answered PING -- it is already running, not stranded "
+            "before a boot-time window. --recover would perform this "
+            "command immediately against the running application rather "
+            "than wait for a window. Use the command without --recover."
+        )
+
     wait = float(get_config_value("recovery_wait_seconds"))
     _console().print(
         "[yellow]Power-cycle the device now. Handshaking about once a "
@@ -1420,9 +1466,12 @@ def confirm(ctx: click.Context) -> None:
     "--recover",
     is_flag=True,
     help=(
-        "Land the ROLLBACK in the boot-time recovery window instead of the "
-        "running application (docs/protocol.md 2.4). Use when the device is "
-        "stranded before main.py -- you will be prompted to power-cycle it."
+        "Land the ROLLBACK in the boot-time recovery window for a device "
+        "stranded before main.py (docs/protocol.md 2.4) -- you will be "
+        "prompted to power-cycle it. Refuses outright if the device answers "
+        "PING first: it is already running, and ROLLBACK is one-shot and "
+        "irreversible, so this will not perform it silently on a healthy "
+        "device. Use plain 'rollback' for that."
     ),
 )
 @click.pass_context
@@ -1436,7 +1485,11 @@ def rollback(ctx: click.Context, recover: bool) -> None:
     this is one-shot -- after it there is nothing left to roll back to.
 
     ``--recover`` routes the command into the boot-time recovery window for a
-    device that never reaches ``ota.poll()``.
+    device that never reaches ``ota.poll()``. It refuses outright if the
+    device answers ``PING`` first (F-17): the window and the running
+    application serve ``ROLLBACK`` identically, so without this guard
+    ``--recover`` against a healthy device would perform an ordinary,
+    irreversible rollback immediately instead of waiting for a window.
     """
     if not click.confirm(
         click.style(
@@ -1450,7 +1503,9 @@ def rollback(ctx: click.Context, recover: bool) -> None:
         return
     try:
         if recover:
-            payload = _recover_query(ctx, b"ROLLBACK", b"ROLLBACK_")
+            payload = _recover_query(
+                ctx, b"ROLLBACK", b"ROLLBACK_", refuse_if_alive=True
+            )
         else:
             payload, _ = _query(ctx, b"ROLLBACK", b"ROLLBACK_")
     except DeviceError as e:
@@ -2337,9 +2392,12 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
     "--recover",
     is_flag=True,
     help=(
-        "Drive the update through the boot-time recovery window instead of "
-        "main.py (docs/protocol.md 2.4). Use when the device is stranded "
-        "before ota.poll() -- you will be prompted to power-cycle it."
+        "Blind-retry UPDATE_REQUEST into the boot-time recovery window "
+        "(docs/protocol.md 2.4) for a device stranded before ota.poll(); a "
+        "device that is already running answers the same request from "
+        "main.py instead -- both converge on the same READY handshake, so "
+        "either way an ordinary update session follows. Use when the "
+        "device is stranded -- you will be prompted to power-cycle it."
     ),
 )
 @click.argument("args", nargs=-1)

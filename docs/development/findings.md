@@ -62,7 +62,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-17 — `--recover` against a *healthy* device silently bypasses the window and rolls back the running application
 
 - **Severity:** P2
-- **Status:** open
+- **Status:** closed — 2026-09-11, `/sl-findings review`
 - **Area:** `src/otampy/cli.py` `_recover_query` (the poll has no way to tell a
   window from a running application); the `--recover` help text on both
   `rollback` and `upd`; `docs/protocol.md` §2.4; and
@@ -90,16 +90,43 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   any device that has something to roll back to. F-10's own methodology note
   already says a healthy device answers `ROLLBACK` identically — the test
   contradicts it.
-- **Resolution:** _(not yet fixed. Options, cheapest first: (a) correct the
-  help text and §2.4 to say `--recover` polls until *something* answers,
-  window or application, and rewrite test 4; (b) have the CLI probe with
-  `PING` first and refuse `--recover` on a device that answers `PONG`, telling
-  the operator to use plain `rollback`; (c) have the window reply with a
-  distinguishing token so the host can tell which side answered. (b) is the
-  one that matches what the flag currently promises, but it costs a round trip
-  and needs its own sign-off. Note that (c) is a wire-format change and is
-  excluded by this spec's protocol decision.)_
-- **Closed:** _(pending)_
+- **Resolution:** Option (b). Added `_device_alive()` (`src/otampy/cli.py`), a
+  single-attempt, short-timeout `PING` probe reusing the recovery
+  handshake's own `_RECOVERY_SERIAL_TIMEOUT`/`_recovery_attempt` machinery.
+  `_recover_query()` gained a `refuse_if_alive` flag: `rollback --recover`
+  passes it and now refuses outright, before the power-cycle prompt, when the
+  device answers `PONG` -- telling the operator to use plain `rollback`
+  instead. `upd --recover` does not pass it: its window and running-app paths
+  converge on the same ordinary update session regardless (see the code
+  comment at the `upd` call site), so there is nothing destructive to guard
+  there, only wording to fix. Corrected the `--recover` help text/docstrings
+  on both `rollback` and `upd` to stop claiming the window is reached
+  "instead of" the running application. Rewrote Verification test 4 in
+  `failsafe-update-boot-listen-spec.md` around the refusal, and adjusted test
+  5 to strand the device before its "key set: succeeds" half, since that half
+  relied on the same false premise (a healthy device reaching the window
+  unguarded) to demonstrate the window's auth path. Added
+  `test_rollback_recover_refuses_a_healthy_device` and updated two existing
+  mocked tests whose `read` side-effect sequences didn't account for the new
+  leading probe read (`tests/test_cli.py`). `_recover_query`'s existing unit
+  tests call it directly without `refuse_if_alive`, so they're unaffected.
+  `python3 .agents/scripts/pre_flight_check.py` passes.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  not from the resolution's own account: `boot.py:488` and `manager.py:358`
+  both call `restore.rollback_result` on the same `core`, confirming `ROLLBACK`
+  is still served identically by the window and the running app -- the root
+  cause is real and the guard is the right shape for it. Read `_device_alive`
+  and `_recover_query`'s `refuse_if_alive` branch directly (not the Resolution
+  prose) and confirmed the refusal happens before the power-cycle prompt is
+  printed. Sabotage-checked twice: forcing `refuse_if_alive`'s check to `False`
+  turned `test_rollback_recover_refuses_a_healthy_device` red (with the
+  original behaviour reproducing -- a ~60 s wait, since a `PONG` reply never
+  matches `ROLLBACK_`'s expected prefix and the poll runs out its full
+  timeout); reverted, tests green again. Ran the full `rollback`/`recover`
+  test slice and the full pre-flight check, both clean. `upd --recover`'s
+  unchanged behaviour (help text only) still passes its own existing test.
+  Confirmed `docs/protocol.md` §2.4 needed no edit -- it was already accurate;
+  only the CLI help text and docstrings overclaimed, and both are fixed.
 
 ---
 
@@ -210,7 +237,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-14 — with the recovery key at `0`, a trial boot gets no listen window at all — less than an ordinary boot
 
 - **Severity:** P3
-- **Status:** fixed — awaiting re-review
+- **Status:** closed — 2026-09-11, `/sl-findings review`
 - **Area:** `src/otampy/device/lib/otampy/boot.py` `run()` (`boot.py:645-651`);
   `src/otampy/device/examples/configota.example.py` (the
   `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
@@ -261,7 +288,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-13 — `test_rollback_recover_times_out_with_recovery_wait_message` passes on a validation error and never reaches the path it names
 
 - **Severity:** P2
-- **Status:** fixed — awaiting re-review
+- **Status:** closed — 2026-09-11, `/sl-findings review`
 - **Area:** `tests/test_cli.py`
 - **Found:** 2026-09-10, while writing the F-11 tests — the same `"0"` trick
   failed for me with `post-commit-ready-timeout must be greater than 0.`,

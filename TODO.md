@@ -8,10 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
-
-## Deferred - do not run these
-
 [ ] **Session-based ports** Is session-based port setting being used - seems to fail with "Error: Error: Missing serial port. Specify with --port or -p option"?
 
   - Model: Sonnet
@@ -33,6 +29,16 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
   - Model: Haiku
     - one localised filter change to the file-walk with a matching test.
   - Spec : no.
+  - Fresh: yes.
+
+## Deferred - do not run these
+
+[ ] **Firmware versioning** Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
+
+  - Model: Sonnet
+    - touches both the deploy-time manifest/CLI path and a new `otampy ver` command, but no novel design once the scheme is settled.
+  - Spec : yes
+    - decide how the version is set (manual/derived from git), where it's stored on-device, and how `otampy ver` retrieves it before any code.
   - Fresh: yes.
 
 [ ] **Serial Monitor** Add a serial monitor window/pane that unobtrusively displays live data that's sent/received on the port.

@@ -2952,6 +2952,73 @@ def test_cli_rollback_warns_when_device_never_answers(monkeypatch):
 
 
 # =============================================================================
+# _interpret_reply / _outgoing_bytes -- the two halves of one _query attempt
+# =============================================================================
+
+
+def test_interpret_reply_raises_device_error_on_an_error_reply():
+    """`ERROR:<msg>` is the device answering with a refusal, not a
+    transport failure -- it must surface as DeviceError carrying the
+    command, so callers can stop retrying and print a friendly message."""
+    from otampy.cli import _interpret_reply
+
+    with pytest.raises(DeviceError) as excinfo:
+        _interpret_reply(b"ERROR:Unauthenticated", b"ROLLBACK", b"ROLLBACK_")
+
+    assert excinfo.value.error_msg == "Unauthenticated"
+    assert excinfo.value.command == b"ROLLBACK"
+
+
+def test_interpret_reply_returns_empty_payload_for_an_exact_prefix():
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"PONG", b"PING", b"PONG") == b""
+
+
+def test_interpret_reply_strips_the_colon_separator():
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"LS:main.py", b"LS /", b"LS") == b"main.py"
+
+
+def test_interpret_reply_strips_a_bare_prefix_with_no_colon():
+    """Not every device reply uses the colon form, so the separator is
+    optional and only consumed when it is actually there."""
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"ROLLBACK_OK", b"ROLLBACK", b"ROLLBACK_") == b"OK"
+
+
+def test_interpret_reply_raises_click_exception_on_a_mismatched_prefix():
+    from otampy.cli import _interpret_reply
+
+    with pytest.raises(click.ClickException) as excinfo:
+        _interpret_reply(b"PONG", b"LS /", b"LS")
+
+    message = str(excinfo.value)
+    assert "LS /" in message
+    assert "PONG" in message
+
+
+def test_outgoing_bytes_is_the_bare_command_when_signing_is_off():
+    from otampy.cli import _outgoing_bytes
+
+    assert _outgoing_bytes(b"PING", None) == b"PING"
+
+
+def test_outgoing_bytes_wraps_the_command_when_a_signer_is_configured():
+    """Called once per send attempt, never hoisted: each retry must carry a
+    fresh counter or it would look like a replay."""
+    from otampy.cli import _outgoing_bytes
+
+    signer = mock.Mock()
+    signer.wrap.side_effect = [b"SIGNED1:PING", b"SIGNED2:PING"]
+
+    assert _outgoing_bytes(b"PING", signer) == b"SIGNED1:PING"
+    assert _outgoing_bytes(b"PING", signer) == b"SIGNED2:PING"
+
+
+# =============================================================================
 # _recover_query -- the boot-window retry loop (docs/protocol.md 2.4)
 # =============================================================================
 

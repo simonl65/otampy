@@ -173,7 +173,7 @@ as removing the short window from the one boot most likely to need it.
 
 ## Build steps
 
-- [ ] **1. Extract the reply-interpretation and outgoing-bytes helpers**
+- [x] **1. Extract the reply-interpretation and outgoing-bytes helpers**
   - What changes: `src/otampy/cli.py`. `_query` interprets a reply in two
     near-identical blocks (the transport-provided branch at ~`cli.py:1120` and
     the new-transport branch at ~`cli.py:1180`) — `ERROR:` → `DeviceError`,

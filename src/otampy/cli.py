@@ -1075,6 +1075,52 @@ def _fast_recovery_handshake():
         urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES = saved
 
 
+def _interpret_reply(
+    response: bytes, command: bytes, expected_prefix: bytes
+) -> bytes:
+    """Turn one raw device reply into the payload the caller asked for.
+
+    ``ERROR:<msg>`` means the device *answered* with a refusal, so it becomes
+    a ``DeviceError`` carrying the command. A reply that does not start with
+    ``expected_prefix`` is a protocol mismatch (``ClickException``).
+    Otherwise the prefix -- and its optional ``:`` separator -- is stripped
+    and the remainder returned.
+    """
+    if response.startswith(b"ERROR:"):
+        err_msg = response[6:].decode("utf-8", errors="replace")
+        raise DeviceError(err_msg, command)
+
+    if not response.startswith(expected_prefix):
+        resp_str = (
+            response.decode("utf-8", errors="replace")
+            if isinstance(response, bytes)
+            else str(response)
+        )
+        raise click.ClickException(
+            f"Unexpected response to command '{command.decode()}'. "
+            f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
+        )
+
+    prefix_len = len(expected_prefix)
+    if (
+        len(response) > prefix_len
+        and response[prefix_len : prefix_len + 1] == b":"
+    ):
+        return response[prefix_len + 1 :]
+    return response[prefix_len:]
+
+
+def _outgoing_bytes(command: bytes, signer: auth.CommandSigner | None) -> bytes:
+    """The bytes to put on the wire for one send attempt.
+
+    Called per attempt and never hoisted out of a retry loop: each retry must
+    carry a fresh counter, or a first attempt that reached the device but lost
+    its reply would leave every retry looking like a replay and the command
+    would fail permanently.
+    """
+    return command if signer is None else signer.wrap(command)
+
+
 def _query(
     ctx: click.Context,
     command: bytes,
@@ -1106,19 +1152,9 @@ def _query(
     except auth.CommandAuthError as e:
         raise click.ClickException(str(e)) from e
 
-    def outgoing() -> bytes:
-        """The bytes to put on the wire for one send attempt.
-
-        Called per attempt and never hoisted out of the retry loop: each
-        retry must carry a fresh counter, or a first attempt that reached
-        the device but lost its reply would leave every retry looking
-        like a replay and the command would fail permanently.
-        """
-        return command if signer is None else signer.wrap(command)
-
     # If transport provided, use it directly (single attempt)
     if transport is not None:
-        if not transport.send(outgoing()):
+        if not transport.send(_outgoing_bytes(command, signer)):
             raise click.ClickException("Failed to send command over transport.")
 
         response = _read_full_reply(transport)
@@ -1127,33 +1163,7 @@ def _query(
                 f"Timeout waiting for response to command: {command.decode()}"
             )
 
-        # Check for device error response
-        if response.startswith(b"ERROR:"):
-            err_msg = response[6:].decode("utf-8", errors="replace")
-            raise DeviceError(err_msg, command)
-
-        if not response.startswith(expected_prefix):
-            resp_str = (
-                response.decode("utf-8", errors="replace")
-                if isinstance(response, bytes)
-                else str(response)
-            )
-            raise click.ClickException(
-                f"Unexpected response to command '{command.decode()}'. "
-                f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
-            )
-
-        # Return payload after prefix and potential colon separator
-        prefix_len = len(expected_prefix)
-        if (
-            len(response) > prefix_len
-            and response[prefix_len : prefix_len + 1] == b":"
-        ):
-            res = response[prefix_len + 1 :]
-        else:
-            res = response[prefix_len:]
-
-        return res, None
+        return _interpret_reply(response, command, expected_prefix), None
 
     # Create new transport with retry logic
     last_err = None
@@ -1169,7 +1179,7 @@ def _query(
             )
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
-            if not new_transport.send(outgoing()):
+            if not new_transport.send(_outgoing_bytes(command, signer)):
                 raise click.ClickException(
                     "Failed to send command over transport."
                 )
@@ -1180,33 +1190,13 @@ def _query(
                     f"Timeout waiting for response to command: {command.decode()}"
                 )
 
-            # Check for device error response
-            if response.startswith(b"ERROR:"):
-                err_msg = response[6:].decode("utf-8", errors="replace")
+            # Closed on the way out either way: a DeviceError is re-raised
+            # below without reaching the broad handler that would close it.
+            try:
+                res = _interpret_reply(response, command, expected_prefix)
+            except Exception:
                 ser.close()
-                raise DeviceError(err_msg, command)
-
-            if not response.startswith(expected_prefix):
-                resp_str = (
-                    response.decode("utf-8", errors="replace")
-                    if isinstance(response, bytes)
-                    else str(response)
-                )
-                ser.close()
-                raise click.ClickException(
-                    f"Unexpected response to command '{command.decode()}'. "
-                    f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
-                )
-
-            # Return payload after prefix and potential colon separator
-            prefix_len = len(expected_prefix)
-            if (
-                len(response) > prefix_len
-                and response[prefix_len : prefix_len + 1] == b":"
-            ):
-                res = response[prefix_len + 1 :]
-            else:
-                res = response[prefix_len:]
+                raise
 
             ser.close()
             return res, None

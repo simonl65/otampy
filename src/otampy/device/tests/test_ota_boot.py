@@ -931,6 +931,47 @@ def test_boot_listen_refusal_does_not_consume_the_window(monkeypatch, tmp_path):
     machine.reset.assert_called_once()
 
 
+def test_boot_listen_f18_diagnostic_distinguishes_heard_from_unheard(
+    monkeypatch, tmp_path
+):
+    """F-18: the summary log must tell "nothing arrived" from "something
+    arrived but did not land" -- the ambiguity the diagnostic exists to
+    resolve on the next HIL run."""
+    silent_core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    assert boot._run_boot_listen(silent_core, WINDOW_MS) is False
+    (level, closed_msg) = silent_core.logger.messages[-1]
+    assert level == "info"
+    assert "0 frame(s) seen" in closed_msg
+
+    heard_core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    heard_core.transport.incoming_queue.append(b"PING")
+    assert boot._run_boot_listen(heard_core, WINDOW_MS) is False
+    (level, closed_msg) = heard_core.logger.messages[-1]
+    assert level == "info"
+    assert "1 frame(s) seen" in closed_msg
+    assert any(
+        level == "debug" and "frame #1" in msg and b"PING".decode() in msg
+        for level, msg in heard_core.logger.messages
+    )
+
+
+def test_boot_listen_f18_diagnostic_logs_iterations_on_landing(
+    monkeypatch, tmp_path
+):
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"UPDATE_REQUEST")
+
+    assert boot._run_boot_listen(core, WINDOW_MS) is True
+
+    assert any(
+        level == "info" and "landed after" in msg and "frame(s) seen" in msg
+        for level, msg in core.logger.messages
+    )
+
+
 def test_boot_listen_rollback_refuses_while_committing(monkeypatch, tmp_path):
     core = _window_core(tmp_path)
     main = tmp_path / "main.py"

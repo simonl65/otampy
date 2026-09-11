@@ -429,11 +429,28 @@ def _run_boot_listen(core, window_ms):
     require_auth = _get_config(core.config, "OTA_REQUIRE_AUTH", False)
     started = _ticks_ms()
 
+    # F-18 diagnostic (temporary): the marker-only recovery path has never
+    # been proven to land a command on hardware, and `read()` only ever
+    # returns a fully-reassembled message or nothing -- there is no way from
+    # this loop alone to tell "the window heard nothing" from "the window
+    # heard something and did not answer". These counters and the summary
+    # log below exist to answer that on the next HIL run; remove once F-18 is
+    # resolved.
+    iterations = 0
+    frames_seen = 0
+
     while _ticks_diff(_ticks_ms(), started) < window_ms:
+        iterations += 1
         packet = read()
         if not packet:
             _sleep_ms(_BOOT_LISTEN_POLL_MS)
             continue
+
+        frames_seen += 1
+        core.logger.debug(
+            f"Recovery window: frame #{frames_seen} on iter {iterations}: "
+            f"{packet!r}"
+        )
 
         packet = (
             str(packet).strip().encode()
@@ -479,6 +496,10 @@ def _run_boot_listen(core, window_ms):
                     core.logger.error(f"Failed to write flag-file: {err}")
             reply(b"REBOOTING")
             core.logger.info("Recovery window: update requested; resetting")
+            core.logger.info(
+                f"Recovery window: landed after {iterations} iteration(s), "
+                f"{frames_seen} frame(s) seen"
+            )
             _persist_replay_floor(core)
             import machine
 
@@ -495,6 +516,10 @@ def _run_boot_listen(core, window_ms):
                     f"Recovery window: rollback restored {restored} "
                     "file(s); resetting"
                 )
+                core.logger.info(
+                    f"Recovery window: landed after {iterations} "
+                    f"iteration(s), {frames_seen} frame(s) seen"
+                )
                 _persist_replay_floor(core)
                 import machine
 
@@ -504,6 +529,10 @@ def _run_boot_listen(core, window_ms):
         else:
             reply(_RECOVERY_REFUSED)
 
+    core.logger.info(
+        f"Recovery window: closed with no landing after {iterations} "
+        f"iteration(s), {frames_seen} frame(s) seen"
+    )
     return False
 
 

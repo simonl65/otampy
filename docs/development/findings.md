@@ -48,13 +48,23 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   operator cycle timing relative to the poll cannot be timestamped from the
   host, and has already produced one falsely-recorded miss this session. Six
   versus two is a small sample.
-- **Resolution:** _(not yet fixed. The next step is diagnostic, not a patch:
-  add temporary instrumentation to `_run_boot_listen` logging bytes/frames seen
-  and iteration count on exit, deploy, and run the marker-only strand three
-  times. That separates "the window never heard anything" (radio/host) from
-  "the window heard and did not answer" (device) in a single run. Neither can
-  be inferred from the current evidence, and no code should change until it
-  is.)_
+- **Resolution:** _(not yet fixed -- diagnosis in progress, not a repair.
+  2026-09-11: instrumentation added to `_run_boot_listen`
+  (`src/otampy/device/lib/otampy/boot.py`) -- an `iterations` counter, a
+  `frames_seen` counter incremented (with a `logger.debug` of the raw bytes)
+  on every non-empty `read()`, and a `logger.info` summary at each exit point
+  (natural expiry, and just before each `machine.reset()` on a landed
+  command). This is temporary and will be reverted once the HIL run below has
+  answered the question; two host tests pin it
+  (`test_boot_listen_f18_diagnostic_distinguishes_heard_from_unheard`,
+  `test_boot_listen_f18_diagnostic_logs_iterations_on_landing`,
+  `src/otampy/device/tests/test_ota_boot.py`), sabotage-confirmed to catch a
+  broken counter. Not yet deployed or run on hardware -- next step is a HIL
+  session: deploy this build, strand a device with nothing retained (marker
+  only, no journal), run the marker-only strand three times, and read
+  `/ota.log`'s summary lines to separate "0 frame(s) seen" (radio/host never
+  reached it) from "N frame(s) seen" with no landing (device heard and did
+  not answer). Requires Simon's clearance to start the HIL session.)_
 - **Closed:** _(pending)_
 
 ---

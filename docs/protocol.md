@@ -298,7 +298,13 @@ boot where no update is already pending.
   | --- | --- |
   | Boot marker present — the previous boot never reached `OTA.poll()` | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
   | Journal shows an unconfirmed candidate (`trial`) | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
+  | Either of the above, but `OTA_BOOT_RECOVERY_LISTEN_MS = 0` | `OTA_BOOT_LISTEN_MS` (default `1000`) |
   | Neither | `OTA_BOOT_LISTEN_MS` (default `1000`) |
+
+  **A boot that is more at risk never gets a shorter window than an ordinary
+  boot.** `0` disables the *wide* window and the marker; it does not remove
+  the short window from the one boot most likely to need it. Setting both keys
+  to `0` is how a deployment opts out of the window altogether.
 
   Both tests are needed and neither subsumes the other. The journal test
   catches a candidate that strands the device on its very first boot; the
@@ -320,7 +326,9 @@ boot where no update is already pending.
   failed write or remove is swallowed: a boot is never stranded by the marker,
   though a full or read-only filesystem then silently degrades that device to
   the short window. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` disables the wide window
-  and the marker together, at zero filesystem cost.
+  and the marker together, at zero filesystem cost; the short window remains.
+  Note that with the wide window off the marker is never read, so an at-risk
+  boot is only recognisable from the journal.
 - **Silent:** the window sends no beacon. `Urst.send()` is stop-and-wait
   reliable, so an unacknowledged announcement would cost up to ~8 s per boot.
   The host instead blind-retries (`otampy upd --recover` /

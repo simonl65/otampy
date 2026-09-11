@@ -1168,17 +1168,56 @@ def test_a_stray_committing_journal_never_reaches_the_selection(
     assert restore.state(stray)[0] != restore._LABEL_STABLE
 
 
-def test_run_opens_no_window_at_all_when_the_wide_key_is_zero(
+def test_a_trial_boot_with_the_wide_key_zero_keeps_the_short_window(
     monkeypatch, tmp_path
 ):
-    """0 disables the wide window for a boot that qualifies for it -- it does
-    not fall back to the short one."""
+    """F-14: `0` disables the *wide* window, not every window.
+
+    A boot running an unconfirmed candidate is the one most likely to need
+    rescuing. Yielding `0` there gave it less than an ordinary healthy boot,
+    which still paid its OTA_BOOT_LISTEN_MS. The invariant: an at-risk boot
+    never gets a shorter window than an ordinary one.
+    """
     assert (
         _selected_window(
             monkeypatch,
             tmp_path,
             journal=0,
             **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0},
+        )
+        == SHORT_MS
+    )
+
+
+def test_a_marked_boot_with_the_wide_key_zero_keeps_the_short_window(
+    monkeypatch, tmp_path
+):
+    """With the wide key at `0` the marker is never written or read at all --
+    `_boot_mark_path` returns None, which is the off-switch. So a boot that
+    would have been "marked" is indistinguishable from a healthy one and
+    takes the short window by the ordinary route, not by F-14's fallback.
+    Pinned because it is the reason F-14 only bites on the journal path.
+    """
+    assert (
+        _selected_window(
+            monkeypatch,
+            tmp_path,
+            marker=True,
+            **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0},
+        )
+        == SHORT_MS
+    )
+
+
+def test_both_keys_zero_still_opens_no_window(monkeypatch, tmp_path):
+    """The fallback is to OTA_BOOT_LISTEN_MS, not to a hardcoded default: a
+    deployment that disables both keys still gets no window anywhere."""
+    assert (
+        _selected_window(
+            monkeypatch,
+            tmp_path,
+            journal=0,
+            **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0, "OTA_BOOT_LISTEN_MS": 0},
         )
         == 0
     )

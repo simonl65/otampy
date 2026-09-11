@@ -151,8 +151,11 @@ window opens at t≈2.05 s and shuts at t≈3.15 s — so the ~1 s window can ne
 be hit in practice after a power cycle. The wide window stays open to t≈10.05 s
 and spans the cold radio's wake-up. It is paid *only* by devices that need it:
 a healthy device keeps paying ~1 s. `0` disables the wide window **and the boot
-marker entirely**, with zero filesystem cost. A non-integer value is treated as
-a typo and falls back to the default rather than disabling recovery.
+marker entirely**, with zero filesystem cost — an at-risk boot then falls back
+to `OTA_BOOT_LISTEN_MS`, never to no window, because a boot that is more at
+risk must never get less than an ordinary one. Set both keys to `0` to opt out
+of the window altogether. A non-integer value is treated as a typo and falls
+back to the default rather than disabling recovery.
 
 `OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is the marker `boot.run()`
 writes once per boot and the first `OTA.poll()` removes. Its presence at boot
@@ -255,7 +258,9 @@ is one-shot: what it lands on has no `.bck` and cannot be rolled back again.
 the tree. Its duration is one of two tiers: `OTA_BOOT_RECOVERY_LISTEN_MS`
 (default `8000`) when the boot marker survived the previous boot or the journal
 still shows an unconfirmed candidate, and `OTA_BOOT_LISTEN_MS` (default `1000`)
-otherwise — so only a device that has actually failed pays the wide window. It
+otherwise — so only a device that has actually failed pays the wide window. If
+the wide tier is disabled (`0`), an at-risk boot falls back to the short window
+rather than getting none. It
 listens on channel 0 for exactly two commands — `UPDATE_REQUEST` (write the flag and reset into a
 normal update session) and `ROLLBACK` (revert to the retained generation) —
 answering everything else, `PING` included, with `ERROR:Recovery window`. It

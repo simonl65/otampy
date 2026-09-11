@@ -179,3 +179,53 @@ old prompt: `1 failed`, `AssertionError` at the `about once a second` line.
 Restoring that sabotage with `git checkout` also reverted the real change and
 it had to be reapplied — noted so the commit's provenance is clear.
 `156 passed`, `pre_flight_check.py` exit 0.
+
+---
+
+## Step 5 — F-14: an at-risk boot never gets less than an ordinary boot
+
+2026-09-11. A four-line change in `boot.run()`, plus the docs that promised
+something different.
+
+```python
+window_ms = 0
+if had_boot_mark or state(core)[0] != _LABEL_STABLE:
+    window_ms = _boot_recovery_window_ms(core.config)
+if window_ms <= 0:
+    window_ms = _config_int(
+        core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
+    )
+```
+
+My first attempt read `OTA_BOOT_LISTEN_MS` unconditionally and used
+`_boot_recovery_window_ms(...) or window_ms`. Shorter, but it broke the spec's
+stated device cost — "zero cost on the default configuration" — by adding a
+config read to every at-risk boot. The `<= 0` form skips the short-key read
+whenever the wide window was actually selected, which is the default path.
+
+**A finding within the finding.** The second test I wrote,
+`..._a_marked_boot_with_the_wide_key_zero_...`, passed *before* the fix. With
+the wide key at `0`, `_boot_mark_path()` returns `None` — the off-switch lives
+there — so the marker is never written or read, `had_boot_mark` is always
+False, and a "marked" boot is indistinguishable from a healthy one. F-14 is
+therefore only reachable through the **journal** path, not the marker path.
+The test is kept with an honest docstring, because that interaction is
+non-obvious and the next reader would otherwise assume both halves fall back.
+
+A third test pins that both keys at `0` still opens no window anywhere — the
+fallback is to `OTA_BOOT_LISTEN_MS`, not to a hardcoded default, so opting out
+entirely is still possible.
+
+**Docs corrected in four places**, all of which stated or implied that `0`
+removes every window: `configota.example.py`, `docs/protocol.md` §2.4 (the
+duration table gains the `0` row and the invariant in bold, and the marker
+paragraph now says the marker is unread when the wide window is off), and
+`docs/architecture.md` in two places.
+
+**Evidence:** `test_a_trial_boot_with_the_wide_key_zero_keeps_the_short_window`
+red first with `AssertionError: assert 0 == 111`, then `375 passed` across the
+device suite. `pre_flight_check.py` exit 0.
+
+No hardware involved — the measured 56 ms no-window boot in F-14's evidence
+already established the behaviour on device; this step changes the selection
+and its tests, not the window itself.

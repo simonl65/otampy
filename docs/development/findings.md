@@ -68,7 +68,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-14 — with the recovery key at `0`, a trial boot gets no listen window at all — less than an ordinary boot
 
 - **Severity:** P3
-- **Status:** open
+- **Status:** fixed — awaiting re-review
 - **Area:** `src/otampy/device/lib/otampy/boot.py` `run()` (`boot.py:645-651`);
   `src/otampy/device/examples/configota.example.py` (the
   `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
@@ -90,12 +90,20 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   established that the 1 s window is unhittable after a power cycle anyway, so
   what is lost was barely there — but the code says something different from
   the documentation, and the next reader will trip on it.
-- **Resolution:** _(not yet fixed — either fall back to `OTA_BOOT_LISTEN_MS`
-  when the recovery window is disabled, i.e. `window_ms = recovery or short`,
-  or state the current behaviour explicitly in `configota.example.py` and
-  `docs/protocol.md` §2.4. The one-line fallback looks right, but it should be
-  decided alongside F-15 rather than patched in isolation.)_
-- **Closed:** _(pending)_
+- **Resolution:** 2026-09-11, step 5 of
+  `failsafe-update-recovery-handshake-spec.md`. `boot.run()` now falls back to
+  `OTA_BOOT_LISTEN_MS` when the wide window is disabled on an at-risk boot,
+  so an at-risk boot never gets a shorter window than an ordinary one. The
+  fallback costs nothing on the default configuration — the short key is only
+  read when the wide window was not selected. Documented in
+  `configota.example.py`, `docs/protocol.md` §2.4 (duration table plus the
+  invariant in bold) and `docs/architecture.md` in two places. Three device
+  tests cover it, including one pinning that both keys at `0` still opens no
+  window at all. Noted while fixing: with the wide key at `0`,
+  `_boot_mark_path()` returns None so the marker is never written or read —
+  F-14 is therefore reachable only through the journal path, not the marker
+  path, and that is now pinned by a test with an explanatory docstring.
+- **Closed:** _(pending re-review)_
 
 ---
 

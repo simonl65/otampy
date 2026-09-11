@@ -262,7 +262,7 @@ as removing the short window from the one boot most likely to need it.
   - Done when: `otampy rollback --recover` against a dead port prints a prompt
     that matches what the code now does, and the step-2 tests still pass.
 
-- [ ] **5. F-14: an at-risk boot never gets less than an ordinary boot**
+- [x] **5. F-14: an at-risk boot never gets less than an ordinary boot**
   - What changes: `src/otampy/device/lib/otampy/boot.py` `run()` — the
     `if had_boot_mark or state(core)[0] != _LABEL_STABLE:` branch falls back to
     `OTA_BOOT_LISTEN_MS` when `_boot_recovery_window_ms(core.config)` is not

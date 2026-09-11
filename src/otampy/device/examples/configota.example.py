@@ -23,7 +23,9 @@ OTA_BOOT_LISTEN_MS = 1000
 # t+3.6-8.7 s to deliver its first frame, which the ~1 s window above opens and
 # shuts long before -- so this is the tier that makes radio recovery actually
 # work. Only a device that has already failed pays it. `0` disables the wide
-# window and the boot marker below entirely. Keep this under your watchdog
+# window and the boot marker below entirely -- an at-risk boot then falls back
+# to `OTA_BOOT_LISTEN_MS`, never to no window at all. Keep this under your
+# watchdog
 # period if a custom `boot.py` arms one before `OTA(...).boot()`: 8000 is just
 # under the RP2040's ~8388 ms cap. See docs/protocol.md 2.4.
 OTA_BOOT_RECOVERY_LISTEN_MS = 8000

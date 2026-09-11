@@ -642,10 +642,16 @@ def run(core, callback=None):
     # first boot, and is free -- the journal is already read. The marker
     # catches a *confirmed* generation that later proves fatal, which the
     # journal cannot see and which is exactly the `rollback --recover` case.
+    #
+    # `OTA_BOOT_RECOVERY_LISTEN_MS = 0` turns the wide window off, not every
+    # window: an at-risk boot then falls back to the short one rather than
+    # getting nothing, since it must never end up with less than an ordinary
+    # boot already pays (F-14).
     if not has_flag:
+        window_ms = 0
         if had_boot_mark or state(core)[0] != _LABEL_STABLE:
             window_ms = _boot_recovery_window_ms(core.config)
-        else:
+        if window_ms <= 0:
             window_ms = _config_int(
                 core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
             )

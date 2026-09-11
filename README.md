@@ -155,7 +155,13 @@ in `~/.config/otampy/config.json`. Advanced host settings managed by
 
 Session-only selections use files in the operating system's temporary directory
 (normally `/tmp` on Linux) and do not alter the permanent configuration. On
-Windows, they apply to the active Windows logon session. `OTAMPY_PORT` and
+POSIX, the session is identified by the parent process's PID, which is stable
+for an interactive shell but **not** for automation that forks a fresh
+subprocess per command (each invocation then gets a different parent PID and
+misses the session file a prior command wrote). Such automation should set
+`OTAMPY_SESSION_ID` to a fixed value once, so every invocation resolves the
+same session file regardless of process ancestry. On Windows, session
+selections apply to the active Windows logon session. `OTAMPY_PORT` and
 `OTAMPY_LOG_LEVEL` environment variables override saved settings. Advanced
 settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 `OTAMPY_QUERY_RETRIES`, `OTAMPY_QUERY_RETRY_BACKOFF`,

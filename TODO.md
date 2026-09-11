@@ -8,14 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Session-based ports** Is session-based port setting being used - seems to fail with "Error: Error: Missing serial port. Specify with --port or -p option"?
-
-  - Model: Sonnet
-    - contained bug hunt in the CLI's port-resolution path.
-  - Spec : no
-    - investigate then fix.
-  - Fresh: yes.
-
 [ ] **Copy direction** Enable `cp` to copy from device to host.
 
   - Model: Sonnet

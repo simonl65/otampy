@@ -183,9 +183,22 @@ def _config_path() -> Path:
 
 
 def _session_id() -> str:
-    """Return an identifier shared by commands in the current shell session."""
+    """Return an identifier shared by commands in the current shell session.
+
+    Keyed on the parent process's PID, which is stable for an interactive
+    shell but NOT for automation that forks a fresh subprocess per command
+    (each invocation then gets a different parent PID and silently misses
+    the session file a prior command wrote -- see docs/development/
+    failsafe-update-window-reachability-log.md). ``OTAMPY_SESSION_ID``
+    lets such automation opt into a stable, explicit session identifier
+    instead of relying on process ancestry.
+    """
     import os
     import sys
+
+    env_session_id = os.environ.get("OTAMPY_SESSION_ID")  # type: ignore
+    if env_session_id:
+        return env_session_id
 
     if sys.platform == "win32":
         try:

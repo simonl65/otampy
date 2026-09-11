@@ -883,6 +883,36 @@ def test_session_port_is_available_to_later_command(tmp_path):
     serial.assert_called_once_with("COM3", baudrate=57600, timeout=2.0)
 
 
+def test_session_id_uses_env_override_regardless_of_parent_pid(tmp_path):
+    """OTAMPY_SESSION_ID must anchor the session file even when each
+    invocation reports a different parent PID (e.g. automation that forks a
+    fresh subprocess per command -- the bug behind the TODO.md session-ports
+    entry): without the override, a later command would miss the session
+    file the earlier one wrote and silently fall back to stale/no config.
+    """
+    runner = CliRunner()
+
+    with (
+        mock.patch.dict("os.environ", {"OTAMPY_SESSION_ID": "fixed-session"}),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=111),
+    ):
+        set_default_port("/dev/ttyFixed", session=True)
+
+        session_file = tmp_path / "otampy_session_fixed-session.json"
+        assert session_file.is_file()
+
+    with (
+        mock.patch.dict("os.environ", {"OTAMPY_SESSION_ID": "fixed-session"}),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=999),
+    ):
+        result = runner.invoke(cli, ["ports", "--show"])
+
+    assert result.exit_code == 0
+    assert "Current default port: /dev/ttyFixed" in result.output
+
+
 def test_cli_ls_path():
     """Test the 'ls' command with a specific path."""
     runner = CliRunner(env={"NO_COLOR": "1"})

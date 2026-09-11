@@ -327,3 +327,63 @@ from a complete stream or not at all.
 
 Still to run; each needs a power cycle at the prompt, so each is gated on
 Simon being at the rig and saying go.
+
+### HIL 1 — attempt log
+
+**Protocol correction, made after two wasted attempts.** Asking Simon to
+power-cycle and *then* starting the poll races the round-trip latency between
+us: he cycles within a second or two of replying, but my command may not start
+for another ten, by which time the window (t≈1.5 s to t≈10.5 s from power-on)
+has already shut. The poll then handshakes at a device sitting dead at the
+REPL, and the log is indistinguishable from a genuine failure. **The poll must
+be started and verified live first, and the cycle requested only afterwards.**
+`recovery-wait` is raised for these runs purely to absorb that round-trip; what
+the evidence then has to show is that the landing itself happens quickly enough
+that the shipped 60 s default is ample.
+
+| # | Protocol | Cycled? | Result |
+| --- | --- | --- | --- |
+| — | ask-then-poll | no (no stdin, aborted on `[y/N]`) | discarded, not an attempt |
+| — | ask-then-poll | no | discarded, not an attempt |
+| 1 | ask-then-poll, 60 s | yes, within a few seconds | **no landing in 60 s** — inconclusive: cannot separate a real miss from a poll that started after the window shut |
+| 2 | **poll-first**, 300 s | yes, poll verified live first | **PASS** |
+
+**Attempt 2 — the first genuine radio recovery of a stranded device.**
+Timestamps are seconds into the poll:
+
+```
+  34.77s  Handshake attempt 1
+  35.83s  Handshake timeout / attempt 2
+  36.89s  Handshake timeout / attempt 3
+  36.92s  URST Connected (received CONNECT_ACK)   <- the window answered
+  36.92s  Sending frame type 0x1, seq 0, attempt 1
+  36.95s  Received ACK for seq 0
+  37.12s  Device is reverting to the previous version and rebooting...
+  ...     post-reboot health wait
+  49.94s  Rollback complete. The device is running the previous (stable) version.
+```
+
+- **The command landed on the third CONNECT after the device's radio woke** —
+  ~2 s from first contact to `ROLLBACK` acknowledged. Power-on cannot be
+  timestamped from the host, but with the cold-XBee wake-up at t+3.6 s to
+  t+8.7 s the landing sits around t+6 s to t+10 s from power-on, i.e. inside
+  the window and far inside the 60 s default. The 300 s wait absorbed the
+  Claude↔Simon round-trip, not the recovery.
+- Evidence afterwards, all over the radio with no USB: `ping` → `PONG`;
+  `otampy cat /main.py` is the good example version again; `otampy ls /` shows
+  `boot.py configota.py lib/ main.py ota.log` — **no `main.py.bck`, no
+  `otampy-update.journal`, no `otampy-boot.mark`**; `otampy state` → "Running a
+  confirmed (stable) build."
+
+**This is the capability F-10 and F-15 exist for, working for the first time:**
+a device deliberately bricked at the application level, recovered over the
+radio, with USB never touched.
+
+**Not yet the spec's bar.** That is three first-cycle passes, and this is one —
+and taken at a raised `recovery-wait`. Attempts 3 and 4 follow, and at least
+one run should be taken at the true 60 s default now that the poll-first
+protocol removes the latency race.
+
+**Incidental confirmation:** trial auto-restore works. Before this run the
+device had spent its 3 trial boots while stranded, and the next boot restored
+the good `main.py` by itself, unprompted — observed, not tested for.

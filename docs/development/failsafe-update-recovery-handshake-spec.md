@@ -192,7 +192,7 @@ as removing the short window from the one boot most likely to need it.
     `cli.py` rather than twice (AGENTS.md DRY —
     `grep -c 'startswith(b"ERROR:")' src/otampy/cli.py` goes from `2` to `1`).
 
-- [ ] **2. Fix the `--recover` timeout tests before touching the code (F-13)**
+- [x] **2. Fix the `--recover` timeout tests before touching the code (F-13)**
   - What changes: `tests/test_cli.py` only. Three tests set
     `OTAMPY_RECOVERY_WAIT=0`, which `_coerce_config_value` (`cli.py:369-372`)
     rejects outright — they assert on an error message that is the _validation_

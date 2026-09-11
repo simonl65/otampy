@@ -3051,7 +3051,7 @@ def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
 ):
     from otampy.cli import _recover_query
 
-    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
     monkeypatch.setattr(
         "otampy.cli._query",
         mock.Mock(side_effect=click.ClickException("Timeout")),
@@ -3061,7 +3061,10 @@ def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
     with pytest.raises(click.ClickException) as excinfo:
         _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
 
-    assert "recovery-wait" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "No recovery window answered" in message
+    assert "ROLLBACK" in message
+    assert "recovery-wait" in message
 
 
 def test_recover_query_lets_a_device_error_through(monkeypatch):
@@ -3116,16 +3119,17 @@ def test_recover_query_restores_handshake_timing_even_on_timeout(monkeypatch):
     from otampy.cli import _recover_query
 
     original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
-    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
     monkeypatch.setattr(
         "otampy.cli._query",
         mock.Mock(side_effect=click.ClickException("Timeout")),
     )
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
-    with pytest.raises(click.ClickException):
+    with pytest.raises(click.ClickException) as excinfo:
         _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
 
+    assert "No recovery window answered" in str(excinfo.value)
     assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
 
 
@@ -3318,7 +3322,10 @@ def test_rollback_recover_confirm_no_sends_nothing_and_no_prompt():
 
 
 def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
-    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0")
+    """F-13: the wait must be a *positive* tiny value. `0` is rejected by
+    _coerce_config_value before the command runs, so the test would pass on
+    the validation error and never reach the retry loop it names."""
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
     runner = CliRunner()
     with (
         mock.patch("serial.Serial"),
@@ -3331,6 +3338,8 @@ def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
         )
 
     assert result.exit_code != 0
+    assert "No recovery window answered" in result.output
+    assert "ROLLBACK" in result.output
     assert "recovery-wait" in result.output
 
 

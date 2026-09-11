@@ -95,7 +95,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-13 — `test_rollback_recover_times_out_with_recovery_wait_message` passes on a validation error and never reaches the path it names
 
 - **Severity:** P2
-- **Status:** open
+- **Status:** fixed — awaiting re-review
 - **Area:** `tests/test_cli.py`
 - **Found:** 2026-09-10, while writing the F-11 tests — the same `"0"` trick
   failed for me with `post-commit-ready-timeout must be greater than 0.`,
@@ -112,11 +112,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   is in F-10's blast radius: the operator-facing message on a failed radio
   recovery is exactly what a stranded-device session depends on. A regression
   there would ship green.
-- **Resolution:** _(not yet fixed — needs a positive-but-tiny wait, e.g.
-  `0.001`, as the F-11 tests now use, plus an assertion on the actual
-  timeout wording rather than the bare key name. Check the sibling
-  `--recover` tests for the same pattern while there.)_
-- **Closed:** _(pending)_
+- **Resolution:** 2026-09-11, step 2 of
+  `failsafe-update-recovery-handshake-spec.md`. All three affected tests
+  (`test_rollback_recover_times_out_with_recovery_wait_message`,
+  `test_recover_query_raises_naming_recovery_wait_when_nothing_answers`,
+  `test_recover_query_restores_handshake_timing_even_on_timeout`) now use
+  `OTAMPY_RECOVERY_WAIT=0.001` and assert on `No recovery window answered`
+  plus the command name, not the bare key. Proven by sabotage: with
+  `_recover_query`'s timeout message replaced, the old tests were `3 passed`
+  and the new ones `3 failed`; reverted, `152 passed`. Both outputs are in
+  `failsafe-update-recovery-handshake-log.md` step 2.
+- **Closed:** _(pending re-review)_
 
 ---
 

@@ -28,6 +28,25 @@ def _get_config(config, name, default=None):
     return getattr(config, name, default)
 
 
+def _call_heartbeat(heartbeat):
+    """Call a caller's optional heartbeat. Never raises.
+
+    Lives here rather than in ``manager`` because ``boot`` needs it too --
+    both the recovery window and the update loop feed it, and neither may
+    import ``manager`` (F-12). ``manager`` imports it from here; there is
+    deliberately only one copy.
+    """
+    if heartbeat is None:
+        return
+    try:
+        heartbeat()
+    except Exception:
+        # A caller's heartbeat (e.g. feeding a hardware watchdog) must
+        # never be able to abort an in-progress transfer -- the transfer
+        # itself already has its own error handling.
+        pass
+
+
 def _resolve_path(path):
     """Absolutise a configured path. Shared by ``boot`` and ``restore``.
 

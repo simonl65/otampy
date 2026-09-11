@@ -6,6 +6,7 @@ except ImportError:
 from .core import (
     _boot_mark_path,
     _boot_recovery_window_ms,
+    _call_heartbeat,
     _config_int,
     _get_config,
     _resolve_path,
@@ -400,7 +401,7 @@ def _persist_replay_floor(core):
     persist_replay_floor(core)
 
 
-def _run_boot_listen(core, window_ms):
+def _run_boot_listen(core, window_ms, heartbeat=None):
     """The boot-time recovery window. Never raises.
 
     Listens silently for ``window_ms`` and serves exactly two commands,
@@ -417,6 +418,11 @@ def _run_boot_listen(core, window_ms):
     is never extended by activity, unlike ``_run_default_update_loop``'s
     inactivity timeout, so a chatty peer cannot pin a device in here.
 
+    ``heartbeat``, if given, is called once per loop iteration -- every path
+    round, not just the idle one, since a chatty peer's refusals skip the
+    idle sleep entirely (F-12). It is never allowed to raise out of the
+    window, consistent with the rest of this function.
+
     Deliberately does not answer ``PING``. A device in the window is not
     running its application, and a ``PONG`` would report it healthy -- the
     absence of one is the signal that recovery is needed.
@@ -430,6 +436,11 @@ def _run_boot_listen(core, window_ms):
     started = _ticks_ms()
 
     while _ticks_diff(_ticks_ms(), started) < window_ms:
+        # Top of the body, before read(): only one of this loop's five paths
+        # round reaches the idle sleep below. Feeding there would leave a
+        # peer streaming refused or malformed packets spinning the whole
+        # window with no feed at all (F-12).
+        _call_heartbeat(heartbeat)
         packet = read()
         if not packet:
             _sleep_ms(_BOOT_LISTEN_POLL_MS)

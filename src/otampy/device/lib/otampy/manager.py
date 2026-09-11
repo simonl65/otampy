@@ -7,7 +7,7 @@ except ImportError:
 
 from urst import constants as _urst_constants  # type: ignore
 
-from .core import _get_config
+from .core import _call_heartbeat, _get_config
 
 _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
@@ -74,18 +74,6 @@ def _stage_rtc_update(core, parts):
         core.transport.reply(b"RTC_STAGE_ERR")
         return
     core.transport.reply(b"RTC_STAGE_OK")
-
-
-def _call_heartbeat(heartbeat):
-    if heartbeat is None:
-        return
-    try:
-        heartbeat()
-    except Exception:
-        # A caller's heartbeat (e.g. feeding a hardware watchdog) must
-        # never be able to abort an in-progress transfer -- the transfer
-        # itself already has its own error handling below.
-        pass
 
 
 def _send_response(transport, total_size, parts, heartbeat=None):

@@ -1015,6 +1015,99 @@ def test_boot_listen_rejects_replayed_counter(monkeypatch, tmp_path):
 
 
 # =============================================================================
+# Feeding a caller-supplied watchdog inside the window (F-12)
+#
+# The window's measured span is 8899-9570ms on hardware, past the RP2040's
+# ~8388ms watchdog cap, and nothing used to feed a watchdog inside it. The
+# `heartbeat` callable is the same contract manager.poll() already offers.
+# =============================================================================
+
+
+class _Feeds:
+    """A zero-argument heartbeat that counts its calls.
+
+    Deliberately not `list.append`: the contract is a *zero-argument*
+    callable, and `_call_heartbeat` swallows every exception -- so a
+    recorder that needs an argument raises on each call, gets swallowed,
+    and silently records nothing while the test still passes its other
+    assertions.
+    """
+
+    def __init__(self):
+        self.count = 0
+
+    def __call__(self):
+        self.count += 1
+
+
+def test_boot_listen_calls_heartbeat_on_each_idle_tick(monkeypatch, tmp_path):
+    """The idle path -- read() -> sleep -> continue -- must feed the watchdog.
+
+    This is F-12's own scenario: a window nobody is talking to still has to
+    keep a watchdog armed before boot() alive for its whole span.
+    """
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    feeds = _Feeds()
+
+    assert boot._run_boot_listen(core, WINDOW_MS, feeds) is False
+
+    # 1000ms window / 10ms per tick -> one feed per iteration, ~100 of them.
+    assert 80 < feeds.count < 120
+
+
+def test_boot_listen_feeds_heartbeat_while_refusing_a_chatty_peer(
+    monkeypatch, tmp_path
+):
+    """Every path round the loop feeds, not just the idle one.
+
+    Four of the loop's five paths -- empty-after-strip, non-UTF-8, failed
+    auth and the refusal fall-through -- skip the idle sleep entirely. A peer
+    streaming refused or malformed packets would spin the whole window with
+    zero feeds if the call sat in the idle branch, which is F-12's reset with
+    a chatty peer instead of a silent one. This test fails under that
+    placement and is the reason the call sits at the top of the body.
+    """
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    # Long enough that the queue never empties: no iteration takes the idle
+    # path, so every feed counted here came from a non-idle path.
+    core.transport.incoming_queue.extend([b"PING", b"\xff\xfe"] * 500)
+    feeds = _Feeds()
+
+    assert boot._run_boot_listen(core, WINDOW_MS, feeds) is False
+
+    assert core.transport.sent_messages, "expected the refusals to be served"
+    assert 80 < feeds.count < 120
+
+
+def test_boot_listen_heartbeat_exceptions_do_not_abort_the_window(
+    monkeypatch, tmp_path
+):
+    """A raising heartbeat must never take the recovery window down with it."""
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+
+    def _explode():
+        raise RuntimeError("watchdog gone")
+
+    assert boot._run_boot_listen(core, WINDOW_MS, _explode) is False
+
+    machine.reset.assert_not_called()
+
+
+def test_boot_listen_heartbeat_is_optional(monkeypatch, tmp_path):
+    """Omitting it leaves the window behaving exactly as before."""
+    core = _window_core(tmp_path)
+    _fake_clock(monkeypatch)
+    core.transport.incoming_queue.append(b"PING")
+
+    assert boot._run_boot_listen(core, WINDOW_MS) is False
+
+    assert core.transport.sent_messages == [b"ERROR:Recovery window"]
+
+
+# =============================================================================
 # The window's wiring into boot.run()
 #
 # Ordering is the whole risk here: the window must open only on a healed

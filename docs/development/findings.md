@@ -159,7 +159,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-16 — `upd --recover` makes the operator wait ~25 s before telling them to power-cycle
 
 - **Severity:** P3
-- **Status:** fixed — awaiting re-review
+- **Status:** closed — 2026-09-11, `/sl-findings review`
 - **Area:** `src/otampy/cli.py`, the `upd --recover` path ahead of
   `_recover_query`
 - **Found:** 2026-09-11, HIL 2 of the recovery-handshake spec.
@@ -187,7 +187,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   (`tests/test_cli.py`) asserts `_device_has_bytecode` is never called when
   `--recover` is passed; sabotage-confirmed (removing the guard turns it
   red). `python3 .agents/scripts/pre_flight_check.py` passes.
-- **Closed:** _(pending -- fix not yet re-reviewed)_
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-read
+  `cli.py:2453` as it stands: `not bytecode and not recover and
+  _device_has_bytecode(ctx)` -- the guard is exactly as claimed, not just as
+  described. Ran the pinning test plus its two neighbours
+  (`test_upd_recover_completes_a_full_session_when_a_window_lands`,
+  `test_upd_without_recover_prints_no_power_cycle_prompt`) together: all
+  pass, so a landed `--recover` session still completes and plain `upd`
+  still shows no power-cycle prompt -- the guard did not regress either
+  path. Sabotage-confirmed independently (forcing the condition to ignore
+  `recover`): only the new test goes red, the other 26
+  `recover`-adjacent tests stay green. No new defect introduced.
 
 ---
 

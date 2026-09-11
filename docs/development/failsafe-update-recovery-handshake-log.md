@@ -428,3 +428,96 @@ line anywhere did not miss the window — the device never woke inside the poll
 at all. That single line cleanly separates "operator/coordination problem" from
 "the mechanism missed", and it is the check that should have been applied to
 the 2026-09-10 session before its conclusions were drawn.
+
+### HIL 2 — PASSED (update a stranded device through the window)
+
+`otampy upd --recover src/otampy/device/examples/main.py:main.py` against a
+device stranded by the fatal `main.py`, one power cycle, poll-first protocol.
+Timestamps are seconds into the command:
+
+```
+   0.13s  Handshake attempt 1        <- normal-path pre-flight, 2.0s/attempt
+  25.21s  Power-cycle the device now...   <- recovery poll begins, 1.06s cadence
+  69.08s  Device is READY. Handshake complete.
+  69.08s  Sending manifest (2 files, 4067 bytes)...
+  73.79s  Update completed successfully! Device is rebooting.
+  88.93s  Candidate confirmed.
+```
+
+`Device is READY. Handshake complete.` is the evidence the spec asked for: the
+window's `UPDATE_REQUEST` → flag → reset path fed a **normal** update session.
+Afterwards, over the radio: `ping` → `PONG`, `state` → confirmed stable, and
+`ls /` shows `main.py.bck` and `otampy-update.journal` present — correct after
+a *confirmed* update, since that retains the previous generation, unlike a
+rollback which consumes it.
+
+Confirmed device-side in `/ota.log.1`:
+`10190 [INFO] [boot.py] Recovery window: update requested; resetting`.
+
+**Noted for follow-up:** `upd --recover` spends ~25 s failing on the normal
+path (3 × 4 handshake attempts at the 2.0 s serial timeout) *before* printing
+the power-cycle prompt. `rollback --recover` starts polling at 0.1 s. An
+operator with a stranded device stares at handshake warnings for 25 s before
+being told what to do.
+
+### HIL 4, first half — the marker is present while stranded: EVIDENCED
+
+On the stranded device, read over USB (legitimate here — a stranded device is
+not polling, so USB is the only truth):
+
+```
+ls :/
+        1008 boot.py
+        3056 configota.py
+           0 lib/
+         339 main.py          <- the fatal fixture
+       10252 ota.log.1
+         248 ota.log
+           1 otampy-boot.mark <- present, so the wide window is selected
+```
+
+No `main.py.bck` and no `otampy-update.journal`, so the wide window was being
+selected off the **marker** alone — the `rollback --recover` case the marker
+exists for, exercised for real.
+
+### The wide window, measured device-side across the whole session
+
+`Checking for update flag-file...` → `<flag> not found` brackets the window
+(the `not found` line is logged at `boot.py:688`, *after* it — an earlier
+reading of mine measured `not found` → `Cleanup started`, which is 17 ms of
+nothing and briefly looked like a regression):
+
+**8980, 8663, 8976, 8977, 8931, 8978, 8927, 8923 ms** — consistent, on every
+boot, including boots caused by `mpremote`'s DTR reset. The 8663 ms entry is
+HIL 2's landing, where the window ended early because it did its job.
+
+### Test 6 (refusal with nothing retained) — UNRESOLVED
+
+Set up accidentally but perfectly: see the test-4 finding below. The device was
+stranded with no retained generation and the marker present.
+
+Two power cycles across a 300 s poll produced **no `URST Connected` line at
+all** — the device never handshook, though `/ota.log.1` shows its windows were
+opening at ~8.9 s throughout. Not explained. It is *not* attributable to the
+host fix, which landed 4 for 4 in HIL 1 and 2 under the same protocol.
+
+I then compounded it: chasing the silence, I ran several `mpremote ... resume
+fs ls` / `fs cat` reads. **`resume` avoids the DTR reset but still enters raw
+REPL, which stops the running program** — so the board sat parked, `poll()` was
+never reached, `otampy-boot.mark` stayed uncleared, and every subsequent radio
+ping failed. I spent several rounds diagnosing a dead radio that I had caused.
+A genuine power cycle with hands off USB brought it straight back: `PONG`,
+confirmed stable, clean tree. **The rule is not "avoid `mpremote` reset"; it is
+"avoid `mpremote`, full stop, on a device you still need to observe."**
+
+Test 6 should be retried on a rig session that has not been polluted by USB
+before any conclusion is drawn about it.
+
+### Not attempted
+
+- Test 5 (the window is not an auth bypass) — needs `OTA_REQUIRE_AUTH` set on
+  the device plus a redeploy and further cycles. **This is the one outstanding
+  test that matters most**, because a held-open poll now hammers an
+  auth-enforcing window for up to `recovery-wait`, a longer exposure than
+  anything previously tested.
+- Regression: the healthy-boot cost A/B (HIL 3). Untouched by this spec.

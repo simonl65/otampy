@@ -9,10 +9,81 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-17 — `--recover` against a *healthy* device silently bypasses the window and rolls back the running application
+
+- **Severity:** P2
+- **Status:** open
+- **Area:** `src/otampy/cli.py` `_recover_query` (the poll has no way to tell a
+  window from a running application); the `--recover` help text on both
+  `rollback` and `upd`; `docs/protocol.md` §2.4; and
+  `failsafe-update-boot-listen-spec.md` Verification test 4, which is built on
+  the false premise.
+- **Found:** 2026-09-11, HIL run of `failsafe-update-recovery-handshake-spec.md`
+  step 7, while attempting that test 4.
+- **Evidence:** the flag is documented as landing the command "in the
+  boot-time recovery window **instead of** the running application". It does
+  not. `_recover_query` handshakes and sends; a healthy device's
+  `manager.poll` completes the handshake and serves `ROLLBACK` identically, so
+  `--recover` on a healthy device performs an ordinary rollback immediately.
+  Observed directly: `otampy rollback --recover` was run on a healthy device
+  with no power cycle, expecting the recovery-wait timeout test 4 predicts.
+  Instead it rolled the device back on the spot — onto the retained generation,
+  which in that session was a deliberately fatal `main.py`, stranding the
+  device and consuming the `.bck`.
+- **Impact:** Two parts. (1) **Documentation is wrong**, and an operator who
+  reaches for `--recover` on a device that turns out to be alive gets an
+  immediate irreversible rollback rather than the "wait for a window" they were
+  promised — with only one generation retained, that is one-shot. (2)
+  **Verification test 4 of `failsafe-update-boot-listen-spec.md` cannot pass as
+  written** and should be rewritten; its stated evidence ("it times out with
+  the recovery-wait message and `ping` still answers `PONG`") is unreachable on
+  any device that has something to roll back to. F-10's own methodology note
+  already says a healthy device answers `ROLLBACK` identically — the test
+  contradicts it.
+- **Resolution:** _(not yet fixed. Options, cheapest first: (a) correct the
+  help text and §2.4 to say `--recover` polls until *something* answers,
+  window or application, and rewrite test 4; (b) have the CLI probe with
+  `PING` first and refuse `--recover` on a device that answers `PONG`, telling
+  the operator to use plain `rollback`; (c) have the window reply with a
+  distinguishing token so the host can tell which side answered. (b) is the
+  one that matches what the flag currently promises, but it costs a round trip
+  and needs its own sign-off. Note that (c) is a wire-format change and is
+  excluded by this spec's protocol decision.)_
+- **Closed:** _(pending)_
+
+---
+
+### F-16 — `upd --recover` makes the operator wait ~25 s before telling them to power-cycle
+
+- **Severity:** P3
+- **Status:** open
+- **Area:** `src/otampy/cli.py`, the `upd --recover` path ahead of
+  `_recover_query`
+- **Found:** 2026-09-11, HIL 2 of the recovery-handshake spec.
+- **Evidence:** timestamped from the real command against a stranded device —
+  `0.13s Handshake attempt 1` … `25.21s Power-cycle the device now...`. The
+  first ~25 s is an ordinary normal-path attempt: `query_retries` 3 × 4
+  handshake attempts, each blocking the full 2.0 s `serial_timeout_seconds`.
+  `rollback --recover` has no such pre-flight and starts its poll at 0.1 s.
+- **Impact:** Cosmetic but poorly timed. The operator is standing at a device
+  they believe is bricked, watching `Handshake timeout` warnings scroll for 25
+  seconds with no instruction, on the exact code path whose purpose is to tell
+  them what to do. It also silently eats a quarter of the default 60 s
+  `recovery-wait` budget if the operator has already power-cycled in
+  anticipation.
+- **Resolution:** _(not yet fixed — either print the power-cycle prompt before
+  the pre-flight, or skip the normal-path attempt entirely when `--recover` is
+  given, which is what the flag already means. The latter looks right and is
+  small, but it is a behaviour change on a shipped flag and belongs in its own
+  reviewed step.)_
+- **Closed:** _(pending)_
+
+---
+
 ### F-15 — `--recover`'s fail-fast handshake cannot land in a window that is demonstrably open, so radio recovery still fails
 
 - **Severity:** P1
-- **Status:** fixed — awaiting HIL evidence and re-review
+- **Status:** fixed — **HIL evidence obtained 2026-09-11**, awaiting re-review
 - **Area:** `src/otampy/cli.py` — `_fast_recovery_handshake` (`cli.py:1061`),
   `_RECOVERY_ACK_TIMEOUT_MS`/`_RECOVERY_MAX_RETRIES`/`_RECOVERY_SERIAL_TIMEOUT`
   (`cli.py:1055-1057`), `_query(fast=True)` (`cli.py:1160-1168`),
@@ -58,9 +129,13 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   continues), and an `OSError` mid-poll reopens the port rather than ending
   the attempt. Covered by 10 tests in `tests/test_cli.py`, including the
   `_RECOVERY_SERIAL_TIMEOUT <= ACK_TIMEOUT_MS / 1000` invariant asserted
-  directly. **Host-side only so far — no hardware evidence yet.** This finding
-  cannot close until step 7's HIL run lands a command in a real window on the
-  shipped default config, repeatably.
+  directly. **Proven on hardware 2026-09-11**: three consecutive first-cycle
+  recoveries of a genuinely stranded device (HIL 1), plus a full update driven
+  through the window (HIL 2). The command landed 1.1 s / 2.2 s / 3.2 s after
+  the device's radio woke — every time within a single `connect()` call —
+  against the fail-fast profile's 0 landings in 60 s. Cadence measured on the
+  real link at one CONNECT per 1.06 s with the port opened once. Full evidence
+  in `failsafe-update-recovery-handshake-log.md` step 7.
 - **Closed:** _(pending HIL evidence and re-review)_
 
 ---
@@ -292,8 +367,8 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
 
 - **Severity:** P1
-- **Status:** fixed — awaiting HIL evidence and re-review. **Both halves are
-  now built.** Device half: the two-tier wide window
+- **Status:** fixed — **HIL evidence obtained 2026-09-11**, awaiting
+  re-review. **Both halves are now built and both are now proven.** Device half: the two-tier wide window
   (`failsafe-update-window-reachability-spec.md`), proven on hardware at
   9006 / 9017 / 8977 ms. Host half: the held-open-port handshake poll
   (`failsafe-update-recovery-handshake-spec.md` step 3, F-15), host-side only

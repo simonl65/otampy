@@ -294,7 +294,19 @@ as removing the short window from the one boot most likely to need it.
   - Done when: §2.4 describes the poll accurately enough that F-15's failure
     mode could not be reintroduced by someone following the doc.
 
-- [ ] **7. HIL verification and finding closure**
+- [x] **7. HIL verification and finding closure**
+  - **Done 2026-09-11 against the stated bar, with two tests outstanding.**
+    HIL 1 passed three first-cycle recoveries, HIL 2 passed, HIL 4's first half
+    is evidenced. **Still outstanding: test 5 (the window is not an auth
+    bypass), which matters most of the remainder, and test 6 (refusal with
+    nothing retained), which ran inconclusively.** Two new findings were filed:
+    **F-17** (`--recover` on a healthy device bypasses the window and rolls
+    back immediately — which also makes this spec's parent test 4 unpassable as
+    written) and **F-16** (`upd --recover` waits ~25 s before prompting).
+    Also: the Verification text below says `otampy upd --no-confirm main.py`,
+    which does **not** strand the device — `upd` preserves the project-relative
+    path on the device. The `source:target` form is required:
+    `otampy upd --no-confirm src/otampy/device/examples/main.py:main.py`.
   - What changes: no code. Re-runs the outstanding hardware tests of
     `failsafe-update-window-reachability-spec.md` step 5 — see _Verification_.
   - Test: none — hardware evidence, recorded in this spec's dev log **and**

@@ -292,11 +292,16 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
 
 - **Severity:** P1
-- **Status:** open — **root-caused 2026-09-10, fix not yet designed.** The
-  original title/diagnosis (host blind-retry cadence) was wrong; the cadence
-  fix was necessary housekeeping but never the binding constraint. See
-  "Root cause established 2026-09-10" below. The fix is a spec-level decision
-  (it falsifies Protocol decision D2), not a patch.
+- **Status:** fixed — awaiting HIL evidence and re-review. **Both halves are
+  now built.** Device half: the two-tier wide window
+  (`failsafe-update-window-reachability-spec.md`), proven on hardware at
+  9006 / 9017 / 8977 ms. Host half: the held-open-port handshake poll
+  (`failsafe-update-recovery-handshake-spec.md` step 3, F-15), host-side only
+  so far. Closure needs a stranded device recovered over the radio at the
+  **shipped default config**, on one power cycle, three times running — see
+  that spec's HIL 1. The original title/diagnosis (host blind-retry cadence)
+  was wrong; the cadence fix was necessary housekeeping but never the binding
+  constraint. See "Root cause established 2026-09-10" below.
 - **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
   URST-handshake path it drives); interacts with
   `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,

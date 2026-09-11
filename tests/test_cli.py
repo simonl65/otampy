@@ -1477,6 +1477,7 @@ def test_update_can_remove_shadowing_bytecode_after_declining_bytecode(
         ["configota.mpy"],
         progress=True,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -1529,6 +1530,7 @@ def test_update_keeps_startup_helper_when_its_cleanup_is_declined(monkeypatch):
         [],
         progress=True,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -1554,6 +1556,7 @@ def test_update_passes_no_progress_through_to_the_transfer(monkeypatch):
         [],
         progress=False,
         no_confirm=False,
+        recover=False,
     )
 
 
@@ -2946,3 +2949,680 @@ def test_cli_rollback_warns_when_device_never_answers(monkeypatch):
 
     assert result.exit_code != 0
     assert "did not answer PING" in result.output
+
+
+# =============================================================================
+# _interpret_reply / _outgoing_bytes -- the two halves of one _query attempt
+# =============================================================================
+
+
+def test_interpret_reply_raises_device_error_on_an_error_reply():
+    """`ERROR:<msg>` is the device answering with a refusal, not a
+    transport failure -- it must surface as DeviceError carrying the
+    command, so callers can stop retrying and print a friendly message."""
+    from otampy.cli import _interpret_reply
+
+    with pytest.raises(DeviceError) as excinfo:
+        _interpret_reply(b"ERROR:Unauthenticated", b"ROLLBACK", b"ROLLBACK_")
+
+    assert excinfo.value.error_msg == "Unauthenticated"
+    assert excinfo.value.command == b"ROLLBACK"
+
+
+def test_interpret_reply_returns_empty_payload_for_an_exact_prefix():
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"PONG", b"PING", b"PONG") == b""
+
+
+def test_interpret_reply_strips_the_colon_separator():
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"LS:main.py", b"LS /", b"LS") == b"main.py"
+
+
+def test_interpret_reply_strips_a_bare_prefix_with_no_colon():
+    """Not every device reply uses the colon form, so the separator is
+    optional and only consumed when it is actually there."""
+    from otampy.cli import _interpret_reply
+
+    assert _interpret_reply(b"ROLLBACK_OK", b"ROLLBACK", b"ROLLBACK_") == b"OK"
+
+
+def test_interpret_reply_raises_click_exception_on_a_mismatched_prefix():
+    from otampy.cli import _interpret_reply
+
+    with pytest.raises(click.ClickException) as excinfo:
+        _interpret_reply(b"PONG", b"LS /", b"LS")
+
+    message = str(excinfo.value)
+    assert "LS /" in message
+    assert "PONG" in message
+
+
+def test_outgoing_bytes_is_the_bare_command_when_signing_is_off():
+    from otampy.cli import _outgoing_bytes
+
+    assert _outgoing_bytes(b"PING", None) == b"PING"
+
+
+def test_outgoing_bytes_wraps_the_command_when_a_signer_is_configured():
+    """Called once per send attempt, never hoisted: each retry must carry a
+    fresh counter or it would look like a replay."""
+    from otampy.cli import _outgoing_bytes
+
+    signer = mock.Mock()
+    signer.wrap.side_effect = [b"SIGNED1:PING", b"SIGNED2:PING"]
+
+    assert _outgoing_bytes(b"PING", signer) == b"SIGNED1:PING"
+    assert _outgoing_bytes(b"PING", signer) == b"SIGNED2:PING"
+
+
+# =============================================================================
+# _recover_query -- the boot-window handshake poll (docs/protocol.md 2.4)
+#
+# F-15: the poll holds ONE port open for its whole duration and retries
+# protocol.connect() on it at stock URST timings. It does not reopen the
+# port per cycle, and it does not mutate urst.constants.
+# =============================================================================
+
+
+def _recovery_transport(connect, reply=b"", send=True):
+    """A stand-in URST transport for the recovery poll.
+
+    ``connect`` is the side_effect for ``protocol.connect()`` -- a list of
+    False/True models a window that is shut until it isn't. ``reply`` is what
+    ``read()`` hands back; ``b""`` is the window shutting mid-exchange.
+    """
+    transport = mock.Mock()
+    transport.protocol.connect.side_effect = connect
+    transport.protocol.is_connected = True
+    transport.send.return_value = send
+    transport.read.return_value = reply
+    # _read_full_reply compares this with `is True`, so a bare Mock would
+    # spin; pin it False.
+    transport.reassembly_in_progress = False
+    return transport
+
+
+def test_recover_query_opens_the_port_once_and_holds_it(monkeypatch):
+    """F-15: reopening per cycle toggled DTR/RTS on the FTDI->XBee roughly
+    once a second, at exactly the moment a freshly-booted device needs the
+    link quietest. One open, many handshakes on it."""
+    from otampy.cli import _recover_query
+
+    transport = _recovery_transport(
+        connect=[False] * 5 + [True], reply=b"ROLLBACK_OK"
+    )
+    ser = mock.Mock()
+    opens = mock.Mock(return_value=(ser, transport))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert payload == b"OK"
+    assert opens.call_count == 1
+    assert transport.protocol.connect.call_count == 6
+    ser.close.assert_called_once()
+
+
+def test_recover_query_opens_with_the_recovery_serial_timeout(monkeypatch):
+    from otampy.cli import _RECOVERY_SERIAL_TIMEOUT, _recover_query
+
+    transport = _recovery_transport(connect=[True], reply=b"ROLLBACK_OK")
+    opens = mock.Mock(return_value=(mock.Mock(), transport))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert opens.call_args.kwargs["serial_timeout"] == _RECOVERY_SERIAL_TIMEOUT
+
+
+def test_recovery_serial_timeout_stays_inside_the_ack_deadline():
+    """The invariant, asserted rather than merely documented.
+
+    read_frame() blocks for the *pyserial* timeout on each iteration against
+    a silent port, so a serial timeout larger than ACK_TIMEOUT_MS makes the
+    ACK deadline unenforceable and each handshake attempt takes as long as
+    the serial timeout instead. Changing either number without the other
+    silently un-does F-15's fix.
+    """
+    from urst import constants as c
+
+    from otampy.cli import _RECOVERY_SERIAL_TIMEOUT
+
+    assert _RECOVERY_SERIAL_TIMEOUT <= c.ACK_TIMEOUT_MS / 1000
+
+
+def test_recover_query_does_not_mutate_urst_constants(monkeypatch):
+    """The old poll shrank ACK_TIMEOUT_MS/MAX_RETRIES globally and restored
+    them afterwards. The poll now runs at stock timings, so a concurrent
+    reader of urst.constants sees the same values throughout."""
+    from urst import constants as c
+
+    from otampy.cli import _recover_query
+
+    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+    observed = {}
+
+    def connect():
+        observed["during"] = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+        return True
+
+    transport = _recovery_transport(connect=connect, reply=b"ROLLBACK_OK")
+    monkeypatch.setattr(
+        "otampy.cli._open_transport",
+        mock.Mock(return_value=(mock.Mock(), transport)),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert observed["during"] == original
+    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+
+
+def test_recover_query_no_longer_has_a_fast_handshake():
+    """The fail-fast profile and its plumbing are gone, not merely unused."""
+    import otampy.cli as cli_mod
+
+    assert not hasattr(cli_mod, "_fast_recovery_handshake")
+    assert not hasattr(cli_mod, "_RECOVERY_ACK_TIMEOUT_MS")
+    assert not hasattr(cli_mod, "_RECOVERY_MAX_RETRIES")
+
+
+def test_recover_query_retries_when_the_window_shuts_mid_exchange(monkeypatch):
+    """A handshake can complete just as the window closes. The reply then
+    never arrives -- that is a miss, not a failure, so the poll clears the
+    half-open session and tries again rather than raising."""
+    from otampy.cli import _recover_query
+
+    transport = _recovery_transport(connect=[True, True])
+    transport.read.side_effect = [b"", b"ROLLBACK_OK"]
+
+    signer = mock.Mock()
+    signer.wrap.side_effect = [b"SIGNED1", b"SIGNED2"]
+    monkeypatch.setattr("otampy.cli._command_signer", lambda: signer)
+    monkeypatch.setattr(
+        "otampy.cli._open_transport",
+        mock.Mock(return_value=(mock.Mock(), transport)),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert payload == b"OK"
+    assert transport.protocol.connect.call_count == 2
+    # The half-open session is forgotten, or the second attempt would send
+    # into a device that is no longer listening.
+    assert transport.protocol.is_connected is False
+    transport.protocol._recv_queue.clear.assert_called()
+    # Each send re-wraps: a retry carrying a stale counter looks like a replay.
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    assert sent == [b"SIGNED1", b"SIGNED2"]
+
+
+def test_recover_query_reopens_the_port_after_a_serial_error(monkeypatch):
+    """Two OSError [Errno 5] events hit the HIL host during the 2026-09-10
+    run. Reopening per cycle absorbed those implicitly; a held-open port has
+    to do it explicitly or one glitch ends the whole poll."""
+    import serial
+
+    from otampy.cli import _recover_query
+
+    dead = _recovery_transport(
+        connect=serial.SerialException(
+            "device reports readiness but returned no data"
+        )
+    )
+    good = _recovery_transport(connect=[True], reply=b"ROLLBACK_OK")
+    ser_dead, ser_good = mock.Mock(), mock.Mock()
+    opens = mock.Mock(side_effect=[(ser_dead, dead), (ser_good, good)])
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert payload == b"OK"
+    assert opens.call_count == 2
+    ser_dead.close.assert_called()
+    ser_good.close.assert_called()
+
+
+def test_recover_query_lets_a_device_error_through(monkeypatch):
+    """A DeviceError means the device *answered* -- stop polling. This is
+    the auth-rejection and 'nothing to roll back' path."""
+    from otampy.cli import _recover_query
+
+    transport = _recovery_transport(
+        connect=[True], reply=b"ERROR:Unauthenticated"
+    )
+    ser = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._open_transport", mock.Mock(return_value=(ser, transport))
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(DeviceError) as excinfo:
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert excinfo.value.error_msg == "Unauthenticated"
+    ser.close.assert_called_once()
+
+
+def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
+    monkeypatch,
+):
+    from otampy.cli import _recover_query
+
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
+    transport = _recovery_transport(connect=lambda: False)
+    ser = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._open_transport", mock.Mock(return_value=(ser, transport))
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(click.ClickException) as excinfo:
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    message = str(excinfo.value)
+    assert "No recovery window answered" in message
+    assert "ROLLBACK" in message
+    assert "recovery-wait" in message
+    ser.close.assert_called_once()
+
+
+def test_recover_prompt_describes_the_cadence_it_actually_uses(monkeypatch):
+    """The operator waiting with a finger on the power switch is told what
+    the host is doing. After F-15 that is ~1 handshake/s on a held-open port,
+    not a sub-second blind retry, and the port is exclusive for the duration.
+    """
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = None
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    # Rich wraps at the terminal width, so compare on flattened whitespace.
+    flat = " ".join(result.output.split())
+    assert "Power-cycle the device now" in flat
+    assert "about once a second" in flat
+    assert "needs the port to itself" in flat
+    assert "several times a second" not in flat
+
+
+def test_query_uses_the_default_serial_timeout(monkeypatch):
+    """_query has no recovery-specific mode any more: it always opens at the
+    configured serial_timeout_seconds."""
+    from otampy.cli import _query
+
+    opens = mock.Mock(side_effect=click.ClickException("no device"))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    with pytest.raises(click.ClickException):
+        _query(ctx, b"PING", b"PONG")
+
+    for call in opens.call_args_list:
+        assert call.kwargs.get("serial_timeout") is None
+
+
+def test_config_cmd_show_lists_recovery_wait(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "recovery-wait" in result.output
+    assert "60" in result.output
+
+
+# =============================================================================
+# --recover: upd / rollback through the boot-time recovery window
+# =============================================================================
+
+
+def test_upd_recover_completes_a_full_session_when_a_window_lands(monkeypatch):
+    """--recover blind-retries UPDATE_REQUEST until a window answers, then the
+    normal READY -> COMMIT_OK -> CONFIRM session runs unchanged."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        inst = mock_device.return_value
+        inst.read.side_effect = [
+            None,  # first recovery attempt misses the window
+            b"REBOOTING",  # second attempt lands
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--recover"])
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" in result.output
+    assert "Device is READY. Handshake complete." in result.output
+    inst.send.assert_any_call(b"UPDATE_REQUEST")
+
+
+def test_upd_without_recover_prints_no_power_cycle_prompt():
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode", return_value=False),
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd"])
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" not in result.output
+
+
+def test_upd_recover_skips_the_bytecode_shadow_preflight(monkeypatch):
+    """F-16: the bytecode-shadow LS probe assumes the device answers the
+    normal path -- against a device --recover is for, that costs a full
+    ~25s retry budget before falling through to the recover-aware poll
+    anyway. --recover must skip it outright, not merely tolerate it
+    failing."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode") as mock_has_bytecode,
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--recover"])
+
+    assert result.exit_code == 0, result.output
+    mock_has_bytecode.assert_not_called()
+
+
+def test_rollback_recover_confirm_yes_succeeds(monkeypatch):
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        # Leading `None`: the F-17 alive-probe's PING misses (device really
+        # is stranded), so it falls through to the recovery poll unchanged.
+        mock_device.return_value.read.side_effect = [
+            None,
+            b"ROLLBACK_OK",
+            b"PONG",
+        ]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Power-cycle the device now" in result.output
+    mock_device.return_value.send.assert_any_call(b"ROLLBACK")
+
+
+def test_rollback_recover_confirm_no_sends_nothing_and_no_prompt():
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+    ):
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="n\n"
+        )
+
+    assert result.exit_code == 0
+    assert "Aborted" in result.output
+    assert "Power-cycle the device now" not in result.output
+    mock_device.return_value.send.assert_not_called()
+
+
+def test_rollback_recover_refuses_a_healthy_device(monkeypatch):
+    """F-17: ROLLBACK is served identically by the window and by a running
+    app's manager.poll, so --recover against a healthy device must refuse
+    instead of performing an ordinary, irreversible rollback on the spot."""
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = b"PONG"
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "already running" in result.output
+    assert "Power-cycle the device now" not in result.output
+    mock_device.return_value.send.assert_any_call(b"PING")
+    assert (
+        mock.call(b"ROLLBACK")
+        not in mock_device.return_value.send.call_args_list
+    )
+
+
+def test_rollback_recover_times_out_with_recovery_wait_message(monkeypatch):
+    """F-13: the wait must be a *positive* tiny value. `0` is rejected by
+    _coerce_config_value before the command runs, so the test would pass on
+    the validation error and never reach the retry loop it names."""
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = None
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "No recovery window answered" in result.output
+    assert "ROLLBACK" in result.output
+    assert "recovery-wait" in result.output
+
+
+# =============================================================================
+# F-11: the post-reboot waits need their own timeout
+# =============================================================================
+
+
+def test_config_cmd_show_lists_post_commit_ready_timeout(tmp_path):
+    with (
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
+        mock.patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        mock.patch("os.getppid", return_value=1),
+    ):
+        result = CliRunner().invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "post-commit-ready-timeout" in result.output
+    assert "30" in result.output
+
+
+def test_post_commit_ready_timeout_default_and_env_override(monkeypatch):
+    monkeypatch.delenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", raising=False)
+    assert get_config_value("post_commit_ready_timeout_seconds") == 30.0
+
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "45")
+    assert get_config_value("post_commit_ready_timeout_seconds") == 45.0
+
+
+def test_wait_for_pong_retries_past_the_update_ready_timeout(monkeypatch):
+    """F-11: a post-reboot wait must not be bounded by update-ready-timeout.
+
+    A post-commit boot has journal ``trial`` and so pays the *wide* recovery
+    window, reaching its polling main loop ~11 s after the commit reply. The
+    10 s READY budget is a different measurement entirely and must not cut
+    this wait short.
+    """
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "0")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "30")
+    monkeypatch.setenv("OTAMPY_QUERY_RETRY_BACKOFF", "0.001")
+
+    from otampy.cli import _wait_for_pong
+
+    attempts = []
+
+    def fake_query(ctx, send, expect):
+        attempts.append(send)
+        if len(attempts) < 3:
+            raise DeviceError("device still rebooting")
+        return b"PONG"
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    _wait_for_pong(ctx, "should not be raised")
+
+    assert attempts == [b"PING", b"PING", b"PING"]
+
+
+def test_wait_for_pong_gives_up_on_the_post_commit_timeout(monkeypatch):
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "600")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "0.001")
+    monkeypatch.setenv("OTAMPY_QUERY_RETRY_BACKOFF", "0.001")
+
+    from otampy.cli import _wait_for_pong
+
+    def fake_query(ctx, send, expect):
+        raise DeviceError("device never answered")
+
+    monkeypatch.setattr("otampy.cli._query", fake_query)
+
+    ctx = click.Context(cli)
+    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
+    with pytest.raises(click.ClickException, match="gave up"):
+        _wait_for_pong(ctx, "gave up")
+
+
+def test_rollback_timeout_message_quotes_the_post_commit_timeout(monkeypatch):
+    """The operator-facing wait message must quote the timeout actually used."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    monkeypatch.setenv("OTAMPY_UPDATE_READY_TIMEOUT", "7")
+    monkeypatch.setenv("OTAMPY_POST_COMMIT_READY_TIMEOUT", "0.001")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        # Leading `None`: the F-17 alive-probe's PING misses first.
+        mock_device.return_value.read.side_effect = [None, b"ROLLBACK_OK", None]
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    assert result.exit_code != 0
+    assert "did not answer PING within 0s" in result.output
+    assert "within 7s" not in result.output

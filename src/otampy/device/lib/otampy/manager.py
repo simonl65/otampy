@@ -7,126 +7,25 @@ except ImportError:
 
 from urst import constants as _urst_constants  # type: ignore
 
-from .core import _get_config
+from .core import _call_heartbeat, _get_config
 
 _MAX_FRAGMENT_DATA = _urst_constants.MAX_PAYLOAD_SIZE - 6
 _MAX_RESPONSE_SIZE = _MAX_FRAGMENT_DATA * 255
 _RTC_HELPER_FILE = "_otampy_set_rtc.py"
 
-# Authenticated command envelope: AUTH:<counter>:<hex-mac>:<command>.
-# Off unless OTA_REQUIRE_AUTH is set, so existing deployments are
-# unaffected and the auth modules are never even imported.
-_AUTH_PREFIX = "AUTH"
-_AUTH_FIELDS = 4
-_REPLAY_FLOOR_FILE = "otampy-replay-floor"
-_UNAUTHENTICATED = b"ERROR:Unauthenticated"
-_REPLAYED = b"ERROR:Replayed"
-
-
-def _replay_floor_path(core):
-    return _get_config(core.config, "OTA_REPLAY_FLOOR_FILE", _REPLAY_FLOOR_FILE)
-
-
-def _auth_blocks(core):
-    """Cached HMAC key blocks, or False if no usable key is configured.
-
-    Derived once and kept on `core` -- the same flat-attribute approach
-    filecopy uses for `_copy_state`. Deriving them per command would put
-    two 64-byte allocations on every command.
-    """
-    blocks = getattr(core, "_auth_blocks", None)
-    if blocks is None:
-        from .auth import derive_key_blocks, key_from_hex
-
-        key = key_from_hex(_get_config(core.config, "COMMAND_AUTH_KEY"))
-        if key is None:
-            core.logger.error(
-                "OTA_REQUIRE_AUTH is set but COMMAND_AUTH_KEY is missing or "
-                "malformed (needs 64 hex chars) -- rejecting every command"
-            )
-            blocks = False
-        else:
-            blocks = derive_key_blocks(key)
-        core._auth_blocks = blocks
-    return blocks
-
-
-def _replay_guard(core):
-    guard = getattr(core, "_replay_guard", None)
-    if guard is None:
-        from .replay import ReplayGuard, load_floor
-
-        guard = ReplayGuard(load_floor(_replay_floor_path(core)))
-        core._replay_guard = guard
-    return guard
-
-
-def _authenticate(core, cmd_str):
-    """Unwrap and verify an `AUTH:` envelope.
-
-    Returns the inner command string, or None if the command must be
-    dropped. Never raises: the caller is the application's main loop.
-    """
-    blocks = _auth_blocks(core)
-    if not blocks:
-        core.transport.reply(_UNAUTHENTICATED)
-        return None
-
-    fields = cmd_str.split(":", 3)
-    if (
-        len(fields) != _AUTH_FIELDS
-        or fields[0] != _AUTH_PREFIX
-        or not fields[3]
-    ):
-        core.logger.warning("Rejected a command with no auth envelope")
-        core.transport.reply(_UNAUTHENTICATED)
-        return None
-
-    import binascii
-
-    from .auth import signed_bytes, verify
-
-    try:
-        counter = int(fields[1])
-        mac = binascii.unhexlify(fields[2])
-    except ValueError:
-        core.logger.warning("Rejected a command with a malformed auth envelope")
-        core.transport.reply(_UNAUTHENTICATED)
-        return None
-
-    inner = fields[3]
-    if not verify(blocks, signed_bytes(counter, inner.encode()), mac):
-        core.logger.warning("Rejected a command with a bad MAC")
-        core.transport.reply(_UNAUTHENTICATED)
-        return None
-
-    # Verification must come first. A forged frame that reached the replay
-    # guard could poison last_seen with a huge counter and lock the real
-    # host out until the next reboot.
-    if not _replay_guard(core).accept(counter):
-        core.logger.warning(f"Rejected a replayed command counter: {counter}")
-        core.transport.reply(_REPLAYED)
-        return None
-
-    return inner
-
 
 def _persist_replay_floor(core):
-    """Best-effort: record the replay counter before the board resets.
+    """Record the replay counter before the board resets, if auth is on.
 
-    Only meaningful when auth is on -- no guard exists otherwise. Never
-    raises and never blocks the reset: losing the floor costs precision,
-    not safety, because the host's wall-clock-seeded counter re-floors
-    last_seen on its first command after the reboot.
+    The `_replay_guard` check is here rather than inside `authgate` so a
+    device with auth off never imports that module at all -- the reset
+    paths call this unconditionally.
     """
-    guard = getattr(core, "_replay_guard", None)
-    if guard is None:
+    if getattr(core, "_replay_guard", None) is None:
         return
-    try:
-        if not guard.persist_floor(_replay_floor_path(core)):
-            core.logger.error("Failed to persist the command replay floor")
-    except Exception as e:  # noqa: BLE001 -- the reset must happen regardless
-        core.logger.error(f"Failed to persist the command replay floor: {e}")
+    from .authgate import persist_replay_floor
+
+    persist_replay_floor(core)
 
 
 def _path_allowed(core, path):
@@ -175,18 +74,6 @@ def _stage_rtc_update(core, parts):
         core.transport.reply(b"RTC_STAGE_ERR")
         return
     core.transport.reply(b"RTC_STAGE_OK")
-
-
-def _call_heartbeat(heartbeat):
-    if heartbeat is None:
-        return
-    try:
-        heartbeat()
-    except Exception:
-        # A caller's heartbeat (e.g. feeding a hardware watchdog) must
-        # never be able to abort an in-progress transfer -- the transfer
-        # itself already has its own error handling below.
-        pass
 
 
 def _send_response(transport, total_size, parts, heartbeat=None):
@@ -391,7 +278,9 @@ def poll(core, callback=None, heartbeat=None):
     # what continues below is the unwrapped inner command, so each
     # command's own grammar is untouched.
     if _get_config(core.config, "OTA_REQUIRE_AUTH", False):
-        cmd_str = _authenticate(core, cmd_str)
+        from .authgate import authenticate
+
+        cmd_str = authenticate(core, cmd_str)
         if cmd_str is None:
             return
 
@@ -455,15 +344,11 @@ def poll(core, callback=None, heartbeat=None):
         label, attempt = state(core)
         core.transport.reply(f"STATE_OK:{label}:{attempt}".encode())
     elif cmd == "ROLLBACK":
-        from .restore import _ROLLBACK_BUSY, rollback
+        from .restore import rollback_result
 
-        restored = rollback(core)
-        if restored == _ROLLBACK_BUSY:
-            core.transport.reply(b"ROLLBACK_ERR:Commit in flight")
-        elif restored == 0:
-            core.transport.reply(b"ROLLBACK_ERR:Nothing to roll back")
-        else:
-            core.transport.reply(b"ROLLBACK_OK")
+        reply, restored = rollback_result(core)
+        core.transport.reply(reply)
+        if restored:
             core.logger.info(f"Rollback restored {restored} file(s); resetting")
             _do_callback(core, callback)
             _persist_replay_floor(core)

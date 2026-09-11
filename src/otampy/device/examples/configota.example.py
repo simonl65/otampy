@@ -14,6 +14,34 @@ OTA_TIMEOUT_MS = 5000
 # Boots into an unconfirmed update candidate before the device auto-restores
 # the previous version. `otampy upd` confirms automatically; see docs 2.4.
 OTA_TRIAL_BOOTS = 3
+# Milliseconds `boot.py` listens for a recovery command (`otampy upd --recover`
+# / `otampy rollback --recover`) on a boot that followed a healthy application
+# run. Added to each such boot, ~1 s at the default. `0` disables it.
+OTA_BOOT_LISTEN_MS = 1000
+# The window on a boot that followed one which never reached `ota.poll()`, or
+# that still carries an unconfirmed candidate. A power-cycled XBee takes
+# t+3.6-8.7 s to deliver its first frame, which the ~1 s window above opens and
+# shuts long before -- so this is the tier that makes radio recovery actually
+# work. Only a device that has already failed pays it. `0` disables the wide
+# window and the boot marker below entirely -- an at-risk boot then falls back
+# to `OTA_BOOT_LISTEN_MS`, never to no window at all.
+#
+# If a custom `boot.py` arms a watchdog before `OTA(...).boot()`, pass its
+# feed in as `heartbeat` and this duration stops mattering -- the window and
+# the update loop both feed it while they wait:
+#
+#     wdt = WDT(timeout=8388)
+#     OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+#
+# With no `heartbeat`, nothing feeds the watchdog for the whole window, so
+# keep this under the period: 8000 is just under the RP2040's ~8388 ms cap,
+# though the window's real blocking span measures 8899-9570 ms on hardware,
+# which already exceeds it. Supply the `heartbeat`. See docs/protocol.md 2.4.
+OTA_BOOT_RECOVERY_LISTEN_MS = 8000
+# Marker written once per boot and removed by the first `ota.poll()`. Its
+# presence at boot is what says the previous boot never reached the
+# application. Must be a dedicated scratch path.
+OTA_BOOT_MARK_FILE = "otampy-boot.mark"
 
 # --- Command authentication (optional; see docs/protocol.md 1.2) -------------
 # Unset, the device accepts commands from anything that can reach the UART.

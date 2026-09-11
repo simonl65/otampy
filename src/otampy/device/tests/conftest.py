@@ -53,21 +53,21 @@ class FakeProtocol:
         self.aborted.append((message_id, request_id, reason_code))
 
 
-fake_constants = types.SimpleNamespace(
-    FRAME_FRAG=0x04,
-    MAX_PAYLOAD_SIZE=200,
-)
-
 # mux.py uses the real COBS implementation (it's the thing under test in
 # test_mux.py, which asserts identity against it) -- import it before
 # sys.modules["urst"] gets replaced below, and pin it under the dotted
 # submodule name too so `from urst.codec_layer import ...` resolves
-# deterministically regardless of module collection order.
+# deterministically regardless of module collection order. `constants` is a
+# pure-data module with no I/O -- keep the real one so the double stays
+# faithful (pytest imports this conftest during collection, so the fake
+# `urst` is visible to the `tests/` suite too, which now reads
+# `urst.constants.ACK_TIMEOUT_MS` in cli._fast_recovery_handshake).
 import urst.codec_layer as _real_urst_codec_layer  # noqa: E402
+import urst.constants as _real_urst_constants  # noqa: E402
 
 sys.modules["urst"] = types.SimpleNamespace(  # pyright: ignore[reportArgumentType]
     Urst=FakeUrst,
-    constants=fake_constants,
+    constants=_real_urst_constants,
     codec_layer=_real_urst_codec_layer,
 )
 sys.modules["urst.codec_layer"] = _real_urst_codec_layer

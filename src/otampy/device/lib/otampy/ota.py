@@ -11,10 +11,19 @@ class OTA:
 
     def __init__(self, uart, config=None, logger=None):
         self._core = OTACore(uart, config, logger)
+        # Cleared by the first poll() of this process; see poll().
+        self._boot_mark_cleared = False
 
-    def boot(self, callback=None):
+    def boot(self, callback=None, heartbeat=None):
         """
         Call from boot.py. Checks for any pending updates and applies them.
+
+        `heartbeat`, if given, is called periodically inside the two blocking
+        stretches of a boot -- the recovery window and the update loop.
+        Distinct from `callback`, which is a one-shot hook called once, right
+        before a reboot (RB/UPDATE_REQUEST): `heartbeat` fires zero or more
+        times per `boot()` call and must be safe to call that way (e.g.
+        feeding a hardware watchdog), not "about to reset" cleanup.
         """
         from .boot import run
 
@@ -22,7 +31,7 @@ class OTA:
         # boot-only module after this call. Removing both import references
         # lets GC reclaim its bytecode; a later boot() call can re-import it.
         try:
-            run(self._core, callback)
+            run(self._core, callback, heartbeat=heartbeat)
         finally:
             import gc
             import sys
@@ -31,9 +40,11 @@ class OTA:
             package_name = ota_module_name[: ota_module_name.rfind(".")]
             package = sys.modules.get(package_name)
 
-            # `boot` imports `restore` locally in run(); release both so GC
-            # can reclaim their bytecode -- a later boot() re-imports them.
-            for submodule in ("boot", "restore"):
+            # `boot` imports `restore` locally in run(), and `authgate` too
+            # when the recovery window has auth configured; release all three
+            # so GC can reclaim their bytecode and `main.py` never inherits a
+            # stale copy -- a later boot() re-imports them.
+            for submodule in ("boot", "restore", "authgate"):
                 try:
                     del sys.modules[package_name + "." + submodule]
                 except KeyError:
@@ -41,7 +52,10 @@ class OTA:
                 if package is not None:
                     try:
                         delattr(package, submodule)
-                    except AttributeError:
+                    except (AttributeError, KeyError):
+                        # CPython raises AttributeError for a missing module
+                        # attribute; MicroPython raises KeyError. `authgate`
+                        # is absent on every boot that did not configure auth.
                         pass
 
             del run
@@ -94,7 +108,40 @@ class OTA:
         response's fragment transfer, which can otherwise legitimately take
         far longer than one `poll()` call normally would -- see
         `manager.poll`'s own docstring for how it differs from `callback`.
+
+        The first call also clears the boot marker ``boot.run()`` wrote.
+        Reaching here is the only proof the runtime OTA surface is alive --
+        ``recover()`` deliberately does not clear it, running before the
+        application has proved anything -- so its absence on the next boot is
+        what says that boot got as far as the application.
         """
+        if not self._boot_mark_cleared:
+            self._clear_boot_mark()
+
         from .manager import poll
 
         poll(self._core, callback, heartbeat=heartbeat)
+
+    def _clear_boot_mark(self):
+        """Remove the boot marker, once per process. Never raises.
+
+        The flag is set regardless of outcome, so a read-only or full
+        filesystem costs one failed remove rather than one on every poll()
+        for the life of the process. Kept out of ``poll()``'s body so the hot
+        path is a single boolean attribute check.
+        """
+        self._boot_mark_cleared = True
+
+        from .core import _boot_mark_path
+
+        path = _boot_mark_path(self._core.config)
+        if not path:
+            return
+        try:
+            import uos as _os
+        except ImportError:
+            import os as _os
+        try:
+            _os.remove(path)
+        except OSError:
+            pass

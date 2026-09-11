@@ -478,3 +478,72 @@ def test_rollback_with_no_journal_returns_zero(tmp_path):
     assert restore.rollback(core) == 0
 
     assert not (tmp_path / "otampy-update.journal").exists()
+
+
+# =============================================================================
+# rollback_result -- the reply/refusal mapping shared by manager.poll and the
+# boot-time recovery window. _ROLLBACK_BUSY stays private to this module.
+# =============================================================================
+
+
+def test_rollback_result_reverts_and_reports_the_count(tmp_path):
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    sensor = tmp_path / "lib" / "sensor.py"
+    sensor.parent.mkdir()
+    main.write_bytes(b"new-main")
+    sensor.write_bytes(b"new-sensor")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    (tmp_path / "lib" / "sensor.py.bck").write_bytes(b"old-sensor")
+    restore.write_journal(core, 1, [str(main), str(sensor)])
+
+    assert restore.rollback_result(core) == (b"ROLLBACK_OK", 2)
+
+    assert main.read_bytes() == b"old-main"
+    assert sensor.read_bytes() == b"old-sensor"
+    assert not (tmp_path / "otampy-update.journal").exists()
+
+
+def test_rollback_result_with_nothing_retained_leaves_the_journal(tmp_path):
+    """A refusal must not silently take a trialling candidate off trial."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"new-main")
+    restore.write_journal(core, 2, [str(main)])
+    before = (tmp_path / "otampy-update.journal").read_text()
+
+    assert restore.rollback_result(core) == (
+        b"ROLLBACK_ERR:Nothing to roll back",
+        0,
+    )
+
+    assert main.read_bytes() == b"new-main"
+    assert (tmp_path / "otampy-update.journal").read_text() == before
+
+
+def test_rollback_result_refuses_while_committing(tmp_path):
+    """repair() owns a committing journal, so nothing here may touch it."""
+    core = _core(tmp_path)
+    main = tmp_path / "main.py"
+    main.write_bytes(b"half-new-main")
+    (tmp_path / "main.py.bck").write_bytes(b"old-main")
+    restore.write_journal(core, restore._STATE_COMMITTING, [str(main)])
+    before = (tmp_path / "otampy-update.journal").read_text()
+
+    assert restore.rollback_result(core) == (
+        b"ROLLBACK_ERR:Commit in flight",
+        0,
+    )
+
+    assert main.read_bytes() == b"half-new-main"
+    assert (tmp_path / "main.py.bck").read_bytes() == b"old-main"
+    assert (tmp_path / "otampy-update.journal").read_text() == before
+
+
+def test_rollback_result_with_no_journal_refuses(tmp_path):
+    core = _core(tmp_path)
+
+    assert restore.rollback_result(core) == (
+        b"ROLLBACK_ERR:Nothing to roll back",
+        0,
+    )

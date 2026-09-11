@@ -46,7 +46,15 @@ _ROLLED_BACK = "rolled_back"
 
 # rollback() returns this when a commit marker is present: the caller must
 # refuse the request rather than reset. Distinct from 0 ("nothing to revert").
+# Private to this module -- rollback_result() folds it into a reply so it
+# never crosses a module boundary.
 _ROLLBACK_BUSY = -1
+
+# ROLLBACK wire replies. Shared by manager.poll and the boot-time recovery
+# window, which is why they live here rather than at either call site.
+_REPLY_ROLLBACK_OK = b"ROLLBACK_OK"
+_REPLY_ROLLBACK_BUSY = b"ROLLBACK_ERR:Commit in flight"
+_REPLY_ROLLBACK_NONE = b"ROLLBACK_ERR:Nothing to roll back"
 
 
 def _journal_path(core):
@@ -274,6 +282,21 @@ def rollback(core):
         if _exists(target + _BACKUP_SUFFIX):
             return restore_all(core)
     return 0
+
+
+def rollback_result(core):
+    """Map ``rollback()`` onto ``(reply_bytes, restored_count)``. Never raises.
+
+    The reply/refusal mapping the runtime command surface and the boot-time
+    recovery window share. ``restored_count`` is non-zero only when the caller
+    should reset onto the restored generation; it is also the number to log.
+    """
+    restored = rollback(core)
+    if restored == _ROLLBACK_BUSY:
+        return (_REPLY_ROLLBACK_BUSY, 0)
+    if restored == 0:
+        return (_REPLY_ROLLBACK_NONE, 0)
+    return (_REPLY_ROLLBACK_OK, restored)
 
 
 def trial(core):

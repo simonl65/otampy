@@ -9,6 +9,790 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-18 — every proven radio recovery went through the journal path; the marker-only path has never landed a command
+
+- **Severity:** P2
+- **Status:** closed — 2026-09-11, HIL diagnostic
+- **Area:** `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` and the
+  marker half of `run()`'s tier selection; possibly `src/otampy/cli.py`
+  `_recover_query`; possibly neither -- the cause is not established.
+- **Found:** 2026-09-11, two attempts at test 6 of
+  `failsafe-update-boot-listen-spec.md`.
+- **Evidence:** test 6 needs a device stranded with **nothing retained**, so
+  the wide window is selected off the **boot marker alone** (no journal). Built
+  cleanly the second time by a fresh USB deploy of the fatal `main.py`.
+  Device-side `/ota.log` shows the tier selection working perfectly --
+  boot 1 (deploy's reset, marker absent) a **1827 ms** short window, boot 2
+  (the power cycle, marker present) a **8908 ms** wide window. The host polled
+  ~152 s at 1.06 s/CONNECT across that window and logged **zero** `URST
+  Connected` lines. The radio was proven healthy minutes later on the same
+  link: 3/3 `PONG`. First attempt, on the same precondition reached by a
+  different route (a rollback that consumed the `.bck`), failed identically
+  across two power cycles.
+  Tally by how the device was stranded: `upd --no-confirm` (journal present)
+  **6 landings in 6 attempts** -- HIL 1 x3, HIL 2, test 5 x2; marker-only
+  (no journal) **0 landings in 2 attempts**.
+- **Impact:** The boot marker exists for exactly the case the journal cannot
+  see -- a **confirmed** generation that later proves fatal, which is the
+  `rollback --recover` scenario. Every landing on record comes from the other
+  path, where an unconfirmed candidate meant the journal alone would have
+  selected the wide window anyway. So the marker's reason for existing is
+  undemonstrated, and F-10's closure evidence, while real, does not cover this
+  branch. If the branch turns out to be genuinely unreachable this is P1 and
+  F-10 should reopen; on present evidence that is not established.
+- **Against the obvious reading:** the window body is identical for both tiers,
+  the measured duration is the same ~8.9 s, and `had_boot_mark` short-circuits
+  the `state(core)` call in both cases (the marker is present either way on a
+  recovery boot, so the journal is never read there). No mechanism in the
+  selection code could make these two differ. A plainer confound is also alive:
+  operator cycle timing relative to the poll cannot be timestamped from the
+  host, and has already produced one falsely-recorded miss this session. Six
+  versus two is a small sample.
+- **Resolution:** No code change -- the branch already worked; it needed proof,
+  not a repair. 2026-09-11: temporary instrumentation added to
+  `_run_boot_listen` (an `iterations` counter, a `frames_seen` counter with a
+  `logger.debug` of the raw bytes on every non-empty `read()`, and a
+  `logger.info` summary at each exit point), pinned by two host tests,
+  sabotage-confirmed. Deployed via a fresh USB `otampy deploy --with-logger`
+  of a fatal `main.py` (raises on import, no watchdog) to reach the "nothing
+  retained" precondition test 6 needs. Four genuine power-cycle attempts
+  against the resulting marker-only wide window, host polling
+  (`rollback --recover`) started *before* each power cycle this time (the
+  session's first attempt was mistimed -- polling started only after the
+  cycle, a methodology artefact, discarded):
+  attempts 1-3 **0 frame(s) seen** (`/ota.log`, e.g. `"...closed with no
+  landing after 8 iteration(s), 0 frame(s) seen"`), attempt 4 **landed**:
+  `/ota.log` shows `"Recovery window: frame #1 on iter 8: b'ROLLBACK'"`,
+  arriving at the very end of the ~9.6 s window (iteration 8 of 8) -- the CLI
+  printed `Rollback refused: Nothing to roll back` (correct: nothing was
+  retained) and the device did not reset, exactly matching test 6's expected
+  behaviour. This directly answers the finding's open question: the
+  marker-only branch is **reachable**, not structurally dead -- it heard and
+  correctly served a command from a genuinely cold, power-cycled radio. The
+  low land rate (1/4 clean attempts) is consistent with F-10's own evidence
+  that a cold XBee's wake-up can take up to ~8.7 s against a window of
+  comparable width, not a marker-specific defect -- the journal path's 6/6
+  record was never tested against a cold radio at this margin either (every
+  journal-path landing followed a boot that already had the transport
+  primed). Instrumentation and its two tests reverted immediately after (kept
+  temporary as committed); the repo is back to F-17's state. Device
+  redeployed with the real (non-fatal) `main.py` afterward and confirmed
+  healthy over the radio.
+- **Closed:** 2026-09-11. Reachability proven directly by HIL evidence in the
+  same session the diagnostic ran -- not a code fix, so no separate review
+  pass applies; the `/ota.log` frame line is the primary evidence and is
+  quoted above in full.
+
+---
+
+### F-17 — `--recover` against a *healthy* device silently bypasses the window and rolls back the running application
+
+- **Severity:** P2
+- **Status:** closed — 2026-09-11, `/sl-findings review`
+- **Area:** `src/otampy/cli.py` `_recover_query` (the poll has no way to tell a
+  window from a running application); the `--recover` help text on both
+  `rollback` and `upd`; `docs/protocol.md` §2.4; and
+  `failsafe-update-boot-listen-spec.md` Verification test 4, which is built on
+  the false premise.
+- **Found:** 2026-09-11, HIL run of `failsafe-update-recovery-handshake-spec.md`
+  step 7, while attempting that test 4.
+- **Evidence:** the flag is documented as landing the command "in the
+  boot-time recovery window **instead of** the running application". It does
+  not. `_recover_query` handshakes and sends; a healthy device's
+  `manager.poll` completes the handshake and serves `ROLLBACK` identically, so
+  `--recover` on a healthy device performs an ordinary rollback immediately.
+  Observed directly: `otampy rollback --recover` was run on a healthy device
+  with no power cycle, expecting the recovery-wait timeout test 4 predicts.
+  Instead it rolled the device back on the spot — onto the retained generation,
+  which in that session was a deliberately fatal `main.py`, stranding the
+  device and consuming the `.bck`.
+- **Impact:** Two parts. (1) **Documentation is wrong**, and an operator who
+  reaches for `--recover` on a device that turns out to be alive gets an
+  immediate irreversible rollback rather than the "wait for a window" they were
+  promised — with only one generation retained, that is one-shot. (2)
+  **Verification test 4 of `failsafe-update-boot-listen-spec.md` cannot pass as
+  written** and should be rewritten; its stated evidence ("it times out with
+  the recovery-wait message and `ping` still answers `PONG`") is unreachable on
+  any device that has something to roll back to. F-10's own methodology note
+  already says a healthy device answers `ROLLBACK` identically — the test
+  contradicts it.
+- **Resolution:** Option (b). Added `_device_alive()` (`src/otampy/cli.py`), a
+  single-attempt, short-timeout `PING` probe reusing the recovery
+  handshake's own `_RECOVERY_SERIAL_TIMEOUT`/`_recovery_attempt` machinery.
+  `_recover_query()` gained a `refuse_if_alive` flag: `rollback --recover`
+  passes it and now refuses outright, before the power-cycle prompt, when the
+  device answers `PONG` -- telling the operator to use plain `rollback`
+  instead. `upd --recover` does not pass it: its window and running-app paths
+  converge on the same ordinary update session regardless (see the code
+  comment at the `upd` call site), so there is nothing destructive to guard
+  there, only wording to fix. Corrected the `--recover` help text/docstrings
+  on both `rollback` and `upd` to stop claiming the window is reached
+  "instead of" the running application. Rewrote Verification test 4 in
+  `failsafe-update-boot-listen-spec.md` around the refusal, and adjusted test
+  5 to strand the device before its "key set: succeeds" half, since that half
+  relied on the same false premise (a healthy device reaching the window
+  unguarded) to demonstrate the window's auth path. Added
+  `test_rollback_recover_refuses_a_healthy_device` and updated two existing
+  mocked tests whose `read` side-effect sequences didn't account for the new
+  leading probe read (`tests/test_cli.py`). `_recover_query`'s existing unit
+  tests call it directly without `refuse_if_alive`, so they're unaffected.
+  `python3 .agents/scripts/pre_flight_check.py` passes.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  not from the resolution's own account: `boot.py:488` and `manager.py:358`
+  both call `restore.rollback_result` on the same `core`, confirming `ROLLBACK`
+  is still served identically by the window and the running app -- the root
+  cause is real and the guard is the right shape for it. Read `_device_alive`
+  and `_recover_query`'s `refuse_if_alive` branch directly (not the Resolution
+  prose) and confirmed the refusal happens before the power-cycle prompt is
+  printed. Sabotage-checked twice: forcing `refuse_if_alive`'s check to `False`
+  turned `test_rollback_recover_refuses_a_healthy_device` red (with the
+  original behaviour reproducing -- a ~60 s wait, since a `PONG` reply never
+  matches `ROLLBACK_`'s expected prefix and the poll runs out its full
+  timeout); reverted, tests green again. Ran the full `rollback`/`recover`
+  test slice and the full pre-flight check, both clean. `upd --recover`'s
+  unchanged behaviour (help text only) still passes its own existing test.
+  Confirmed `docs/protocol.md` §2.4 needed no edit -- it was already accurate;
+  only the CLI help text and docstrings overclaimed, and both are fixed.
+
+---
+
+### F-16 — `upd --recover` makes the operator wait ~25 s before telling them to power-cycle
+
+- **Severity:** P3
+- **Status:** closed — 2026-09-11, `/sl-findings review`
+- **Area:** `src/otampy/cli.py`, the `upd --recover` path ahead of
+  `_recover_query`
+- **Found:** 2026-09-11, HIL 2 of the recovery-handshake spec.
+- **Evidence:** timestamped from the real command against a stranded device —
+  `0.13s Handshake attempt 1` … `25.21s Power-cycle the device now...`. The
+  first ~25 s is an ordinary normal-path attempt: `query_retries` 3 × 4
+  handshake attempts, each blocking the full 2.0 s `serial_timeout_seconds`.
+  `rollback --recover` has no such pre-flight and starts its poll at 0.1 s.
+- **Impact:** Cosmetic but poorly timed. The operator is standing at a device
+  they believe is bricked, watching `Handshake timeout` warnings scroll for 25
+  seconds with no instruction, on the exact code path whose purpose is to tell
+  them what to do. It also silently eats a quarter of the default 60 s
+  `recovery-wait` budget if the operator has already power-cycled in
+  anticipation.
+- **Resolution:** 2026-09-11. The ~25s cost was not inside `_recover_query`
+  itself -- it was `_device_has_bytecode(ctx)` (`cli.py:2449` pre-fix), an
+  unconditional plain `LS` pre-flight in `update()` that runs before
+  `_update_files`/`_recover_query` are ever reached, to warn about a source
+  update shadowing deployed `.mpy` bytecode. Guarded with `not recover`
+  (`cli.py:2453`): `if not bytecode and not recover and
+  _device_has_bytecode(ctx):`. `--recover` now skips the bytecode-shadow
+  probe and its interactive prompts entirely, matching the flag's own
+  premise that the device is not reachable via the normal path. Test
+  `test_upd_recover_skips_the_bytecode_shadow_preflight`
+  (`tests/test_cli.py`) asserts `_device_has_bytecode` is never called when
+  `--recover` is passed; sabotage-confirmed (removing the guard turns it
+  red). `python3 .agents/scripts/pre_flight_check.py` passes.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-read
+  `cli.py:2453` as it stands: `not bytecode and not recover and
+  _device_has_bytecode(ctx)` -- the guard is exactly as claimed, not just as
+  described. Ran the pinning test plus its two neighbours
+  (`test_upd_recover_completes_a_full_session_when_a_window_lands`,
+  `test_upd_without_recover_prints_no_power_cycle_prompt`) together: all
+  pass, so a landed `--recover` session still completes and plain `upd`
+  still shows no power-cycle prompt -- the guard did not regress either
+  path. Sabotage-confirmed independently (forcing the condition to ignore
+  `recover`): only the new test goes red, the other 26
+  `recover`-adjacent tests stay green. No new defect introduced.
+
+---
+
+### F-15 — `--recover`'s fail-fast handshake cannot land in a window that is demonstrably open, so radio recovery still fails
+
+- **Severity:** P1
+- **Status:** closed — 2026-09-11, `/sl-findings review`
+- **Area:** `src/otampy/cli.py` — `_fast_recovery_handshake` (`cli.py:1061`),
+  `_RECOVERY_ACK_TIMEOUT_MS`/`_RECOVERY_MAX_RETRIES`/`_RECOVERY_SERIAL_TIMEOUT`
+  (`cli.py:1055-1057`), `_query(fast=True)` (`cli.py:1160-1168`),
+  `_recover_query` (`cli.py:1278`)
+- **Found:** 2026-09-10, step 5 HIL test 1 of
+  `failsafe-update-window-reachability-spec.md`. Attempt 1 recovered on the
+  first power cycle; attempt 2 failed on two consecutive genuine power cycles.
+- **Evidence:** device-side ticks (read over the radio with `otampy cat
+  /ota.log`, no USB) show the wide window open on **every** boot of the failed
+  attempt: **9006 ms**, **9017 ms**, **8977 ms**, each from t≈1.5 s to
+  t≈10.5 s after power-on. The host blind-retried `ROLLBACK` for 60 s across
+  both and landed nothing. That the window is reachable at all was then shown
+  accidentally: a `PING` on the **normal** handshake path (serial timeout 2.0,
+  `query_retries` 3) landed inside a window and was refused with
+  `ERROR:Recovery window` (`boot.py:31`) — the window's own reply. The fast
+  profile is one CONNECT attempt, `ACK_TIMEOUT_MS = 500`, `MAX_RETRIES = 0`,
+  serial read timeout `0.1 s`. Corroborating: **nearly every normal `otampy`
+  command in the session logged one or more `Handshake timeout` warnings
+  before connecting**, against a healthy polling device at the 2.0 s timeout —
+  so on this link a single attempt with a 0.1 s read timeout is close to a
+  coin flip, which matches 1 success in 3 attempts.
+- **Impact:** The headline capability of sub-task 4 — recover a stranded
+  device over the radio with no USB — is unreliable in exactly the situation
+  it exists for, and the operator has no way to tell a missed window from a
+  dead device. F-10 cannot close, and HIL tests 1 and 2 of the active spec
+  cannot pass, while this stands. The device-side work is not implicated: the
+  window is open, correct, and answers the normal path.
+  Note the irony worth keeping — this profile *is* F-10's earlier repair
+  (commit `172d93c`), adopted when the cadence theory looked right. It made
+  the host retry fast; it also made each retry too fragile to complete a
+  handshake over an XBee.
+- **Resolution:** 2026-09-11, step 3 of
+  `failsafe-update-recovery-handshake-spec.md`. `_recover_query` now opens the
+  port **once** and holds it for the whole poll, retrying
+  `transport.protocol.connect()` on that single transport at stock URST
+  timings (~1 CONNECT/s, a full 1 s listen each), with a
+  `_RECOVERY_HANDSHAKE_GAP_S` quiet gap between attempts and an explicit
+  `_RECOVERY_SERIAL_TIMEOUT` of 0.2 s so `ACK_TIMEOUT_MS` remains the real
+  per-attempt deadline. `urst.constants` is no longer mutated.
+  `_fast_recovery_handshake`, `_RECOVERY_ACK_TIMEOUT_MS`,
+  `_RECOVERY_MAX_RETRIES` and `_query(fast=...)` are deleted. A handshake that
+  completes as the window shuts is treated as a miss (session cleared, poll
+  continues), and an `OSError` mid-poll reopens the port rather than ending
+  the attempt. Covered by 10 tests in `tests/test_cli.py`, including the
+  `_RECOVERY_SERIAL_TIMEOUT <= ACK_TIMEOUT_MS / 1000` invariant asserted
+  directly. **Proven on hardware 2026-09-11**: three consecutive first-cycle
+  recoveries of a genuinely stranded device (HIL 1), plus a full update driven
+  through the window (HIL 2). The command landed 1.1 s / 2.2 s / 3.2 s after
+  the device's radio woke — every time within a single `connect()` call —
+  against the fail-fast profile's 0 landings in 60 s. Cadence measured on the
+  real link at one CONNECT per 1.06 s with the port opened once. Full evidence
+  in `failsafe-update-recovery-handshake-log.md` step 7.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  separately from the fix's own record: `_fast_recovery_handshake`,
+  `_RECOVERY_ACK_TIMEOUT_MS`, `_RECOVERY_MAX_RETRIES` and `_query(fast=...)`
+  are fully removed (`grep -c 'fast=' src/otampy/cli.py` -> `0`); read
+  `_recover_query`/`_recovery_attempt`/`_reset_recovery_session` end to end and
+  traced every exception path (a `DeviceError` from an `ERROR:` reply is
+  correctly left uncaught by both `_recovery_attempt`'s `except
+  click.ClickException` and `_recover_query`'s loop, so it still propagates as
+  the docstring claims); independently reverted the OSError-reopen handling
+  and the urst.constants-immutability guarantee in turn and confirmed the
+  existing tests catch each regression
+  (`test_recover_query_reopens_the_port_after_a_serial_error`,
+  `test_recover_query_does_not_mutate_urst_constants`); full suite
+  156/156 passing, tree clean afterwards. The hardware evidence is real and
+  targets the actual defect (a fail-fast profile too fragile to complete a
+  handshake over the radio) -- three genuinely-stranded-device recoveries plus
+  a full update, all landing within a single `connect()` call of the device's
+  radio waking. No new defect found.
+
+---
+
+### F-14 — with the recovery key at `0`, a trial boot gets no listen window at all — less than an ordinary boot
+
+- **Severity:** P3
+- **Status:** closed — 2026-09-11, `/sl-findings review`
+- **Area:** `src/otampy/device/lib/otampy/boot.py` `run()` (`boot.py:645-651`);
+  `src/otampy/device/examples/configota.example.py` (the
+  `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
+- **Found:** 2026-09-10, as the control half of step 5's HIL test 3 — not the
+  thing being measured.
+- **Evidence:** the selection is `if had_boot_mark or state != stable:
+  window_ms = _boot_recovery_window_ms(config)`, and
+  `_boot_recovery_window_ms` returns the configured value, so with the key at
+  `0` that branch yields `0`. Measured on device: the post-commit trial boot
+  bracketed `Checking for update flag-file...` → `update_requested.flag not
+  found` in **56 ms** (no window), against ~1.87 s on healthy boots of the
+  same half, which still paid their 1 s `OTA_BOOT_LISTEN_MS`.
+- **Impact:** On a deployment that has deliberately disabled the wide window,
+  the boot most likely to need rescuing — running an unconfirmed candidate
+  that may be about to strand the device — is the one boot with no listen
+  window, while every healthy boot keeps its 1 s. `configota.example.py`
+  promises only that `0` "disables the wide window and the boot marker",
+  not that it removes the short window from trial boots. P3 because F-10
+  established that the 1 s window is unhittable after a power cycle anyway, so
+  what is lost was barely there — but the code says something different from
+  the documentation, and the next reader will trip on it.
+- **Resolution:** 2026-09-11, step 5 of
+  `failsafe-update-recovery-handshake-spec.md`. `boot.run()` now falls back to
+  `OTA_BOOT_LISTEN_MS` when the wide window is disabled on an at-risk boot,
+  so an at-risk boot never gets a shorter window than an ordinary one. The
+  fallback costs nothing on the default configuration — the short key is only
+  read when the wide window was not selected. Documented in
+  `configota.example.py`, `docs/protocol.md` §2.4 (duration table plus the
+  invariant in bold) and `docs/architecture.md` in two places. Three device
+  tests cover it, including one pinning that both keys at `0` still opens no
+  window at all. Noted while fixing: with the wide key at `0`,
+  `_boot_mark_path()` returns None so the marker is never written or read —
+  F-14 is therefore reachable only through the journal path, not the marker
+  path, and that is now pinned by a test with an explanatory docstring.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified:
+  `boot.py`'s selection reads as claimed (`window_ms` starts at `0`, is set
+  from `_boot_recovery_window_ms` only on an at-risk boot, and falls back to
+  `OTA_BOOT_LISTEN_MS` whenever that is `<= 0`), `_config_int` fails closed to
+  the default rather than to `0` on garbage input, and all three device tests
+  pass. Reverted the fix to its pre-repair form and confirmed
+  `test_a_trial_boot_with_the_wide_key_zero_keeps_the_short_window` catches
+  the regression (`assert 0 == 111`). All three doc sites named in the
+  Resolution (`configota.example.py`, `docs/protocol.md` §2.4,
+  `docs/architecture.md` ×2) state the corrected invariant.
+
+---
+
+### F-13 — `test_rollback_recover_times_out_with_recovery_wait_message` passes on a validation error and never reaches the path it names
+
+- **Severity:** P2
+- **Status:** closed — 2026-09-11, `/sl-findings review`
+- **Area:** `tests/test_cli.py`
+- **Found:** 2026-09-10, while writing the F-11 tests — the same `"0"` trick
+  failed for me with `post-commit-ready-timeout must be greater than 0.`,
+  which prompted a check of the existing test using it.
+- **Evidence:** the test sets `OTAMPY_RECOVERY_WAIT=0`, but
+  `_coerce_config_value` (`cli.py:369-372`) rejects any non-`query_retries`,
+  non-`transfer_chunk_size` value `<= 0`. Reproduced directly: the command
+  exits 1 with output `Error: recovery-wait must be greater than 0.` and
+  nothing else. The test's two assertions — `result.exit_code != 0` and
+  `"recovery-wait" in result.output` — are both satisfied by that error
+  message, so it passes without the `--recover` retry loop ever running.
+- **Impact:** `rollback --recover`'s recovery-wait expiry path has no test
+  coverage while appearing to have some, which is worse than none. That path
+  is in F-10's blast radius: the operator-facing message on a failed radio
+  recovery is exactly what a stranded-device session depends on. A regression
+  there would ship green.
+- **Resolution:** 2026-09-11, step 2 of
+  `failsafe-update-recovery-handshake-spec.md`. All three affected tests
+  (`test_rollback_recover_times_out_with_recovery_wait_message`,
+  `test_recover_query_raises_naming_recovery_wait_when_nothing_answers`,
+  `test_recover_query_restores_handshake_timing_even_on_timeout`) now use
+  `OTAMPY_RECOVERY_WAIT=0.001` and assert on `No recovery window answered`
+  plus the command name, not the bare key. Proven by sabotage: with
+  `_recover_query`'s timeout message replaced, the old tests were `3 passed`
+  and the new ones `3 failed`; reverted, `152 passed`. Both outputs are in
+  `failsafe-update-recovery-handshake-log.md` step 2.
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  separately from the fix's own record: both surviving tests
+  (`test_rollback_recover_times_out_with_recovery_wait_message`,
+  `test_recover_query_raises_naming_recovery_wait_when_nothing_answers`) pass
+  as they stand and fail when `_recover_query`'s timeout message is replaced
+  with different sabotage text than the original fix used. The third test
+  named in the Resolution
+  (`test_recover_query_restores_handshake_timing_even_on_timeout`) no longer
+  exists — deleted in step 3 of the same spec along with the fast-handshake
+  profile it guarded, which is expected and recorded there, not a regression
+  here.
+
+---
+
+### F-12 — the 8000 ms wide recovery window overruns an 8388 ms watchdog armed before `OTA(...).boot()`, and nothing feeds it
+
+- **Severity:** P2 — **upgrade to P1 if any integrator actually arms a
+  watchdog before `OTA(...).boot()`.** Filed P2 because the affected
+  configuration is optional and was not exercised on the rig: no watchdog was
+  armed, so the reset was never observed. The measurement and the code path
+  are confirmed; the resulting reset loop is inference from them.
+  The margin is worse than first filed — see the logging-overhead correction
+  under **Evidence**: the 8899 ms span is clean as measured, not inflated, so
+  the configured `8000` really does overrun 8388 on its own.
+- **Status:** closed — 2026-09-11, `/sl-findings review` (independent
+  re-review; commits `e075496` / `2a3b514` / `264c7c7`).
+  **Repair:** `OTA.boot(callback=None, heartbeat=None)` threads an optional
+  zero-argument callable down through `boot.run()` into both blocking loops —
+  `_run_boot_listen` and `_run_default_update_loop`. Each calls it as the
+  first statement of its `while` body, before `read()`, so every path round
+  feeds rather than only the idle one (four of the window's five paths skip
+  the idle sleep, so idle-branch placement would leave a chatty peer's
+  refusals unfed — pinned by
+  `test_boot_listen_feeds_heartbeat_while_refusing_a_chatty_peer`, which was
+  verified to fail under that placement). `_call_heartbeat` moved from
+  `manager.py` to `core.py` so both callers share one copy. The
+  `configota.example.py` guidance that prompted this finding now shows a
+  worked `heartbeat=wdt.feed` example instead of an untrue timing promise,
+  and `docs/protocol.md` §2.4 / `docs/architecture.md` no longer claim
+  pre-`boot()` watchdog compatibility is given up.
+  **Residual, deliberately not fixed:** a single `reply()` to a peer that
+  stops acknowledging blocks ~3-4 s inside `urst`'s retry loop with no
+  opportunity to feed. Closing it needs a heartbeat hook in `urst`, which the
+  parent TODO item explicitly wants to avoid; recorded in the spec's Risks
+  and in `docs/protocol.md` §2.4 so it is a known limit, not a surprise.
+  **Independent re-review (2026-09-11):** read the current
+  `_call_heartbeat`/`_run_boot_listen`/`_run_default_update_loop`/`boot.run`/
+  `OTA.boot` code directly rather than trusting the fix's own log. Confirmed:
+  the feed sits unconditionally as the first statement of each loop body
+  (structurally covers every branch, including the auth-failure `continue`
+  the fix's own tests don't name explicitly); `manager.py` has exactly one
+  import and its original two call sites, zero `def _call_heartbeat` left;
+  `test_ota_manager.py`'s diff against the pre-fix commit is empty, so the
+  "unmodified" claim holds literally, not just in spirit; `run()` wires
+  `heartbeat` into both `_run_boot_listen` and `_run_default_update_loop`
+  call sites. Independently re-verified the placement claim by moving the
+  window's feed into the idle branch and re-running:
+  `test_boot_listen_feeds_heartbeat_while_refusing_a_chatty_peer` fails there
+  and passes restored, matching the fix's account exactly. Full suite: 696
+  passed. `grep` for the two obsolete claims in `docs/protocol.md` /
+  `docs/architecture.md`: no matches. No new defect found. Closing.
+- **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_boot_listen`, and the
+  window selection in `run()`); `src/otampy/device/examples/configota.example.py`
+  (the `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)
+- **Found:** 2026-09-10, during step 5 HIL instrumentation of
+  `failsafe-update-window-reachability-spec.md`. Not the thing being tested —
+  surfaced by Simon asking how the F-11 fix would interact with a watchdog.
+- **Evidence:** `configota.example.py:29` tells the integrator to "keep this
+  under your watchdog period if a custom `boot.py` arms one before
+  `OTA(...).boot()`: 8000 is just under the RP2040's ~8388 ms cap", and the
+  spec's risk section chose `8000` for exactly that reason. Device-side ticks
+  measurement contradicts it. In `boot.py:614-652` the log lines `Checking for
+  update flag-file...` and `update_requested.flag not found` bracket
+  `state(core)` plus `_run_boot_listen()`; on a wide-window boot they were
+  **1454 ms** and **10353 ms**, a blocking span of **8899 ms** for a configured
+  `8000` — already past 8388 on its own, before adding the 1454 ms taken to
+  reach the window. Nothing feeds a watchdog anywhere in that span: the device
+  library has no WDT awareness at all, and `manager.py:85`/`manager.py:119`
+  deliberately place watchdog feeding on the caller, once per `poll()` —
+  which `boot()` never calls.
+  Raw log in `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 1).
+  **On logging overhead (corrected 2026-09-10, after first filing):** the
+  figures were taken at `LOG_LEVEL = "DEBUG"`, and this entry initially
+  discounted them as inflated by flash writes, with "a clean figure at
+  `LOG_LEVEL = \"ERROR\"`" listed as owed. That was wrong twice over, and the
+  correction strengthens the finding rather than weakening it.
+  First, `_run_boot_listen`'s idle path (`boot.py:432-435`) is
+  `read()` → `_sleep_ms(_BOOT_LISTEN_POLL_MS)` → `continue`, with **no
+  `logger` call at all**; the only logging in the body is on anomalies (a
+  non-UTF-8 packet, a matched command). On an idle window — which is every
+  window that is not being actively recovered, including the one measured —
+  the interior of the 8899 ms span contains **zero** DEBUG writes. The span is
+  therefore essentially clean as measured: the ~899 ms of excess over the
+  configured `8000` is `state(core)`'s journal read, loop granularity, and the
+  flush of the bracketing log line, not logging inside the window.
+  Second, a figure at `LOG_LEVEL = "ERROR"` is not obtainable anyway — both
+  bracketing lines are `logger.debug`, so at `ERROR` the measurement
+  disappears entirely. Any re-measurement needs a different technique
+  (temporary `print()` instrumentation, as the 2026-09-10 root-cause run
+  used), and is no longer needed to establish this finding.
+- **Impact:** An integrator arming `WDT(8388)` before `OTA(...).boot()` is
+  reset part-way through every wide-window boot. The device that qualifies for
+  the wide window is by definition the stranded one, so the inferred dynamic is
+  a loop: boot → marker/`trial` → wide window → WDT reset at 8388 ms → boot →
+  … never reaching `main.py`. Recovery may still succeed by luck, since a WDT
+  reset does not power-cycle the XBee and the radio is warm on the second pass
+  (F-10's control measurement: first packet 80 ms into the window after a
+  software reset). Untested either way. The confirmed part is narrower and
+  still real: shipped configuration guidance makes a promise the shipped
+  default cannot keep.
+- **Resolution:** _(not yet fixed — design work, not a repair. Candidate
+  shapes: lower the default wide window to fit 8388 including pre-window boot,
+  which spends recovery margin that F-10 already called the tightest number in
+  the spec; document a pre-`boot()` watchdog as incompatible with the wide
+  window; or let `OTA` take a caller-supplied watchdog and feed it inside
+  `_run_boot_listen`'s read loop. The third keeps both the wide window and
+  boot-path WDT cover and has a natural feed point, but it changes the `OTA`
+  constructor signature, so it needs a spec.
+  **2026-09-11: direction decided.** Simon chose the caller-fed watchdog —
+  the only option that keeps the promise `configota.example.py` already
+  makes rather than walking it back or spending F-10's recovery margin.
+  Confirmed still open before deciding: this session's own F-18 HIL run
+  measured the wide window at ~9.57 s (`ts` 906 -> 10476), wider than the
+  8899 ms originally recorded, so the overrun is if anything worse than
+  filed. Too large for a single fix cycle (constructor-signature change) —
+  filed as its own `TODO.md` item ("Feed a caller-supplied watchdog inside
+  the boot-time recovery window") pointing at `/sl-spec` rather than
+  attempted here. No code changed by this session.)_
+- **Closed:** _(pending)_
+
+---
+
+### F-11 — the wide recovery window pushes the post-commit boot past `upd`'s 10 s health check, so every successful update reports failure
+
+- **Severity:** P1
+- **Status:** closed — 2026-09-10, reviewed independently of the fix
+- **Area:** `src/otampy/cli.py` (`_post_commit_confirm`, `_wait_for_pong`,
+  `update_ready_timeout_seconds` at `cli.py:61`); consequence of the window
+  selection in `src/otampy/device/lib/otampy/boot.py` `run()`
+- **Found:** 2026-09-10, step 5 HIL verification of
+  `failsafe-update-window-reachability-spec.md`. Hit on the first `otampy upd`
+  of the session — a routine config push, not a test.
+- **Evidence:** A post-commit boot has journal `trial`, so `boot.py:646-651`
+  selects the **wide** window by design. Device-side ticks on that boot put
+  `Loading MAIN...` at **10661 ms** and `Application main loop started` at
+  **11044 ms**. `_post_commit_confirm` (`cli.py:2704`) waits
+  `update_ready_timeout_seconds`, default **10.0** (`cli.py:61`), timed from
+  the commit reply. The device cannot win that race. Observed:
+  `Update completed successfully! Device is rebooting.` →
+  `Error: Update committed but the device did not come back healthy (no PONG
+  within 10s).` — followed immediately by a successful `otampy ping`, an
+  `otampy state` of `Candidate on trial (boot 1)`, and a normal
+  `otampy confirm`. The device was never unhealthy.
+  Raw log in `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 1).
+  **Not a radio-flake observation**, despite being seen once over the link: the
+  corroborating measurement is device-side `ticks_ms` from `/ota.log`,
+  independent of the radio, and the arithmetic is structural — 8 s of window
+  plus ~1.4 s of pre-window boot plus ~0.7 s of startup against a 10 s budget.
+  Any device at the shipped default loses.
+- **Impact:** Every successful default `otampy upd` reports failure and leaves
+  the candidate unconfirmed. It self-heals if the operator runs
+  `otampy confirm`, but the primary update path tells the operator their update
+  failed when it did not — and an operator who believes the error and
+  re-deploys does so against a device already on trial boot 2 of 3.
+  `_wait_for_pong` is shared with `otampy rollback` (`cli.py:2663`), whose
+  post-restore boot has also not polled and so also carries the marker and
+  selects the wide window; the same arithmetic applies there, untested.
+  This also blocks step 5 of the active spec outright: HIL test 2's required
+  evidence is literally `COMMIT_OK`, then `Candidate confirmed.`, which cannot
+  currently occur.
+- **Resolution:** 2026-09-10 — added the `post_commit_ready_timeout_seconds`
+  config key (display `post-commit-ready-timeout`, env
+  `OTAMPY_POST_COMMIT_READY_TIMEOUT`, default `30.0`) at `cli.py:68`.
+  `_wait_for_pong` and both of its callers — `rollback` (`cli.py:1401`) and
+  `_post_commit_confirm` (`cli.py:2721`) — now read it instead of
+  `update_ready_timeout_seconds`. The READY-broadcast wait keeps the old key:
+  that boot has the update flag set, so `run()` opens no window at all.
+  Five tests in `tests/test_cli.py` (default/env override, `config --show`
+  display, retries past the old timeout, gives up on the new one, and the
+  rollback message quoting the new value), all red beforehand.
+  **Hardware evidence:** a real `otampy upd` over the XBee gateway printed
+  `Update completed successfully! Device is rebooting.` →
+  `Waiting for the updated device to answer...` → `Candidate confirmed.`
+  with no manual `otampy confirm`. Same command failed at the same point
+  before the change.
+  _(Original agreed approach 2026-09-10, unchanged in implementation. Rejected: raising
+  `update_ready_timeout_seconds` globally, which is used in four places and
+  would triple the time every unrelated failure takes to report; and narrowing
+  the `trial -> wide` selection rule, which would re-open F-10 — that boot is
+  precisely the one that needs radio recovery if the candidate bricks the
+  application.)_
+- **Closed:** 2026-09-10 (`/sl-findings review`). Verified independently:
+  `post_commit_ready_timeout_seconds` present at `cli.py:68` (default `30.0`,
+  env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); its three claimed call sites
+  (`cli.py:1404`, `2691`, `2721`) all read it; the READY-broadcast wait at
+  `cli.py:2514` still reads the old `update_ready_timeout_seconds`, as
+  intended. `uv run pytest tests/test_cli.py -k "post_commit_ready_timeout or
+  rollback_message or wait_for_pong"` — 4 passed. Beyond the tests, three
+  independent hardware runs the same session (`docs/development/failsafe-
+  update-window-reachability-log.md`, step 5 run 2) each printed `Candidate
+  confirmed.` with no manual intervention — the exact failure this finding
+  named, now absent on real hardware three times running. No new defect
+  introduced.
+
+---
+
+### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
+
+- **Severity:** P1
+- **Status:** closed — 2026-09-11, `/sl-findings review`. **Both halves are
+  built and proven.** Device half: the two-tier wide window
+  (`failsafe-update-window-reachability-spec.md`), proven on hardware at
+  9006 / 9017 / 8977 ms. Host half: the held-open-port handshake poll
+  (`failsafe-update-recovery-handshake-spec.md` step 3, F-15), proven by three
+  first-cycle recoveries on 2026-09-11 (see Resolution/Closed below for the
+  precise caveat on the recovery-wait value used). The original
+  title/diagnosis (host blind-retry cadence) was wrong; the cadence fix was
+  necessary housekeeping but never the binding constraint. See "Root cause
+  established 2026-09-10" below.
+- **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
+  URST-handshake path it drives); interacts with
+  `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
+  default 1000)
+- **Found:** 2026-09-09, HIL verification of sub-task 4. `otampy rollback
+  --recover` against a genuinely stranded device (fatal `main.py`, no watchdog),
+  operator power-cycling on the prompt: **0 hits in 2 attempts**, each a full
+  60 s `recovery-wait` expiry. The device was then recovered by trial-boot
+  auto-restore, not by the window.
+- **Evidence:** `urst.constants` — `MAX_RETRIES = 3`, `ACK_TIMEOUT_MS = 1000`.
+  A CONNECT handshake against an **absent** peer runs `MAX_RETRIES + 1 = 4`
+  attempts × 1000 ms ≈ **4 s**. `_query` retries that `query_retries = 3`
+  times ≈ **12 s per call**. `_recover_query` loops `_query` with only a
+  0.05–0.25 s backoff between calls, so the host puts a fresh CONNECT on the
+  wire roughly **once every 12 s**. `_run_boot_listen`'s window is **1 s per
+  boot** (`OTA_BOOT_LISTEN_MS` default 1000, 10 ms poll). Per-power-cycle hit
+  probability ≈ 1 s / 12 s ≈ **8 %**; expected power cycles to recover ≈ 12.
+  Observed 0/2 is consistent with that, not with variance.
+- **Impact:** The headline capability of sub-task 4 — recover a device stranded
+  before `ota.poll()` over the radio with no USB — does not work in practice.
+  An operator following the CLI's own instructions ("power-cycle when
+  prompted") would give up long before landing a command. HIL tests 1, 2, 5
+  and 6 all depend on a command reaching the window and cannot pass until this
+  is fixed. The window code itself (`_run_boot_listen`) is correct: it polls
+  every 10 ms and would answer any CONNECT inside the second — the fault is
+  that the host never sends one fast enough.
+- **Suggested fix (host-side):** `_recover_query` should drive `_query` (or a
+  dedicated fast path) with a **fail-fast transport** — 1 handshake attempt,
+  short ACK timeout (~100–150 ms), no inner `query_retries` — so it emits many
+  CONNECTs per second and reliably catches a 1 s window. The retry loop, not
+  the per-attempt timeout, is what should span `recovery_wait_seconds`. A
+  device-side-only mitigation (larger `OTA_BOOT_LISTEN_MS`) trades directly
+  against the per-boot cost the spec set out to minimise and is not the right
+  lever. The signed-off Protocol decision that dropped the `RECOVERY` beacon
+  in favour of "silent window + host blind-retry" (spec §"Protocol decision" /
+  D2) should be revisited in light of this: blind retry is viable, but only if
+  the host retries an order of magnitude faster than it does today.
+- **Fix applied (2026-09-09, step 9 + follow-on):** `_recover_query` now runs
+  its poll under `_fast_recovery_handshake()` (`urst.constants.ACK_TIMEOUT_MS`
+  1000 → 500, `MAX_RETRIES` 3 → 0, restored on exit) and calls
+  `_query(fast=True)` — single attempt, no `query_retries` loop, no backoff,
+  and a small serial read timeout (`_RECOVERY_SERIAL_TIMEOUT = 0.1`) threaded
+  through `_open_transport` so an absent port returns in ~ms not the default
+  2 s. Host CONNECT cadence measured in HIL went from ~1 per 12 s to ~1.2 per
+  second. Verified by unit tests.
+- **HIL re-test 2026-09-09 — still fails.** Three runs against a stranded
+  device (`ACK_TIMEOUT` 120/500, various serial timeouts), operator
+  power-cycling: **0 `CONNECT_ACK` in 48–108 host attempts per run**, every
+  run a full recovery-wait timeout. A `connect()` against the *healthy* device
+  measures ~81 ms, so the link is fast and 500 ms is not too tight — yet the
+  boot-time window never answers a single CONNECT. So the host cadence was
+  necessary but is **not sufficient**; there is a second cause, on the device
+  side or in how the retry pattern hits the XBee:
+  - Simon (hardware): XBees dislike back-to-back sends — they need a gap of
+    ~30 ms between frames or they buffer/drop. The current loop reopens the
+    serial port every cycle (toggling DTR/RTS on an FTDI→XBee) and re-sends
+    CONNECT ~1.2×/s; that open/close churn, not just the CONNECT spacing, may
+    be upsetting the module right when the freshly-booted device needs it
+    quietest.
+  - Device side unverified: `_run_boot_listen` calls `core.transport.read()`,
+    which blocks up to the *device's* `ACK_TIMEOUT_MS` (1000) per call, so the
+    ~1 s window may execute only one or two `read()` calls. Whether a CONNECT
+    that lands mid-window actually gets its `CONNECT_ACK` out before the
+    deadline needs on-device instrumentation to confirm.
+- **Next (fresh session):** ~~(1) add temporary logging...~~ **Done — see
+  below. Steps (2)/(3) are moot: the host retry pattern is not the fault.**
+- **Root cause established 2026-09-10 (HIL, on-device instrumentation).** The
+  window opens at a strikingly consistent **`ticks_ms` ≈ 2050–2170** after
+  power-on and listens for its full second (`elapsed ≈ 1017`), i.e. it is open
+  from about **t+2.05 s to t+3.15 s**. After a *power cycle* the XBee loses
+  power too, and the first frame it delivers to the device UART arrives at
+  **t+3.6 s to t+8.7 s** — always after the window has shut. Measured with a
+  15 s window: first packet at `ts=5704` on one boot, `ts=10885` (a `ROLLBACK`,
+  which matched and successfully recovered the device) on another.
+  **Control:** on a boot following a *software* `machine.reset()`, where the
+  XBee never lost power, the first packet arrives at `ts=2275` — **80 ms**
+  after the window opens. Cold radio vs warm radio is the entire effect.
+- **Why the cadence theory was wrong:** the failure was always **100 %**, never
+  probabilistic — 0/48, 0/93, 0/108, and 0/3 on a clean instrumented run. A
+  race against a 1 s window at ~1.2 CONNECT/s would have landed something well
+  inside 100 attempts. Total systematic exclusion means the window and the
+  radio's readiness never overlap, which is why making the host retry 10×
+  faster changed nothing measurable.
+- **Retired lead:** "the ~1 s window may execute only one or two `read()` calls
+  and miss a mid-window CONNECT" is **false**. `read()` blocks for the device's
+  `ACK_TIMEOUT_MS` (1000 ms), so one call *is* a continuous full-window listen
+  (`iters=15` over a 15 s window). The window code is correct as written.
+- **Implication for the fix — spec-level, not a patch.** The prior "suggested
+  fix (host-side)" and the dismissal of a larger `OTA_BOOT_LISTEN_MS` as "not
+  the right lever" are both **backwards**: overlapping the radio's wake-up is
+  the only lever that matters. This falsifies the premise of signed-off
+  **Protocol decision D2** ("silent window + host blind-retry"): against a cold
+  radio a short silent window cannot work however fast the host retries. The
+  trade to settle is per-boot cost (a wide window delays `main.py` on *every*
+  healthy boot) against recovery reliability — e.g. widen unconditionally,
+  delay-then-listen, open a long window only when the journal shows an
+  unconfirmed candidate, or revisit the dropped beacon. Needs `/sl-spec`.
+- **First successful recovery:** with the window at 15 s, a genuinely stranded
+  device (fatal `main.py`) was recovered over the radio by an in-window
+  `ROLLBACK`, no USB — **HIL test 2 PASS**, the first in this saga. Confirmed
+  healthy afterwards with `otampy ping` over the gateway.
+- **Methodology traps found (both had been corrupting earlier evidence):**
+  (a) `rollback --recover` against a *healthy* device proves nothing — the
+  running `manager.poll` serves `ROLLBACK` and returns an identical reply, so
+  the test must use a genuinely stranded device; (b) **every `mpremote`
+  invocation soft-reboots the device on exit**, including `fs ls`/`fs cat`/
+  `fs rm`, appending phantom window entries (recognisable by a large `ts`,
+  since a soft reset does not clear `ticks_ms()`). Batch all device
+  interaction into one `mpremote ... + ...` session and touch USB not at all
+  between a run's power cycles.
+- **Also noted:** `log_to_file` is not installed on the HIL device, so
+  `core.logger` is a `NullLogger` — every `logger.*` call inside the window
+  (and elsewhere in `boot.py`) currently goes nowhere on that rig.
+- **Edge noted, not fixed:** if the in-window ROLLBACK lands and the device
+  resets but its reply is lost, the CLI retries and then reports "Nothing to
+  roll back" (exit 1) though the rollback actually succeeded. Pre-existing to
+  the blind-retry design. `_wait_for_pong` still confirms real health.
+- **Stays open after the 2026-09-10 wide-window HIL (step 5, run 2).** The
+  device half of F-10 is fixed and measured: the wide window opened for
+  **9006 / 9017 / 8977 ms** on three consecutive stranded boots, from
+  t≈1.5 s to t≈10.5 s after power-on, comfortably spanning the cold XBee's
+  t+3.6–8.7 s first frame. It is now demonstrably reachable — a `PING` on the
+  **normal** handshake path landed inside one and drew the window's own
+  `ERROR:Recovery window` refusal. But `otampy rollback --recover` still
+  **failed on two consecutive genuine power cycles** (60 s `recovery-wait`
+  expiry each, operator cycling ~5 s after the prompt), and the device was
+  rescued by trial-boot auto-restore, not by the radio. The remaining cause is
+  host-side and is F-10's *own* earlier repair — the fail-fast handshake
+  profile — split out as **F-15**. F-10 closes when a `--recover` command
+  actually recovers a stranded device across repeated attempts; the widened
+  window is a necessary part of that, not the whole of it.
+  Evidence: `docs/development/failsafe-update-window-reachability-log.md`
+  (2026-09-10, step 5 run 2).
+- **Resolution:** 2026-09-11, `failsafe-update-recovery-handshake-spec.md`
+  step 3 (F-15) closes the remaining host-side half. HIL 1 met this finding's
+  own stated bar -- a stranded device recovered over the radio, one power
+  cycle, three times running -- on 2026-09-11: landings at 1.1 s, 2.2 s and
+  3.2 s after the device's radio woke, each preceded by a deliberate
+  re-strand so no attempt could be rescued by trial auto-restore, each
+  verified clean afterwards over the radio with USB untouched.
+- **Closed:** 2026-09-11, `/sl-findings review`. **One caveat kept precise
+  rather than glossed over:** the three passing HIL 1 runs used
+  `OTAMPY_RECOVERY_WAIT=300`, not the shipped default of `60`, because the
+  wait had to absorb the round-trip of asking Simon to power-cycle over chat,
+  not the recovery itself. The figure that actually bears on whether the
+  shipped 60 s default is adequate is time from the device's radio waking to
+  the command landing, and that measured 1.1-3.2 s across all three passes --
+  roughly 20x margin. A literal run at `recovery-wait=60` was attempted once
+  and discarded as not a real attempt (no `URST Connected` line at all in the
+  log -- Simon did not see the prompt in time to cycle within the poll's
+  60 s), so there is no positive hardware evidence of the mechanism operating
+  under the literal 60 s wait, only of the sub-component (wake-to-ACK) that
+  determines whether 60 s is enough. Closing on the strength of that
+  reasoning plus the repeated fast landings, not on a literal like-for-like
+  run -- worth a real 60 s attempt if the coordination latency can be removed
+  (e.g. Simon cycling on a countdown rather than a chat round-trip).
+- **Scope limit found after closing (2026-09-11, see F-18):** all six landings
+  behind this closure -- HIL 1 x3, HIL 2, test 5 x2 -- stranded the device with
+  `upd --no-confirm`, which leaves an **unconfirmed candidate**, so the wide
+  window was selected by the journal test. The **marker-only** path, which is
+  the branch the marker was added for (a *confirmed* generation that later
+  proves fatal), has **never landed a command**: 0 for 2. The fix and its
+  evidence are real for the path they cover; this one is unproven rather than
+  proven broken. If F-18's instrumentation shows the marker-only window is
+  genuinely unreachable, **reopen this finding** -- that would be the original
+  defect surviving in the branch that matters most for `rollback --recover`.
+
+### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
+
+- **Severity:** P0
+- **Status:** closed — 2026-09-10, reviewed independently of the fix
+- **Area:** `src/otampy/device/lib/otampy/ota.py` (`OTA.boot()` `finally` teardown)
+- **Found:** 2026-09-09, HIL verification of the boot-time recovery window
+  (sub-task 4). Device was unreachable over the radio after a clean deploy of
+  the branch; USB REPL showed `KeyError: authgate` from `ota.py` on every boot.
+- **Evidence:** commit `b07b4e9` added `"authgate"` to the
+  `for submodule in ("boot", "restore", "authgate")` teardown loop. `authgate`
+  is imported by the recovery window **only when `OTA_REQUIRE_AUTH` is set**, so
+  on a normal boot `device_otampy.authgate` is never an attribute of the
+  package. CPython's `delattr(package, "authgate")` then raises
+  `AttributeError` (caught); **MicroPython raises `KeyError`** (not caught by
+  `except AttributeError`). The exception propagates out of `boot()`, through
+  `boot.py`, so `main.py` never runs. Confirmed on device:
+  `delattr(otampy, 'authgate')` → `KeyError('authgate',)`.
+- **Impact:** Every device that deploys this branch **without** `OTA_REQUIRE_AUTH`
+  is stranded on the next boot — boot.py crashes, `main.py`'s poll loop never
+  starts, and the boot-time recovery window itself never opens (boot.py raises
+  after it). USB-only recovery. This is the exact failure class the Fail-safe
+  Updates epic exists to remove, reintroduced by its last sub-task. Host tests
+  passed because they run on CPython.
+- **Fix applied:** `except AttributeError` → `except (AttributeError, KeyError)`
+  at the `delattr` call site (mirrors the `del sys.modules[...]` guard two
+  lines up, which already catches `KeyError`). Regression test
+  `test_boot_teardown_survives_micropython_delattr_keyerror` in
+  `test_ota_facade.py` simulates MicroPython's `delattr` semantics.
+- **Follow-up noted (not this finding):** `test_ota_facade.py`'s existing
+  `test_boot_releases_boot_module_and_can_run_again` deletes
+  `device_otampy.boot` from `sys.modules` without restoring it; under a
+  `pytest-randomly` seed that orders it before `test_ota_boot.py` tests, those
+  tests then patch a stale module and fail. Pre-existing, masked by
+  alphabetical collection order. Worth a `TODO.md` item.
+- **Closed:** 2026-09-10 (`/sl-findings review`). Verified independently:
+  `ota.py:47`'s `delattr` call is wrapped in `except (AttributeError,
+  KeyError)` exactly as described; `test_boot_teardown_survives_micropython_
+  delattr_keyerror` passes in isolation and the full device suite is green
+  (`uv run pytest src/otampy/device/tests/ -q` — 373 passed). Since this
+  finding's own evidence was a CPython-test blind spot, host tests alone don't
+  clear it — the device has run this session's branch build, undeployed and
+  redeployed several times, **without** `OTA_REQUIRE_AUTH` set, and answered
+  `otampy ping` cleanly every time (most recently after step 5's HIL work).
+  That is the exact configuration this finding named as bricking the device;
+  it now boots correctly on real hardware. No new defect introduced.
+
 ### F-08 — a power loss while updating `restore.py` itself strands the device with no radio recovery
 
 - **Severity:** P2
@@ -32,8 +816,15 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   trigger is narrow. Strictly smaller than the pre-retain-previous exposure,
   where any interrupted commit could brick the device and no `.bck` existed.
 - **Suggested fix:** freeze `restore.py` into the deployed image, or F-06
-  Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`). Belongs
-  with sub-task 4 (boot-time recovery), not this sub-task.
+  Option C (a frozen `_boot.py` that runs `repair()` before `boot.py`).
+- **Not sub-task 4 (boot-time recovery window):** re-checked when that
+  sub-task was built (2026-09-09). The window cannot fix F-08 —
+  `boot.run()`'s `from .restore import ...` raises before the window would
+  open, and the flagged update loop's `from .restore import clear_journal,
+  commit` needs the same absent module. A real fix needs frozen code, so this
+  is now tracked as its own `TODO.md` item ("Freeze `restore.py` / a recovery
+  `_boot.py` into the deployed image") rather than parked on a sub-task that
+  demonstrably cannot resolve it.
 
 ## Closed
 

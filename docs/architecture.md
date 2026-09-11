@@ -124,6 +124,9 @@ OTA_TIMEOUT_MS = 5000
 UPDATE_REQUEST_FLAG_FILE = "update_requested.flag"
 OTA_JOURNAL_FILE = "otampy-update.journal"
 OTA_TRIAL_BOOTS = 3
+OTA_BOOT_LISTEN_MS = 1000
+OTA_BOOT_RECOVERY_LISTEN_MS = 8000
+OTA_BOOT_MARK_FILE = "otampy-boot.mark"
 ```
 
 `OTA_JOURNAL_FILE` (default `otampy-update.journal`, at the filesystem root)
@@ -133,6 +136,45 @@ never a real source file — a commit clobbers what it points at.
 `OTA_TRIAL_BOOTS` (default `3`) is how many boots into an unconfirmed update
 candidate the device tolerates before it auto-restores the previous
 generation. See "Trial boot" below.
+
+`OTA_BOOT_LISTEN_MS` (default `1000`) is how long `boot.py` listens for a
+recovery command on a boot that follows a healthy application run. It is added
+to every such boot — ~1 s at the default, plus one `Urst` transport
+instantiation. `0` disables the short window. A non-integer value falls back to
+the default; `<= 0` disables. See "Trial boot" below.
+
+`OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) is the window on a boot that
+follows a boot which never reached `OTA.poll()`, or that still carries an
+unconfirmed candidate. A power-cycled XBee does not deliver its first frame to
+the device UART until somewhere between t+3.6 s and t+8.7 s, while the short
+window opens at t≈2.05 s and shuts at t≈3.15 s — so the ~1 s window can never
+be hit in practice after a power cycle. The wide window stays open to t≈10.05 s
+and spans the cold radio's wake-up. It is paid *only* by devices that need it:
+a healthy device keeps paying ~1 s. `0` disables the wide window **and the boot
+marker entirely**, with zero filesystem cost — an at-risk boot then falls back
+to `OTA_BOOT_LISTEN_MS`, never to no window, because a boot that is more at
+risk must never get less than an ordinary one. Set both keys to `0` to opt out
+of the window altogether. A non-integer value is treated as a typo and falls
+back to the default rather than disabling recovery.
+
+`OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is the marker `boot.run()`
+writes once per boot and the first `OTA.poll()` removes. Its presence at boot
+means the *previous* boot never reached the application, which is what selects
+the wide window. Two consequences worth knowing:
+
+- **An application that never calls `OTA.poll()`** never clears the marker and
+  so pays the wide window on every boot. Such a device has no runtime OTA
+  surface at all, so a wide boot window is arguably right for it — but it is a
+  behaviour change. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` opts out.
+- **An application that crashes only after it has already polled** costs two
+  power cycles rather than one: the crashing boot cleared the marker, the next
+  boot sets it, and the one after that gets the wide window.
+
+A full or read-only filesystem makes the marker write fail silently, degrading
+that device to the short window with no host-visible signal. This is deliberate
+— a boot must never be stranded by a failed marker write — but it means
+recovery working in testing does not prove it works on a device whose flash has
+since filled up.
 
 ### 2. Boot-Time Updates (`boot.py`)
 
@@ -206,10 +248,62 @@ update can still be reverted over the radio: `otampy rollback` sends the
 channel-0 `ROLLBACK` command, `manager.poll` runs `restore.rollback()` (the
 whole retained generation renamed back, journal removed), replies, and
 `machine.reset()`s onto the previous version. It refuses without resetting
-when nothing is retained or a commit is mid-flight. `ROLLBACK` is served only
-by the `main.py` poll loop — a device stranded before that point needs the
-boot-time recovery window. Only one generation is retained, so rollback is
-one-shot: what it lands on has no `.bck` and cannot be rolled back again.
+when nothing is retained or a commit is mid-flight. `ROLLBACK` is served by the
+`main.py` poll loop and — for a device stranded before that point — by the
+boot-time recovery window (below). Only one generation is retained, so rollback
+is one-shot: what it lands on has no `.bck` and cannot be rolled back again.
+
+`boot.run()` opens a **recovery window** on every boot where
+`UPDATE_REQUEST_FLAG_FILE` is absent, after `repair()`/`trial()` have healed
+the tree. Its duration is one of two tiers: `OTA_BOOT_RECOVERY_LISTEN_MS`
+(default `8000`) when the boot marker survived the previous boot or the journal
+still shows an unconfirmed candidate, and `OTA_BOOT_LISTEN_MS` (default `1000`)
+otherwise — so only a device that has actually failed pays the wide window. If
+the wide tier is disabled (`0`), an at-risk boot falls back to the short window
+rather than getting none. It
+listens on channel 0 for exactly two commands — `UPDATE_REQUEST` (write the flag and reset into a
+normal update session) and `ROLLBACK` (revert to the retained generation) —
+answering everything else, `PING` included, with `ERROR:Recovery window`. It
+is the recovery path for a candidate that was confirmed and then proved fatal,
+or one that hangs before `ota.poll()` is reached. The window is silent (no
+beacon — an unacknowledged `Urst.send()` would cost up to ~8 s per boot), so
+the host blind-retries: `otampy upd --recover` and `otampy rollback --recover`
+prompt the operator to power-cycle, then hold one serial port open and
+handshake into the dark at about one CONNECT per second for `recovery-wait`
+seconds (default `60`) until a command lands in a window. That poll takes
+exclusive use of the port for its duration, so in a mux deployment nothing
+else may be contending for `mux.ota_port` while it runs; `docs/protocol.md`
+§2.4 records why the held-open port and the stock handshake timings are both
+load-bearing. When
+`OTA_REQUIRE_AUTH` is set the window enforces the same `AUTH:` envelope as the
+runtime surface — it is not a bypass. It needs `boot.py` itself to run;
+a `boot.py` that crashes earlier, or a wedged UART, still requires USB.
+`docs/protocol.md` §2.4 has the full dispatch table.
+
+`boot.run()` precedes `main.py`, so a custom `boot.py` that arms a watchdog
+*before* `OTA(...).boot()` passes its feed in as `heartbeat`:
+
+```python
+wdt = WDT(timeout=8388)
+OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+```
+
+Both blocking stretches of a boot — the recovery window and the default
+update loop — feed it once per loop iteration, on every path round rather
+than only while idle. The library never constructs or owns the `WDT`; the
+integrator arms it and chooses its period, exactly as `OTA.poll()`'s
+`heartbeat` already works. **With a `heartbeat` supplied,
+`OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 ms is safe.** With none, nothing
+feeds the watchdog for the window's duration — and since the window's
+measured span is 8899–9570 ms, the `8000` default does not reliably fit
+under the RP2040 cap either. `docs/protocol.md` §2.4 has the detail,
+including the one residual unfed span (a blocking `reply()` inside `urst`'s
+retry loop) that OTAmpy cannot close.
+
+An integrator whose hardware needs attention sooner than the window's duration
+(motor control, say) should note that it runs with no application throughout —
+up to ~8 s on a device that qualifies for the wide tier, rather than the ~1 s
+that used to be the worst case.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

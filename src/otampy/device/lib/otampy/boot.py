@@ -3,13 +3,37 @@ try:
 except ImportError:
     import os as _os
 
-from .core import _get_config, _resolve_path
+from .core import (
+    _boot_mark_path,
+    _boot_recovery_window_ms,
+    _call_heartbeat,
+    _config_int,
+    _get_config,
+    _resolve_path,
+)
 
 # The host stages this one-shot RTC helper in every ``otampy upd`` manifest
 # (unless ``--no-rtc``). It self-deletes on the next boot, so it must be placed
 # but never retained as ``.bck`` or journalled -- otherwise ``restore.repair()``
 # resurrects it from the backup the boot after (F-05).
 _RTC_HELPER_FILE = "_otampy_set_rtc.py"
+
+# Boot-time recovery window. Opened on every boot with no update pending, so
+# a device whose main.py never reaches ota.poll() -- it raises on import,
+# hangs, or was replaced by a fatal candidate that got confirmed -- is still
+# reachable over the radio with no USB.
+#
+# The window is silent: no beacon. An unacknowledged Urst.send() is
+# stop-and-wait reliable (connect + send_reliable, 4 attempts each at
+# ACK_TIMEOUT_MS), so announcing the window would cost up to ~8s on every
+# boot with no host listening. The host blind-retries instead.
+_DEFAULT_BOOT_LISTEN_MS = 1000
+_BOOT_LISTEN_POLL_MS = 10
+# The update loop's idle pause. Same role as _BOOT_LISTEN_POLL_MS above, and
+# it sets the same thing: the worst-case gap between two heartbeat feeds on
+# an idle session.
+_UPDATE_LOOP_POLL_MS = 10
+_RECOVERY_REFUSED = b"ERROR:Recovery window"
 
 
 def _apply_staged_rtc_update():
@@ -73,7 +97,12 @@ def _make_dirs(path):
             pass
 
 
-def _run_default_update_loop(core):
+def _run_default_update_loop(core, heartbeat=None):
+    """Serve one update session. ``heartbeat``, if given, is called once per
+    loop iteration -- every path round, as in ``_run_boot_listen`` -- and is
+    never allowed to raise out of the session (F-12). This loop is bounded
+    only by its inactivity timeout, so it can run far longer than the
+    recovery window and needs feeding at least as much."""
     core.logger.debug("Running OTA update loop")
     import binascii
     import gc
@@ -108,6 +137,10 @@ def _run_default_update_loop(core):
     last_activity = _ticks_ms()
 
     while True:
+        # Top of the body, before read(): the packet-handling paths below
+        # `continue` without ever reaching the idle sleep, so feeding there
+        # would leave an active session unfed for its whole duration.
+        _call_heartbeat(heartbeat)
         packet = read()
         if not packet:
             if _ticks_diff(_ticks_ms(), last_activity) >= timeout_ms:
@@ -129,7 +162,7 @@ def _run_default_update_loop(core):
                 _cleanup_orphaned_ota(core)
                 send(b"UPDATE_ABORTED")
                 break
-            _sleep_ms(10)
+            _sleep_ms(_UPDATE_LOOP_POLL_MS)
             continue
 
         last_activity = _ticks_ms()
@@ -366,6 +399,138 @@ def _run_default_update_loop(core):
             break
 
 
+def _persist_replay_floor(core):
+    """Record the replay counter before a window-commanded reset.
+
+    The `_replay_guard` check sits here, not inside `authgate`, so a device
+    with auth off never imports that module. `manager` keeps its own copy of
+    this four-line guard deliberately: importing `manager` from the boot
+    phase to share it would pull the entire runtime command surface in.
+    """
+    if getattr(core, "_replay_guard", None) is None:
+        return
+    from .authgate import persist_replay_floor
+
+    persist_replay_floor(core)
+
+
+def _run_boot_listen(core, window_ms, heartbeat=None):
+    """The boot-time recovery window. Never raises.
+
+    Listens silently for ``window_ms`` and serves exactly two commands,
+    ``UPDATE_REQUEST`` and ``ROLLBACK``. Returns ``True`` when it handled a
+    command that reset the board (so the caller returns -- a mocked
+    ``machine.reset`` in tests does not actually reset), ``False`` when the
+    window simply expired or was disabled.
+
+    ``run()`` chooses the duration -- wide after a boot that never reached
+    the application, short otherwise -- so this body serves both tiers
+    unchanged. ``<= 0`` disables the window and reads nothing at all.
+
+    A refusal does not consume the window: the deadline is **absolute** and
+    is never extended by activity, unlike ``_run_default_update_loop``'s
+    inactivity timeout, so a chatty peer cannot pin a device in here.
+
+    ``heartbeat``, if given, is called once per loop iteration -- every path
+    round, not just the idle one, since a chatty peer's refusals skip the
+    idle sleep entirely (F-12). It is never allowed to raise out of the
+    window, consistent with the rest of this function.
+
+    Deliberately does not answer ``PING``. A device in the window is not
+    running its application, and a ``PONG`` would report it healthy -- the
+    absence of one is the signal that recovery is needed.
+    """
+    if window_ms <= 0:
+        return False
+
+    read = core.transport.read
+    reply = core.transport.reply
+    require_auth = _get_config(core.config, "OTA_REQUIRE_AUTH", False)
+    started = _ticks_ms()
+
+    while _ticks_diff(_ticks_ms(), started) < window_ms:
+        # Top of the body, before read(): only one of this loop's five paths
+        # round reaches the idle sleep below. Feeding there would leave a
+        # peer streaming refused or malformed packets spinning the whole
+        # window with no feed at all (F-12).
+        _call_heartbeat(heartbeat)
+        packet = read()
+        if not packet:
+            _sleep_ms(_BOOT_LISTEN_POLL_MS)
+            continue
+
+        packet = (
+            str(packet).strip().encode()
+            if not isinstance(packet, bytes)
+            else packet.strip()
+        )
+        if not packet:
+            continue
+
+        # ASCII protocol packets stay as bytes. Validate UTF-8 only when a
+        # high-bit byte makes it relevant; a non-UTF-8 packet is dropped in
+        # silence, as manager.poll drops one.
+        decodable = True
+        for value in packet:
+            if value & 0x80:
+                try:
+                    packet.decode("utf-8")
+                except UnicodeError:
+                    decodable = False
+                break
+        if not decodable:
+            core.logger.warning("Recovery window: ignoring non-UTF-8 packet")
+            continue
+
+        # The window enforces the same auth envelope the runtime command
+        # surface does, so it is not a bypass. Imported lazily and only when
+        # auth is configured, keeping the no-auth boot path unchanged.
+        if require_auth:
+            from .authgate import authenticate
+
+            inner = authenticate(core, packet.decode("utf-8"))
+            if inner is None:
+                continue
+            packet = inner.encode()
+
+        if packet == b"UPDATE_REQUEST":
+            flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
+            if flag:
+                try:
+                    with open(flag, "w") as handle:
+                        handle.write("1")
+                except OSError as err:
+                    core.logger.error(f"Failed to write flag-file: {err}")
+            reply(b"REBOOTING")
+            core.logger.info("Recovery window: update requested; resetting")
+            _persist_replay_floor(core)
+            import machine
+
+            machine.reset()
+            return True
+
+        elif packet == b"ROLLBACK":
+            from .restore import rollback_result
+
+            response, restored = rollback_result(core)
+            reply(response)
+            if restored:
+                core.logger.info(
+                    f"Recovery window: rollback restored {restored} "
+                    "file(s); resetting"
+                )
+                _persist_replay_floor(core)
+                import machine
+
+                machine.reset()
+                return True
+
+        else:
+            reply(_RECOVERY_REFUSED)
+
+    return False
+
+
 def _canonical(path):
     # Collapse the "./" / "/./" traversal artefacts so a swept item's path
     # compares equal to the "/dir/file" form read_journal() stores. Without
@@ -420,17 +585,21 @@ def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
         pass
 
 
-def run(core, callback=None):
+def run(core, callback=None, heartbeat=None):
     """
     Check if the update request flag-file exists, execute the callback to
     perform the update, and remove the flag-file.
+
+    ``heartbeat`` is passed to whichever of the two blocking loops this boot
+    enters -- the recovery window or the default update loop -- so a caller
+    that armed a watchdog before ``boot()`` is not reset inside either.
     """
     _apply_staged_rtc_update()
 
     # Finish or reverse an interrupted retain-previous commit before anything
     # else touches the filesystem -- runs on every boot, flagged or not.
     # Local import so it stays GC-eligible alongside `boot` itself.
-    from .restore import _ROLLED_BACK, repair, trial
+    from .restore import _LABEL_STABLE, _ROLLED_BACK, repair, state, trial
 
     repair(core)
 
@@ -447,6 +616,29 @@ def run(core, callback=None):
         machine.reset()
         return
 
+    # Record that this boot started. Its presence on the *next* boot means
+    # this one never reached OTA.poll(), which is what selects the wide
+    # recovery window. Written after trial() -- a boot that exhausts the trial
+    # limit resets above and must leave no stale marker -- and before the flag
+    # lookup, so an update boot is marked too.
+    #
+    # Existence is tested before writing, never after: the mechanism inverts
+    # otherwise, and a device already in a boot loop must do zero writes.
+    # Never raises -- a failed write degrades to the short window rather than
+    # stranding the boot.
+    boot_mark = _boot_mark_path(core.config)
+    had_boot_mark = False
+    if boot_mark:
+        try:
+            _os.stat(boot_mark)
+            had_boot_mark = True
+        except OSError:
+            try:
+                with open(boot_mark, "w") as handle:
+                    handle.write("1")
+            except OSError as err:
+                core.logger.error(f"Failed to write boot marker: {err}")
+
     core.logger.debug("Checking for update flag-file...")
     flag = _get_config(core.config, "UPDATE_REQUEST_FLAG_FILE")
 
@@ -461,6 +653,38 @@ def run(core, callback=None):
         has_flag = True
     except OSError:
         pass
+
+    # The boot-time recovery window. Only on a boot with no update already
+    # pending, and only after repair()/trial() above, so it operates on a
+    # healed tree and never interferes with a session in progress. `return`
+    # because a mocked `machine.reset` in tests does not actually reset.
+    #
+    # Two tiers. A boot that follows one which never reached OTA.poll(), or
+    # that still carries an unconfirmed candidate, gets the wide window --
+    # long enough to overlap a power-cycled XBee's wake-up, which the ~1s
+    # window never did (F-10). Every other boot keeps paying only the short
+    # one, which is the whole point: a healthy fleet does not carry the cost.
+    #
+    # Both tests are needed and neither subsumes the other. The journal test
+    # catches an unconfirmed candidate that strands the device on its very
+    # first boot, and is free -- the journal is already read. The marker
+    # catches a *confirmed* generation that later proves fatal, which the
+    # journal cannot see and which is exactly the `rollback --recover` case.
+    #
+    # `OTA_BOOT_RECOVERY_LISTEN_MS = 0` turns the wide window off, not every
+    # window: an at-risk boot then falls back to the short one rather than
+    # getting nothing, since it must never end up with less than an ordinary
+    # boot already pays (F-14).
+    if not has_flag:
+        window_ms = 0
+        if had_boot_mark or state(core)[0] != _LABEL_STABLE:
+            window_ms = _boot_recovery_window_ms(core.config)
+        if window_ms <= 0:
+            window_ms = _config_int(
+                core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
+            )
+        if _run_boot_listen(core, window_ms, heartbeat):
+            return
 
     if has_flag:
         core.logger.debug("FOUND update flag-file")
@@ -477,7 +701,7 @@ def run(core, callback=None):
                 )
                 callback()
         else:
-            _run_default_update_loop(core)
+            _run_default_update_loop(core, heartbeat)
 
         # Remove the flag-file
         try:

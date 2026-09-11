@@ -65,6 +65,20 @@ CONFIG_SETTINGS = {
         "type": float,
         "description": "Seconds to wait for the boot-time READY broadcast during upd.",
     },
+    "post_commit_ready_timeout_seconds": {
+        "display": "post-commit-ready-timeout",
+        "env": "OTAMPY_POST_COMMIT_READY_TIMEOUT",
+        "default": 30.0,
+        "type": float,
+        "description": "Seconds to wait for a PING answer after a commit or rollback reboot. Longer than update-ready-timeout because such a boot pays the wide boot-time recovery window (docs/protocol.md 2.4).",
+    },
+    "recovery_wait_seconds": {
+        "display": "recovery-wait",
+        "env": "OTAMPY_RECOVERY_WAIT",
+        "default": 60.0,
+        "type": float,
+        "description": "Seconds to keep retrying a --recover command while the operator power-cycles the device into its boot-time recovery window.",
+    },
     "transfer_chunk_size": {
         "display": "transfer-chunk-size",
         "env": "OTAMPY_TRANSFER_CHUNK_SIZE",
@@ -972,7 +986,10 @@ def _read_full_reply(transport):
 
 
 def _open_transport(
-    ctx: click.Context, *, clear_queue: bool = True
+    ctx: click.Context,
+    *,
+    clear_queue: bool = True,
+    serial_timeout: float | None = None,
 ) -> tuple[serial.Serial, Urst]:
     """Open the serial port and wrap it in a URST transport.
 
@@ -980,6 +997,10 @@ def _open_transport(
     call sites share: raw ``serial.Serial``, DTR/RTS held low, input and
     output buffers reset, ``Urst`` constructed, and (unless
     ``clear_queue=False``) any stale receive-queue frames discarded.
+
+    ``serial_timeout`` overrides ``serial_timeout_seconds`` for this open --
+    the recovery poll passes a small value so a read against an absent device
+    returns in milliseconds, not the default 2 s (F-10).
 
     Returns ``(raw_serial, transport)``; callers close ``raw_serial``.
     """
@@ -995,7 +1016,8 @@ def _open_transport(
             "Error: Missing serial port. Specify with --port or -p option."
         )
 
-    serial_timeout = float(get_config_value("serial_timeout_seconds"))
+    if serial_timeout is None:
+        serial_timeout = float(get_config_value("serial_timeout_seconds"))
     ser = serial.Serial(port, baudrate=baud, timeout=serial_timeout)
     try:
         ser.dtr = False
@@ -1018,6 +1040,130 @@ def _open_transport(
             pass
 
     return ser, transport
+
+
+# The recovery poll's serial read timeout. LOAD-BEARING, not a taste knob:
+# urst's read_frame() loops `ser.read(max(1, in_waiting))`, and against a
+# silent port `in_waiting` is 0, so each iteration blocks for the *pyserial*
+# timeout. A pyserial timeout larger than ACK_TIMEOUT_MS therefore makes the
+# ACK deadline unenforceable -- at the default 2.0s a nominal 1000ms handshake
+# attempt really takes ~2s and connect()'s four attempts take ~8s. The
+# invariant, asserted by a test so a later edit to either number cannot
+# silently undo it:
+#
+#     _RECOVERY_SERIAL_TIMEOUT <= urst.constants.ACK_TIMEOUT_MS / 1000
+_RECOVERY_SERIAL_TIMEOUT = 0.2
+
+# Quiet gap between handshake attempts. XBees drop or buffer back-to-back
+# frames without a ~30ms gap.
+_RECOVERY_HANDSHAKE_GAP_S = 0.05
+
+
+class _RecoveryMiss(Exception):
+    """The recovery window was shut, or shut mid-exchange -- poll again.
+
+    Not an error: missing a window is the normal case for most of a poll,
+    and is exactly what the loop exists to absorb.
+    """
+
+
+def _close_quietly(ser) -> None:
+    """Close a serial port, ignoring a port that is already gone."""
+    if ser is None:
+        return
+    try:
+        ser.close()
+    except Exception:
+        pass
+
+
+def _reset_recovery_session(transport) -> None:
+    """Forget a half-finished URST session so the next attempt starts clean.
+
+    A handshake that completed just as the window shut leaves
+    ``is_connected`` True and may leave frames queued. Without this the next
+    attempt would skip CONNECT entirely and send into a device that is no
+    longer listening.
+    """
+    try:
+        transport.protocol.is_connected = False
+        transport.protocol._recv_queue.clear()
+    except Exception:
+        pass
+
+
+def _recovery_attempt(
+    transport, command: bytes, expected_prefix: bytes, signer
+) -> bytes:
+    """One handshake-then-command exchange against a possibly-absent window.
+
+    Raises ``_RecoveryMiss`` for every outcome that means "the window was not
+    there, try again", and lets ``DeviceError`` through untouched -- that one
+    means the device *answered*.
+    """
+    if not transport.protocol.connect():
+        raise _RecoveryMiss("no handshake")
+
+    if not transport.send(_outgoing_bytes(command, signer)):
+        raise _RecoveryMiss("command not delivered")
+
+    response = _read_full_reply(transport)
+    if not response:
+        raise _RecoveryMiss("no reply")
+
+    try:
+        return _interpret_reply(response, command, expected_prefix)
+    except click.ClickException as e:
+        # A reply that doesn't match the prefix is a stale frame or a
+        # half-open window, not a protocol error worth aborting the whole
+        # recovery for. The old blind-retry design retried these too.
+        raise _RecoveryMiss(str(e)) from None
+
+
+def _interpret_reply(
+    response: bytes, command: bytes, expected_prefix: bytes
+) -> bytes:
+    """Turn one raw device reply into the payload the caller asked for.
+
+    ``ERROR:<msg>`` means the device *answered* with a refusal, so it becomes
+    a ``DeviceError`` carrying the command. A reply that does not start with
+    ``expected_prefix`` is a protocol mismatch (``ClickException``).
+    Otherwise the prefix -- and its optional ``:`` separator -- is stripped
+    and the remainder returned.
+    """
+    if response.startswith(b"ERROR:"):
+        err_msg = response[6:].decode("utf-8", errors="replace")
+        raise DeviceError(err_msg, command)
+
+    if not response.startswith(expected_prefix):
+        resp_str = (
+            response.decode("utf-8", errors="replace")
+            if isinstance(response, bytes)
+            else str(response)
+        )
+        raise click.ClickException(
+            f"Unexpected response to command '{command.decode()}'. "
+            f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
+        )
+
+    prefix_len = len(expected_prefix)
+    if (
+        len(response) > prefix_len
+        and response[prefix_len : prefix_len + 1] == b":"
+    ):
+        return response[prefix_len + 1 :]
+    return response[prefix_len:]
+
+
+def _outgoing_bytes(command: bytes, signer: auth.CommandSigner | None) -> bytes:
+    """The bytes to put on the wire for one send attempt.
+
+    Called per attempt and never hoisted out of a retry loop: each retry must
+    carry a fresh counter, or a first attempt that reached the device but lost
+    its reply would leave every retry looking like a replay and the command
+    would fail permanently.
+    """
+    return command if signer is None else signer.wrap(command)
 
 
 def _query(
@@ -1045,19 +1191,9 @@ def _query(
     except auth.CommandAuthError as e:
         raise click.ClickException(str(e)) from e
 
-    def outgoing() -> bytes:
-        """The bytes to put on the wire for one send attempt.
-
-        Called per attempt and never hoisted out of the retry loop: each
-        retry must carry a fresh counter, or a first attempt that reached
-        the device but lost its reply would leave every retry looking
-        like a replay and the command would fail permanently.
-        """
-        return command if signer is None else signer.wrap(command)
-
     # If transport provided, use it directly (single attempt)
     if transport is not None:
-        if not transport.send(outgoing()):
+        if not transport.send(_outgoing_bytes(command, signer)):
             raise click.ClickException("Failed to send command over transport.")
 
         response = _read_full_reply(transport)
@@ -1066,33 +1202,7 @@ def _query(
                 f"Timeout waiting for response to command: {command.decode()}"
             )
 
-        # Check for device error response
-        if response.startswith(b"ERROR:"):
-            err_msg = response[6:].decode("utf-8", errors="replace")
-            raise DeviceError(err_msg, command)
-
-        if not response.startswith(expected_prefix):
-            resp_str = (
-                response.decode("utf-8", errors="replace")
-                if isinstance(response, bytes)
-                else str(response)
-            )
-            raise click.ClickException(
-                f"Unexpected response to command '{command.decode()}'. "
-                f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
-            )
-
-        # Return payload after prefix and potential colon separator
-        prefix_len = len(expected_prefix)
-        if (
-            len(response) > prefix_len
-            and response[prefix_len : prefix_len + 1] == b":"
-        ):
-            res = response[prefix_len + 1 :]
-        else:
-            res = response[prefix_len:]
-
-        return res, None
+        return _interpret_reply(response, command, expected_prefix), None
 
     # Create new transport with retry logic
     last_err = None
@@ -1105,7 +1215,7 @@ def _query(
             ser, new_transport = _open_transport(ctx)
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
-            if not new_transport.send(outgoing()):
+            if not new_transport.send(_outgoing_bytes(command, signer)):
                 raise click.ClickException(
                     "Failed to send command over transport."
                 )
@@ -1116,33 +1226,13 @@ def _query(
                     f"Timeout waiting for response to command: {command.decode()}"
                 )
 
-            # Check for device error response
-            if response.startswith(b"ERROR:"):
-                err_msg = response[6:].decode("utf-8", errors="replace")
+            # Closed on the way out either way: a DeviceError is re-raised
+            # below without reaching the broad handler that would close it.
+            try:
+                res = _interpret_reply(response, command, expected_prefix)
+            except Exception:
                 ser.close()
-                raise DeviceError(err_msg, command)
-
-            if not response.startswith(expected_prefix):
-                resp_str = (
-                    response.decode("utf-8", errors="replace")
-                    if isinstance(response, bytes)
-                    else str(response)
-                )
-                ser.close()
-                raise click.ClickException(
-                    f"Unexpected response to command '{command.decode()}'. "
-                    f"Expected prefix '{expected_prefix.decode()}', got '{resp_str}'"
-                )
-
-            # Return payload after prefix and potential colon separator
-            prefix_len = len(expected_prefix)
-            if (
-                len(response) > prefix_len
-                and response[prefix_len : prefix_len + 1] == b":"
-            ):
-                res = response[prefix_len + 1 :]
-            else:
-                res = response[prefix_len:]
+                raise
 
             ser.close()
             return res, None
@@ -1211,6 +1301,131 @@ def _send_command(
     _query(ctx, command, expected_response)
 
 
+def _device_alive(ctx: click.Context) -> bool:
+    """One quick, single-attempt ``PING`` -- ``True`` only on a real ``PONG``.
+
+    Used by ``_recover_query`` (F-17) to tell a healthy, running device from
+    one genuinely stranded before a window poll begins. Reuses the recovery
+    handshake's short timeout so a device that really is stranded (the
+    common case) only pays about one extra connect cycle here, not a full
+    retry storm. Any failure to confirm aliveness -- no reply, a device
+    error, a dropped port -- returns ``False`` and lets the caller fall back
+    to the normal recovery poll; a false negative here is safe; a false
+    positive would block a legitimate recovery.
+    """
+    try:
+        signer = _command_signer()
+    except auth.CommandAuthError:
+        return False
+    ser, transport = _open_transport(
+        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+    )
+    try:
+        _recovery_attempt(transport, b"PING", b"PONG", signer)
+        return True
+    except (_RecoveryMiss, DeviceError, OSError):
+        return False
+    finally:
+        _close_quietly(ser)
+
+
+def _recover_query(
+    ctx: click.Context,
+    command: bytes,
+    expected_prefix: bytes,
+    *,
+    refuse_if_alive: bool = False,
+) -> bytes:
+    """Land ``command`` in the device's boot-time recovery window.
+
+    The window is silent (see docs/protocol.md 2.4), so there is nothing to
+    synchronise on: the host prompts for a power cycle, then handshakes into
+    the dark until one attempt lands inside a window or
+    ``recovery_wait_seconds`` expires. A missed window is benign -- the
+    operator power-cycles again.
+
+    ``refuse_if_alive`` (F-17): the window and ``manager.poll`` can serve the
+    same command identically (``ROLLBACK`` does), so blind-retrying into a
+    device that is already running would perform that command immediately
+    and silently instead of waiting for a window. When set, a device that
+    answers ``PING`` up front makes this raise instead of proceeding.
+
+    The port is opened **once** and held for the whole poll (F-15). Reopening
+    per cycle toggled DTR/RTS on the FTDI->XBee roughly once a second, at
+    exactly the moment a freshly-booted device needs the link quietest, and
+    the fail-fast profile it carried made each attempt too fragile to finish a
+    handshake over the radio. With a ~9s window, cadence is cheap and
+    per-attempt robustness is what matters: one ``connect()`` at stock URST
+    timings takes ~1s and several still fit inside a window.
+
+    ``DeviceError`` is deliberately *not* caught: it means the device answered
+    (a refusal, or an auth rejection), so retrying would be wrong.
+    """
+    if refuse_if_alive and _device_alive(ctx):
+        raise click.ClickException(
+            "Device answered PING -- it is already running, not stranded "
+            "before a boot-time window. --recover would perform this "
+            "command immediately against the running application rather "
+            "than wait for a window. Use the command without --recover."
+        )
+
+    wait = float(get_config_value("recovery_wait_seconds"))
+    _console().print(
+        "[yellow]Power-cycle the device now. Handshaking about once a "
+        f"second for up to {wait:.0f}s...[/yellow]\n"
+        "A device that failed before reaching its application opens a wide "
+        "recovery window (~8s by default) on the next boot, so one power cycle "
+        "is normally enough. If the application had been running and only "
+        "crashed later, that boot cleared the marker -- a second power cycle "
+        "may be needed. This command needs the port to itself while it waits, "
+        "so nothing else should be talking to the device. If it times out, "
+        "run it again and power-cycle when prompted."
+    )
+
+    # Resolved once, before the loop, so a misconfigured key is reported
+    # immediately rather than after a minute of polling.
+    try:
+        signer = _command_signer()
+    except auth.CommandAuthError as e:
+        raise click.ClickException(str(e)) from e
+
+    start = time.time()
+    ser, transport = _open_transport(
+        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+    )
+    try:
+        while True:
+            try:
+                if transport is None:
+                    ser, transport = _open_transport(
+                        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+                    )
+                return _recovery_attempt(
+                    transport, command, expected_prefix, signer
+                )
+            except _RecoveryMiss:
+                _reset_recovery_session(transport)
+            except OSError:
+                # serial.SerialException is an OSError subclass. Two
+                # `OSError: [Errno 5]` events hit the HIL host mid-poll on
+                # 2026-09-10; the old reopen-per-cycle design absorbed those
+                # implicitly, so a held-open port must do it explicitly or a
+                # single glitch ends the whole recovery attempt.
+                _close_quietly(ser)
+                ser, transport = None, None
+
+            if time.time() - start >= wait:
+                raise click.ClickException(
+                    f"No recovery window answered '{command.decode()}' "
+                    f"within {wait:.0f}s. Power-cycle the device and try "
+                    "again, or raise the wait with 'otampy config --set "
+                    "recovery-wait <seconds>'."
+                )
+            time.sleep(_RECOVERY_HANDSHAKE_GAP_S)
+    finally:
+        _close_quietly(ser)
+
+
 def _stage_rtc_update(ctx: click.Context) -> None:
     """Stage a one-shot RTC helper for the next normal device boot."""
     now = datetime.now()
@@ -1247,8 +1462,20 @@ def confirm(ctx: click.Context) -> None:
 
 
 @cli.command(name="rollback")
+@click.option(
+    "--recover",
+    is_flag=True,
+    help=(
+        "Land the ROLLBACK in the boot-time recovery window for a device "
+        "stranded before main.py (docs/protocol.md 2.4) -- you will be "
+        "prompted to power-cycle it. Refuses outright if the device answers "
+        "PING first: it is already running, and ROLLBACK is one-shot and "
+        "irreversible, so this will not perform it silently on a healthy "
+        "device. Use plain 'rollback' for that."
+    ),
+)
 @click.pass_context
-def rollback(ctx: click.Context) -> None:
+def rollback(ctx: click.Context, recover: bool) -> None:
     """Revert the device to the previously retained version over the radio.
 
     Sends ``ROLLBACK`` (docs/protocol.md §2.4): the device renames the retained
@@ -1256,6 +1483,13 @@ def rollback(ctx: click.Context) -> None:
     resets onto the previous version. Refuses (exit 1, no reset) when there is
     nothing retained or a commit is mid-flight. One generation is retained, so
     this is one-shot -- after it there is nothing left to roll back to.
+
+    ``--recover`` routes the command into the boot-time recovery window for a
+    device that never reaches ``ota.poll()``. It refuses outright if the
+    device answers ``PING`` first (F-17): the window and the running
+    application serve ``ROLLBACK`` identically, so without this guard
+    ``--recover`` against a healthy device would perform an ordinary,
+    irreversible rollback immediately instead of waiting for a window.
     """
     if not click.confirm(
         click.style(
@@ -1268,7 +1502,12 @@ def rollback(ctx: click.Context) -> None:
         _console().print("[yellow]Aborted.[/yellow]")
         return
     try:
-        payload, _ = _query(ctx, b"ROLLBACK", b"ROLLBACK_")
+        if recover:
+            payload = _recover_query(
+                ctx, b"ROLLBACK", b"ROLLBACK_", refuse_if_alive=True
+            )
+        else:
+            payload, _ = _query(ctx, b"ROLLBACK", b"ROLLBACK_")
     except DeviceError as e:
         _handle_device_error(e)
         return
@@ -1279,13 +1518,19 @@ def rollback(ctx: click.Context) -> None:
     _console().print(
         "Device is reverting to the previous version and rebooting..."
     )
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
-    _wait_for_pong(
-        ctx,
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
+    pong_timeout_message = (
         "Rollback commanded but the device did not answer PING within "
         f"{timeout:.0f}s. It may still be rebooting -- check with 'otampy "
-        "ping'.",
+        "ping'."
     )
+    if recover:
+        pong_timeout_message = (
+            "Rollback commanded but the device did not answer PING within "
+            f"{timeout:.0f}s. The previous version it reverted to may itself "
+            "be unhealthy -- check with 'otampy ping', then USB if needed."
+        )
+    _wait_for_pong(ctx, pong_timeout_message)
     _console().print(
         "[green]Rollback complete. The device is running the previous "
         "(stable) version.[/green]"
@@ -2143,6 +2388,18 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
         "'otampy confirm' or the application calls ota.confirm()."
     ),
 )
+@click.option(
+    "--recover",
+    is_flag=True,
+    help=(
+        "Blind-retry UPDATE_REQUEST into the boot-time recovery window "
+        "(docs/protocol.md 2.4) for a device stranded before ota.poll(); a "
+        "device that is already running answers the same request from "
+        "main.py instead -- both converge on the same READY handshake, so "
+        "either way an ordinary update session follows. Use when the "
+        "device is stranded -- you will be prompted to power-cycle it."
+    ),
+)
 @click.argument("args", nargs=-1)
 @click.pass_context
 def update(
@@ -2156,6 +2413,7 @@ def update(
     no_rtc: bool,
     no_progress: bool,
     no_confirm: bool,
+    recover: bool,
 ) -> None:
     """Reboot & update files or directories on the device."""
     if all_files and args:
@@ -2188,7 +2446,11 @@ def update(
             return
 
     bytecode_cleanup_paths: list[str] = []
-    if not bytecode and _device_has_bytecode(ctx):
+    # --recover means the device is presumed unreachable via the normal
+    # path -- probing it here with a plain LS costs a full ~25s retry
+    # budget (query_retries x 4 attempts x serial_timeout_seconds) before
+    # falling through to the recover-aware path anyway (F-16).
+    if not bytecode and not recover and _device_has_bytecode(ctx):
         shadowing_bytecode_paths = {
             str(
                 Path(target_path.replace("\\", "/").lstrip("/")).with_suffix(
@@ -2285,6 +2547,7 @@ def update(
                 delete_paths,
                 progress=not no_progress,
                 no_confirm=no_confirm,
+                recover=recover,
             )
         return
 
@@ -2303,6 +2566,7 @@ def update(
             bytecode_cleanup_paths,
             progress=not no_progress,
             no_confirm=no_confirm,
+            recover=recover,
         )
 
 
@@ -2313,6 +2577,7 @@ def _update_files(
     delete_paths: list[str] | None = None,
     progress: bool = True,
     no_confirm: bool = False,
+    recover: bool = False,
 ) -> None:
     """Transfer an already-resolved (and optionally staged) update file set."""
     # Calculate total manifest size
@@ -2347,8 +2612,13 @@ def _update_files(
 
     _console().print("[yellow]Initiating update handshake...[/yellow]")
 
-    # 1. Send UPDATE_REQUEST to device runtime (main.py)
-    _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
+    # 1. Send UPDATE_REQUEST -- to main.py, or into the boot-time recovery
+    #    window with --recover. Either way the device writes the update flag
+    #    and resets; everything from the READY wait onward is identical.
+    if recover:
+        _recover_query(ctx, b"UPDATE_REQUEST", b"REBOOTING")
+    else:
+        _send_command(ctx, b"UPDATE_REQUEST", b"REBOOTING")
     _console().print(
         "[yellow]Device acknowledged update request. Rebooting...[/yellow]"
     )
@@ -2527,12 +2797,22 @@ def _wait_for_pong(ctx: click.Context, timeout_message: str) -> None:
     One "the device is rebooting, keep trying" implementation, shared by the
     post-commit confirm wait and ``otampy rollback``. Retries on
     ``ClickException``/``DeviceError`` with ``query_retry_backoff_seconds``
-    between attempts, up to ``update_ready_timeout_seconds`` total, then raises
-    ``click.ClickException(timeout_message)``.
+    between attempts, up to ``post_commit_ready_timeout_seconds`` total, then
+    raises ``click.ClickException(timeout_message)``.
+
+    Both callers wait on a device that has just *rebooted*, and such a boot
+    pays the wide boot-time recovery window: a post-commit boot still has a
+    ``trial`` journal, and a post-rollback boot has not reached ``ota.poll()``
+    so still carries the boot marker. Either way ``boot.run()`` selects
+    ``OTA_BOOT_RECOVERY_LISTEN_MS`` (default 8000), which puts the device's
+    polling main loop ~11 s out -- past the 10 s ``update_ready_timeout``
+    budget this used to share (F-11). That budget measures a different thing:
+    the READY broadcast on a boot whose update flag is set, which opens no
+    window at all.
     """
     import time
 
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
     backoff = float(get_config_value("query_retry_backoff_seconds"))
     start = time.time()
     while True:
@@ -2562,7 +2842,7 @@ def _post_commit_confirm(ctx: click.Context, no_confirm: bool) -> None:
         )
         return
 
-    timeout = float(get_config_value("update_ready_timeout_seconds"))
+    timeout = float(get_config_value("post_commit_ready_timeout_seconds"))
     _console().print("Waiting for the updated device to answer...")
     _wait_for_pong(
         ctx,

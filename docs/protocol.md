@@ -185,7 +185,7 @@ Every request from the Host CLI expects a corresponding response from the Device
 | `SR`    | `SR_OK`                                                               | Trigger a soft reboot (`machine.soft_reset()`).                                        |
 | `CONFIRM` | `CONFIRM_OK`<br>`CONFIRM_ERR` | Take the running update candidate off trial (stop auto-rollback). Idempotent. `CONFIRM_ERR` only when a commit marker is still present. See §2.4. |
 | `UPDATE_STATE` | `STATE_OK:<trial\|stable>:<attempt>` | Read-only. Report whether the running build is on trial (with the boot count) or confirmed/stable (`0`). |
-| `ROLLBACK` | `ROLLBACK_OK`<br>`ROLLBACK_ERR:<reason>` | Revert to the retained `.bck` generation and reset onto it. Served only by the `main.py` poll loop. See §2.4. |
+| `ROLLBACK` | `ROLLBACK_OK`<br>`ROLLBACK_ERR:<reason>` | Revert to the retained `.bck` generation and reset onto it. Served by the `main.py` poll loop and by the boot-time recovery window. See §2.4. |
 
 ### 2.2 File System Commands
 
@@ -256,9 +256,9 @@ passes but the build later proves wrong — the host can still revert it with
 `otampy rollback` (the `ROLLBACK` command). The device renames the retained
 `.bck` generation back over its targets, removes the journal, and resets onto
 the previous version. It refuses without resetting when there is nothing
-retained or a commit is mid-flight. `ROLLBACK` is served **only by the
-`main.py` poll loop**, so a device that never reaches `main.py` still needs the
-boot-time recovery window. Only one previous generation is ever retained, so
+retained or a commit is mid-flight. `ROLLBACK` is served by the `main.py` poll
+loop and — for a device that never reaches `main.py` — by the boot-time
+recovery window (below). Only one previous generation is ever retained, so
 rollback is **one-shot**: the generation it lands on has no journal and no
 `.bck` (`UPDATE_STATE` → `stable:0`), is not itself on trial, and cannot be
 rolled back again.
@@ -278,6 +278,165 @@ idempotent and returns `CONFIRM_ERR` only if a commit marker is still present
 `CONFIRM` after `PING` is a shallow check: it proves the poll loop is
 reachable, not that the application logic is correct. A candidate that
 answers `PING` then misbehaves is already confirmed.
+
+#### Boot-time recovery window
+
+Trial auto-restore needs a reboot *during* the trial window, and `ROLLBACK`
+via the poll loop needs `main.py` to run. Neither helps a candidate that is
+confirmed and then proves fatal, or one that strands the device before
+`ota.poll()` is ever reached (an import that raises, a hang in application
+setup). For those cases `boot.py` opens a short **recovery window** on every
+boot where no update is already pending.
+
+- **When:** after `repair()` and `trial()` — so it runs on a healed tree — and
+  only when `UPDATE_REQUEST_FLAG_FILE` is *absent* (an update session already
+  in progress is never interrupted). It is skipped entirely when the selected
+  duration is `0`.
+- **Duration — two tiers**, rounded up to one `read()` granule:
+
+  | Condition at boot | Window |
+  | --- | --- |
+  | Boot marker present — the previous boot never reached `OTA.poll()` | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
+  | Journal shows an unconfirmed candidate (`trial`) | `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) |
+  | Either of the above, but `OTA_BOOT_RECOVERY_LISTEN_MS = 0` | `OTA_BOOT_LISTEN_MS` (default `1000`) |
+  | Neither | `OTA_BOOT_LISTEN_MS` (default `1000`) |
+
+  **A boot that is more at risk never gets a shorter window than an ordinary
+  boot.** `0` disables the *wide* window and the marker; it does not remove
+  the short window from the one boot most likely to need it. Setting both keys
+  to `0` is how a deployment opts out of the window altogether.
+
+  Both tests are needed and neither subsumes the other. The journal test
+  catches a candidate that strands the device on its very first boot; the
+  marker catches a **confirmed** generation that later proves fatal, which the
+  journal cannot see and which is exactly the `otampy rollback --recover` case.
+
+  The wide tier exists because the short one cannot be hit after a power
+  cycle: it opens at t≈2.05 s and shuts at t≈3.15 s, while a power-cycled
+  XBee does not deliver its first frame to the device UART until t+3.6 s to
+  t+8.7 s. `8000` holds the window open to t≈10.05 s. Only a device that has
+  actually failed pays it — a healthy device still costs ~1 s per boot. Each
+  key is independent, and a non-integer value in either is treated as a typo
+  and falls back to that key's default rather than disabling recovery.
+- **The boot marker:** `OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is
+  written by `boot.run()` once per boot, only when absent — so a device in a
+  boot loop does zero writes — and removed by the first `OTA.poll()` of a
+  process. Reaching `poll()` is the only proof the runtime OTA surface is
+  alive, which is why `ota.recover()` deliberately does **not** clear it. A
+  failed write or remove is swallowed: a boot is never stranded by the marker,
+  though a full or read-only filesystem then silently degrades that device to
+  the short window. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` disables the wide window
+  and the marker together, at zero filesystem cost; the short window remains.
+  Note that with the wide window off the marker is never read, so an at-risk
+  boot is only recognisable from the journal.
+- **Silent:** the window sends no beacon. `Urst.send()` is stop-and-wait
+  reliable, so an unacknowledged announcement would cost up to ~8 s per boot.
+  The host instead blind-retries (`otampy upd --recover` /
+  `otampy rollback --recover`), prompting the operator to power-cycle and
+  retrying for `recovery-wait` seconds (default `60`) until a command lands
+  inside a window. A missed window just means power-cycling again.
+- **How the host reaches the window.** The poll opens the serial port **once**
+  and holds it for its whole duration, retrying `protocol.connect()` on that
+  single transport at stock URST timings — roughly one CONNECT per second,
+  each with a full `ACK_TIMEOUT_MS` listen — and sends the command only after
+  a handshake has actually completed. It does not reopen the port per cycle
+  and does not alter `urst.constants`.
+
+  Three properties are load-bearing, and a change to any one of them
+  reintroduces a failure mode that has already cost two HIL sessions:
+
+  1. **The port is held open.** Reopening it toggles DTR/RTS on an
+     FTDI→XBee adapter at exactly the moment a freshly-booted device needs
+     the link quietest.
+  2. **Each attempt uses the full stock handshake.** With a ~9 s window,
+     cadence is cheap and per-attempt robustness is what matters. A fail-fast
+     profile (one CONNECT, a 500 ms ACK deadline, a 0.1 s read timeout) was
+     tried and landed 0 commands in 60 s against a window that device-side
+     ticks proved was open for 9006 / 9017 / 8977 ms.
+  3. **The poll passes an explicit serial read timeout**, and
+
+     > `_RECOVERY_SERIAL_TIMEOUT <= urst.constants.ACK_TIMEOUT_MS / 1000`
+
+     `read_frame()` loops `ser.read(max(1, in_waiting))`, and against a silent
+     port `in_waiting` is `0`, so each iteration blocks for the **pyserial**
+     timeout. A pyserial timeout larger than `ACK_TIMEOUT_MS` therefore makes
+     the ACK deadline unenforceable: at the default
+     `serial_timeout_seconds = 2.0` a nominal 1000 ms handshake attempt really
+     takes ~2 s and `connect()`'s four attempts take ~8 s. **Anyone changing
+     `serial_timeout_seconds` or `ACK_TIMEOUT_MS` must re-check this
+     inequality** — a unit test asserts it directly.
+
+  A handshake that completes just as the window shuts is a miss, not a
+  failure: the half-open session is discarded and the poll continues. A serial
+  error mid-poll reopens the port rather than ending the attempt.
+- **Exclusivity:** `--recover` takes **exclusive use of the port** for its
+  duration (up to `recovery-wait`, default 60 s). In a mux deployment the
+  gateway must not be contending for `mux.ota_port` while it runs.
+- **Channel:** 0 (reliable), the same surface as every other command; in mux
+  deployments it reads `mux.ota_port`. No wire-format change — no new verb, no
+  new response token, `PROTOCOL_VERSION` does not move.
+- **Auth:** when `OTA_REQUIRE_AUTH` is set the window enforces the same `AUTH:`
+  envelope and replay guard the runtime command surface does. It is not a
+  bypass.
+
+Dispatch inside the window:
+
+| Packet | Reply | Effect |
+| --- | --- | --- |
+| `UPDATE_REQUEST` | `REBOOTING` | Write the update flag, persist the replay floor, `machine.reset()`. The next boot takes the normal flagged path (`READY` + update loop), so `otampy upd --recover` continues as an ordinary update session. |
+| `ROLLBACK` (retained `.bck` present) | `ROLLBACK_OK` | Restore the previous generation, persist the replay floor, reset onto it. |
+| `ROLLBACK` (nothing retained) | `ROLLBACK_ERR:Nothing to roll back` | Nothing touched, no reset, **window keeps listening.** |
+| `ROLLBACK` (`committing` journal) | `ROLLBACK_ERR:Commit in flight` | Nothing touched, no reset, **window keeps listening.** |
+| Bad/absent `AUTH:` envelope (auth on) | `ERROR:Unauthenticated` | Window keeps listening. |
+| Replayed counter (auth on) | `ERROR:Replayed` | Window keeps listening. |
+| Anything else, including `PING` | `ERROR:Recovery window` | Window keeps listening. |
+| Empty or non-UTF-8 | *(none)* | Ignored. |
+
+A refusal does not consume the window: a second command arriving inside the
+*same* window is still served. The window's deadline is absolute — it is not
+extended by activity, so a stream of bad commands cannot hold a device open.
+
+**`PING` is deliberately not answered.** A device in the window is not running
+its application; a `PONG` would report it healthy. The absence of a `PONG`
+right after a reset is the signal that recovery is needed.
+
+**Limits.** The window needs `boot.py` itself to run: a `boot.py` that crashes
+before the window falls through to `main.py` (where poll-loop `ROLLBACK`
+applies), and if neither runs, recovery is USB. A hardware fault that wedges
+the UART is not recoverable in software.
+
+**Watchdogs.** A custom `boot.py` that arms one before `OTA(...).boot()`
+passes its feed in as `heartbeat`:
+
+```python
+wdt = WDT(timeout=8388)
+OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+```
+
+Both blocking stretches of a boot — the recovery window and the default
+update loop — call it once per loop iteration, on every path round rather
+than only while idle, so a peer streaming refused or malformed packets does
+not starve it. The library never constructs or owns the `WDT`; the integrator
+arms it and chooses its period, exactly as `OTA.poll()`'s `heartbeat` already
+works. With a `heartbeat` supplied, `OTA_BOOT_RECOVERY_LISTEN_MS` above
+8388 ms is safe.
+
+With **no** `heartbeat`, nothing feeds the watchdog for the window's
+duration. `8000` was chosen to sit under the RP2040's ~8388 ms WDT cap, but
+the window's measured blocking span is 8899–9570 ms on hardware — already
+past the cap before `boot()`'s own ~1.5 s pre-window cost — so an unfed
+watchdog is not reliably survivable at the default either. Supply the
+`heartbeat`.
+
+One residual gap the library cannot close: a single `reply()` is a URST
+reliable send (3 retries at a 1 s ACK timeout), so answering a peer that
+stops acknowledging can block ~3–4 s inside `urst` with no chance to feed.
+That fits inside an 8388 ms period alone, but leaves little margin stacked on
+the pre-window boot cost.
+
+A device whose application crashes only *after* it has already polled costs
+two power cycles rather than one: that boot cleared the marker, the next sets
+it, and the one after gets the wide window.
 
 ---
 

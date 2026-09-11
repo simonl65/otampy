@@ -48,10 +48,52 @@ def test_boot_releases_boot_module_and_can_run_again():
     for _ in range(2):
         with patch("device_otampy.boot.run") as mock_boot_run:
             ota.boot()
-            mock_boot_run.assert_called_once_with(ota._core, None)
+            mock_boot_run.assert_called_once_with(
+                ota._core, None, heartbeat=None
+            )
 
         assert "device_otampy.boot" not in sys.modules
         assert not hasattr(package, "boot")
+
+
+def test_boot_teardown_survives_micropython_delattr_keyerror():
+    """MicroPython's ``delattr`` raises ``KeyError`` (not ``AttributeError``)
+    when the attribute is absent -- as ``authgate`` is on every boot that did
+    not configure auth. The teardown must swallow that, or ``boot()`` raises
+    and ``boot.py`` crashes on every boot, stranding the device (F-09).
+    """
+    import builtins
+
+    real_delattr = builtins.delattr
+
+    def micropython_delattr(obj, name):
+        if not hasattr(obj, name):
+            raise KeyError(name)
+        return real_delattr(obj, name)
+
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    package = sys.modules["device_otampy"]
+
+    # The teardown legitimately drops these from sys.modules; restore them so
+    # test ordering does not leave later tests importing a stale `boot`.
+    released = ("boot", "restore", "authgate")
+    saved = {
+        name: sys.modules.get("device_otampy." + name) for name in released
+    }
+    try:
+        with (
+            patch("device_otampy.boot.run"),
+            patch("builtins.delattr", side_effect=micropython_delattr),
+        ):
+            ota.boot()
+
+        assert "device_otampy.authgate" not in sys.modules
+    finally:
+        for name, module in saved.items():
+            if module is not None:
+                sys.modules["device_otampy." + name] = module
+                setattr(package, name, module)
 
 
 def test_boot_release_does_not_require_package_global():
@@ -79,7 +121,7 @@ def test_facade_delegates_to_boot_and_manager():
         patch("device_otampy.manager.poll") as mock_manager_poll,
     ):
         ota.boot()
-        mock_boot_run.assert_called_once_with(ota._core, None)
+        mock_boot_run.assert_called_once_with(ota._core, None, heartbeat=None)
 
         ota.poll()
         mock_manager_poll.assert_called_once_with(
@@ -146,3 +188,112 @@ def test_poll_passes_heartbeat_through_to_manager():
         mock_manager_poll.assert_called_once_with(
             ota._core, None, heartbeat=heartbeat
         )
+
+
+# =============================================================================
+# Clearing the boot marker
+#
+# Reaching poll() is the only proof the runtime OTA surface is alive, so this
+# -- not recover(), which runs before the application has proved anything --
+# is where the marker written by boot.run() is cleared. Once per process.
+# See docs/development/failsafe-update-window-reachability-spec.md.
+# =============================================================================
+
+
+def _mark_config(tmp_path, **extra):
+    config = {"OTA_BOOT_MARK_FILE": str(tmp_path / "otampy-boot.mark")}
+    config.update(extra)
+    return config
+
+
+def test_first_poll_clears_the_boot_marker(tmp_path):
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with patch("device_otampy.manager.poll"):
+        ota.poll()
+
+    assert not mark.exists()
+
+
+def test_later_polls_do_no_filesystem_work(tmp_path):
+    """The hot path pays one boolean check per call, not a syscall."""
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with patch("device_otampy.manager.poll"):
+        ota.poll()
+        with patch("os.remove") as mock_remove:
+            ota.poll()
+            ota.poll()
+
+    mock_remove.assert_not_called()
+
+
+def test_poll_survives_a_marker_remove_failure_and_still_delegates(tmp_path):
+    """A read-only filesystem must never stop the application polling.
+
+    The flag is set regardless of outcome, so one failing remove is not
+    repaid on every poll() for the life of the process.
+    """
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with (
+        patch("os.remove", side_effect=OSError(30, "Read-only file system")),
+        patch("device_otampy.manager.poll") as mock_manager_poll,
+    ):
+        ota.poll()
+        mock_manager_poll.assert_called_once_with(
+            ota._core, None, heartbeat=None
+        )
+
+        with patch("os.remove") as mock_remove:
+            ota.poll()
+
+    mock_remove.assert_not_called()
+
+
+def test_poll_does_no_filesystem_work_when_recovery_window_disabled(tmp_path):
+    """OTA_BOOT_RECOVERY_LISTEN_MS = 0 switches the marker off at both ends."""
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    config = _mark_config(tmp_path, OTA_BOOT_RECOVERY_LISTEN_MS=0)
+    ota = OTA(shared.FakeUART(), config=config)
+
+    with (
+        patch("os.remove") as mock_remove,
+        patch("device_otampy.manager.poll"),
+    ):
+        ota.poll()
+
+    mock_remove.assert_not_called()
+    assert mark.exists()
+
+
+def test_ota_boot_accepts_and_forwards_heartbeat():
+    """boot() takes the same heartbeat contract poll() already offers."""
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    heartbeat = object()
+
+    with patch("device_otampy.boot.run") as mock_boot_run:
+        ota.boot(heartbeat=heartbeat)
+        mock_boot_run.assert_called_once_with(
+            ota._core, None, heartbeat=heartbeat
+        )
+
+
+def test_ota_boot_heartbeat_defaults_to_none():
+    """Fully optional: every existing OTA(...).boot() call site is unchanged.
+
+    examples/boot.py, examples/shared-uart/boot.py, footprint_boot.py,
+    README.md and docs/deployment.md all call .boot() with no heartbeat.
+    """
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+
+    with patch("device_otampy.boot.run") as mock_boot_run:
+        ota.boot()
+        mock_boot_run.assert_called_once_with(ota._core, None, heartbeat=None)

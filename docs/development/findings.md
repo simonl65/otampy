@@ -12,7 +12,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-18 — every proven radio recovery went through the journal path; the marker-only path has never landed a command
 
 - **Severity:** P2
-- **Status:** open
+- **Status:** closed — 2026-09-11, HIL diagnostic
 - **Area:** `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` and the
   marker half of `run()`'s tier selection; possibly `src/otampy/cli.py`
   `_recover_query`; possibly neither -- the cause is not established.
@@ -48,24 +48,40 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   operator cycle timing relative to the poll cannot be timestamped from the
   host, and has already produced one falsely-recorded miss this session. Six
   versus two is a small sample.
-- **Resolution:** _(not yet fixed -- diagnosis in progress, not a repair.
-  2026-09-11: instrumentation added to `_run_boot_listen`
-  (`src/otampy/device/lib/otampy/boot.py`) -- an `iterations` counter, a
-  `frames_seen` counter incremented (with a `logger.debug` of the raw bytes)
-  on every non-empty `read()`, and a `logger.info` summary at each exit point
-  (natural expiry, and just before each `machine.reset()` on a landed
-  command). This is temporary and will be reverted once the HIL run below has
-  answered the question; two host tests pin it
-  (`test_boot_listen_f18_diagnostic_distinguishes_heard_from_unheard`,
-  `test_boot_listen_f18_diagnostic_logs_iterations_on_landing`,
-  `src/otampy/device/tests/test_ota_boot.py`), sabotage-confirmed to catch a
-  broken counter. Not yet deployed or run on hardware -- next step is a HIL
-  session: deploy this build, strand a device with nothing retained (marker
-  only, no journal), run the marker-only strand three times, and read
-  `/ota.log`'s summary lines to separate "0 frame(s) seen" (radio/host never
-  reached it) from "N frame(s) seen" with no landing (device heard and did
-  not answer). Requires Simon's clearance to start the HIL session.)_
-- **Closed:** _(pending)_
+- **Resolution:** No code change -- the branch already worked; it needed proof,
+  not a repair. 2026-09-11: temporary instrumentation added to
+  `_run_boot_listen` (an `iterations` counter, a `frames_seen` counter with a
+  `logger.debug` of the raw bytes on every non-empty `read()`, and a
+  `logger.info` summary at each exit point), pinned by two host tests,
+  sabotage-confirmed. Deployed via a fresh USB `otampy deploy --with-logger`
+  of a fatal `main.py` (raises on import, no watchdog) to reach the "nothing
+  retained" precondition test 6 needs. Four genuine power-cycle attempts
+  against the resulting marker-only wide window, host polling
+  (`rollback --recover`) started *before* each power cycle this time (the
+  session's first attempt was mistimed -- polling started only after the
+  cycle, a methodology artefact, discarded):
+  attempts 1-3 **0 frame(s) seen** (`/ota.log`, e.g. `"...closed with no
+  landing after 8 iteration(s), 0 frame(s) seen"`), attempt 4 **landed**:
+  `/ota.log` shows `"Recovery window: frame #1 on iter 8: b'ROLLBACK'"`,
+  arriving at the very end of the ~9.6 s window (iteration 8 of 8) -- the CLI
+  printed `Rollback refused: Nothing to roll back` (correct: nothing was
+  retained) and the device did not reset, exactly matching test 6's expected
+  behaviour. This directly answers the finding's open question: the
+  marker-only branch is **reachable**, not structurally dead -- it heard and
+  correctly served a command from a genuinely cold, power-cycled radio. The
+  low land rate (1/4 clean attempts) is consistent with F-10's own evidence
+  that a cold XBee's wake-up can take up to ~8.7 s against a window of
+  comparable width, not a marker-specific defect -- the journal path's 6/6
+  record was never tested against a cold radio at this margin either (every
+  journal-path landing followed a boot that already had the transport
+  primed). Instrumentation and its two tests reverted immediately after (kept
+  temporary as committed); the repo is back to F-17's state. Device
+  redeployed with the real (non-fatal) `main.py` afterward and confirmed
+  healthy over the radio.
+- **Closed:** 2026-09-11. Reachability proven directly by HIL evidence in the
+  same session the diagnostic ran -- not a code fix, so no separate review
+  pass applies; the `/ota.log` frame line is the primary evidence and is
+  quoted above in full.
 
 ---
 

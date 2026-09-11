@@ -259,3 +259,71 @@ reaches it" sub-bullet carrying the 0-in-60 s evidence, and the tier bullet's
 fallback.
 
 `pre_flight_check.py` exit 0 (no code changed).
+
+---
+
+## Step 7 — HIL verification
+
+**Rig, 2026-09-11 13:49 BST.** Pico W, gateway stopped so `/dev/ttyUSB0` (the
+XBee) is uncontended and exclusive. Deployed from this branch with
+`otampy deploy --port /dev/ttyACM0 --device-dir src/otampy/device/examples --with-logger`
+(device-dir is project-root relative). Host config all at shipped defaults —
+`recovery-wait 60`, `serial-timeout 2.0`, `query-retries 3`. Device config from
+`configota.example.py`: `OTA_BOOT_LISTEN_MS 1000`,
+`OTA_BOOT_RECOVERY_LISTEN_MS 8000`, `OTA_TRIAL_BOOTS 3`, `LOG_LEVEL DEBUG`,
+`LOG_USE_TICKS True`, auth off. Post-deploy verified over the radio, not USB:
+`ping` → `PONG`, `ls /` clean (no `.bck`, no journal, no marker).
+
+### Two process errors of mine, recorded so the evidence is not misread
+
+1. **`otampy upd --no-confirm main.py` does not do what the spec text says.**
+   `upd` resolves an argument as a project-relative path and **preserves that
+   path on the device**, so it created `/src/otampy/device/examples/main.py`
+   and left `/main.py` untouched. The device was never stranded; a `PONG`
+   gave it away. The correct form is the explicit `source:target` syntax:
+   `otampy upd --no-confirm src/otampy/device/examples/main.py:main.py`.
+   Cleaned up with `otampy confirm` + `otampy rm --literal-remote-paths /src`.
+   **The spec's Verification section should be corrected** — anyone following
+   it literally will silently fail to strand the device.
+2. **Two `rollback --recover` runs were started without waiting for Simon**,
+   so nobody was at the rig to power-cycle. Neither is a test result and
+   neither is counted. The first aborted instantly on the `[y/N]` prompt
+   (no stdin — `rollback` has no `--no-confirm`, so the CLI needs `yes |`);
+   the second polled the full 60 s and timed out correctly. Recorded as
+   coordination failures, not as HIL 1 attempts.
+
+### Host-side evidence obtained (no power cycle needed)
+
+Against the genuinely stranded, silent device, the poll's cadence was measured
+by timestamping urst's handshake logging at `OTAMPY_RECOVERY_WAIT=20`:
+
+```
+  0.13s  Handshake attempt 1
+  1.18s  Handshake timeout / attempt 2
+  2.24s  Handshake timeout / attempt 3
+  3.30s  Handshake timeout / attempt 4
+  4.46s  Handshake attempt 1      <- next connect(), 0.10s gap
+  ...
+ 21.68s  Handshake timeout
+ 21.69s  Error: No recovery window answered 'ROLLBACK' within 20s.
+```
+
+- **One CONNECT frame on the wire every 1.06 s, continuously** — 20 frames in
+  20 s, with only a 0.10 s gap between one `connect()`'s four attempts and the
+  next call. This is the `~1 CONNECT/s at stock URST timings` claim of
+  `docs/protocol.md` §2.4, confirmed on the real link.
+- Against the measured ~9 s window that is **~8 CONNECT frames inside any open
+  window**, versus the fail-fast profile that landed 0 commands in 60 s.
+- The port was opened **once** for the whole 20 s poll (`_open_transport` is
+  not re-entered; no repeated `Initializing Protocol Layer`).
+- The step 2/4 timeout message rendered correctly from the real command path.
+
+A caution against my own earlier reading: a first count of "14 handshake
+attempts in 60 s" was an artifact of piping the run through `tail -30`, which
+kept only the last 30 lines of output. The cadence was never anomalous. Count
+from a complete stream or not at all.
+
+### HIL 1/2/4 — outstanding
+
+Still to run; each needs a power cycle at the prompt, so each is gated on
+Simon being at the rig and saying go.

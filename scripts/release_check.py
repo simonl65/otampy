@@ -256,7 +256,7 @@ def smoke_test_install(
         )
     install_command.append(str(wheel))
     _run(install_command)
-    _run([str(executable), "init", "new-project"], cwd=workspace)
+    _run([str(executable), "init", "new-project", "--no-mux"], cwd=workspace)
     result = _run(
         [
             str(executable),

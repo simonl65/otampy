@@ -297,9 +297,11 @@ as removing the short window from the one boot most likely to need it.
 - [x] **7. HIL verification and finding closure**
   - **Done 2026-09-11 against the stated bar, with two tests outstanding.**
     HIL 1 passed three first-cycle recoveries, HIL 2 passed, HIL 4's first half
-    is evidenced. **Still outstanding: test 5 (the window is not an auth
-    bypass), which matters most of the remainder, and test 6 (refusal with
-    nothing retained), which ran inconclusively.** Two new findings were filed:
+    is evidenced. **Test 5 (the window is not an auth bypass) also passed,
+    both halves**, and measured the auth-surface exposure at exactly one
+    unsigned command per `--recover` invocation regardless of `recovery-wait`.
+    **Still outstanding: test 6 (refusal with nothing retained), which ran
+    inconclusively.** Two new findings were filed:
     **F-17** (`--recover` on a healthy device bypasses the window and rolls
     back immediately — which also makes this spec's parent test 4 unpassable as
     written) and **F-16** (`upd --recover` waits ~25 s before prompting).

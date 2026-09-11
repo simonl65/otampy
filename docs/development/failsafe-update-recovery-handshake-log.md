@@ -521,3 +521,64 @@ before any conclusion is drawn about it.
   auth-enforcing window for up to `recovery-wait`, a longer exposure than
   anything previously tested.
 - Regression: the healthy-boot cost A/B (HIL 3). Untouched by this spec.
+
+### Test 5 — the window is not an auth bypass: PASSED
+
+2026-09-11, run after the rest of step 7. Rig prepared by a full USB redeploy
+with `OTA_REQUIRE_AUTH = True`, a throwaway 64-hex `COMMAND_AUTH_KEY` and
+`OTA_REPLAY_FLOOR_FILE` enabled, so the device required auth from its first
+boot rather than being switched over mid-session. Baseline before stranding:
+signed `ping` → `PONG`, unsigned `ping` → `Error: Unauthenticated`.
+
+Device then stranded by the fatal `main.py` via a signed
+`upd --no-confirm ...:main.py`, which retains `main.py.bck` — so a rollback
+had something real to revert, and "nothing was reverted" is a checkable claim.
+
+| Half | Host key | Window's answer | Device afterwards |
+| --- | --- | --- | --- |
+| A | **unset** | `Error: Unauthenticated` at 35.09 s | still stranded, `.bck` untouched |
+| B | **set** | accepted at 34.82 s, `Rollback complete` at 50.40 s | good `main.py`, confirmed stable, clean tree |
+
+Half A, from the timestamped log:
+
+```
+  34.78s  Handshake attempt 1
+  34.80s  URST Connected (received CONNECT_ACK)   <- the window answered
+  34.80s  Sending frame type 0x1, seq 0, attempt 1
+  34.84s  Received ACK for seq 0
+  35.09s  Error: Unauthenticated
+```
+
+**Half B is the evidence that half A reverted nothing.** A signed `ROLLBACK`
+afterwards still found a retained generation and restored it; had the
+unauthenticated attempt reverted anything, there would have been nothing left
+to roll back to. This matters because a stranded device cannot be inspected
+with `otampy ls` over the radio, and the alternative — a USB read — would have
+parked the board (see the test 6 section above).
+
+Post-recovery, over the radio: signed `ping` → `PONG`, `state` → confirmed
+stable, `ls /` shows `boot.py configota.py lib/ main.py ota.log
+otampy-replay-floor` — no `.bck`, no journal, no marker — and **unsigned
+`ping` still returns `Unauthenticated`**, so recovery did not weaken auth.
+
+#### The exposure concern was wrong, and measurably so
+
+The worry that motivated running this test was that a held-open poll now
+hammers an auth-enforcing window for up to `recovery-wait`. It does not.
+Measured across half A's 35 s poll:
+
+- **33 handshake attempts, exactly 1 unsigned command delivered.**
+
+Two properties of the design bound it, and both are now confirmed on hardware
+rather than merely argued from the source:
+
+1. `_recovery_attempt` sends the command **only after `connect()` succeeds**,
+   so nothing is put on the wire at all while the device is absent — which is
+   most of any poll.
+2. A refusal is a `DeviceError`, which propagates and **ends the poll
+   immediately** rather than retrying. The 300 s wait was still available and
+   went unused.
+
+So the auth surface sees one unsigned command per `--recover` invocation,
+regardless of `recovery-wait`. That is strictly less exposure than the old
+reopen-per-cycle design, which blind-sent the command on every cycle.

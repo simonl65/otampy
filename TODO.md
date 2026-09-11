@@ -58,7 +58,7 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     power-cycled XBee is awake, so a boot following one that never reached
     `OTA.poll()` now opens `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) instead.
     Spec: `docs/development/failsafe-update-window-reachability-spec.md`.
-  - [ ] **5. Land a `--recover` command in the boot-time recovery window.**
+  - [x] **5. Land a `--recover` command in the boot-time recovery window.**
     Sub-task 4's window is open and reachable on hardware — 9006 / 9017 /
     8977 ms on three consecutive stranded boots, and a normal-path `PING` drew
     the window's own `ERROR:Recovery window` refusal from inside one. But
@@ -70,7 +70,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
     and never reaches the path it names) and F-14 (a trial boot gets no listen
     window at all when the wide window is disabled). Closes F-10.
     Spec: `docs/development/failsafe-update-recovery-handshake-spec.md`.
-    **HIL verification outstanding — this sub-task's step 7, Opus only.**
 
 [ ] Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
 

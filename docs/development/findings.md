@@ -83,7 +83,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-15 — `--recover`'s fail-fast handshake cannot land in a window that is demonstrably open, so radio recovery still fails
 
 - **Severity:** P1
-- **Status:** fixed — **HIL evidence obtained 2026-09-11**, awaiting re-review
+- **Status:** closed — 2026-09-11, `/sl-findings review`
 - **Area:** `src/otampy/cli.py` — `_fast_recovery_handshake` (`cli.py:1061`),
   `_RECOVERY_ACK_TIMEOUT_MS`/`_RECOVERY_MAX_RETRIES`/`_RECOVERY_SERIAL_TIMEOUT`
   (`cli.py:1055-1057`), `_query(fast=True)` (`cli.py:1160-1168`),
@@ -136,7 +136,24 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   against the fail-fast profile's 0 landings in 60 s. Cadence measured on the
   real link at one CONNECT per 1.06 s with the port opened once. Full evidence
   in `failsafe-update-recovery-handshake-log.md` step 7.
-- **Closed:** _(pending HIL evidence and re-review)_
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  separately from the fix's own record: `_fast_recovery_handshake`,
+  `_RECOVERY_ACK_TIMEOUT_MS`, `_RECOVERY_MAX_RETRIES` and `_query(fast=...)`
+  are fully removed (`grep -c 'fast=' src/otampy/cli.py` -> `0`); read
+  `_recover_query`/`_recovery_attempt`/`_reset_recovery_session` end to end and
+  traced every exception path (a `DeviceError` from an `ERROR:` reply is
+  correctly left uncaught by both `_recovery_attempt`'s `except
+  click.ClickException` and `_recover_query`'s loop, so it still propagates as
+  the docstring claims); independently reverted the OSError-reopen handling
+  and the urst.constants-immutability guarantee in turn and confirmed the
+  existing tests catch each regression
+  (`test_recover_query_reopens_the_port_after_a_serial_error`,
+  `test_recover_query_does_not_mutate_urst_constants`); full suite
+  156/156 passing, tree clean afterwards. The hardware evidence is real and
+  targets the actual defect (a fail-fast profile too fragile to complete a
+  handshake over the radio) -- three genuinely-stranded-device recoveries plus
+  a full update, all landing within a single `connect()` call of the device's
+  radio waking. No new defect found.
 
 ---
 
@@ -178,7 +195,16 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   `_boot_mark_path()` returns None so the marker is never written or read —
   F-14 is therefore reachable only through the journal path, not the marker
   path, and that is now pinned by a test with an explanatory docstring.
-- **Closed:** _(pending re-review)_
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified:
+  `boot.py`'s selection reads as claimed (`window_ms` starts at `0`, is set
+  from `_boot_recovery_window_ms` only on an at-risk boot, and falls back to
+  `OTA_BOOT_LISTEN_MS` whenever that is `<= 0`), `_config_int` fails closed to
+  the default rather than to `0` on garbage input, and all three device tests
+  pass. Reverted the fix to its pre-repair form and confirmed
+  `test_a_trial_boot_with_the_wide_key_zero_keeps_the_short_window` catches
+  the regression (`assert 0 == 111`). All three doc sites named in the
+  Resolution (`configota.example.py`, `docs/protocol.md` §2.4,
+  `docs/architecture.md` ×2) state the corrected invariant.
 
 ---
 
@@ -212,7 +238,17 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   `_recover_query`'s timeout message replaced, the old tests were `3 passed`
   and the new ones `3 failed`; reverted, `152 passed`. Both outputs are in
   `failsafe-update-recovery-handshake-log.md` step 2.
-- **Closed:** _(pending re-review)_
+- **Closed:** 2026-09-11, `/sl-findings review`. Independently re-verified,
+  separately from the fix's own record: both surviving tests
+  (`test_rollback_recover_times_out_with_recovery_wait_message`,
+  `test_recover_query_raises_naming_recovery_wait_when_nothing_answers`) pass
+  as they stand and fail when `_recover_query`'s timeout message is replaced
+  with different sabotage text than the original fix used. The third test
+  named in the Resolution
+  (`test_recover_query_restores_handshake_timing_even_on_timeout`) no longer
+  exists — deleted in step 3 of the same spec along with the fast-handshake
+  profile it guarded, which is expected and recorded there, not a regression
+  here.
 
 ---
 
@@ -367,16 +403,16 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-10 — the boot-time recovery window is unhittable in practice: it opens at t+2.05 s, before the power-cycled XBee is awake
 
 - **Severity:** P1
-- **Status:** fixed — **HIL evidence obtained 2026-09-11**, awaiting
-  re-review. **Both halves are now built and both are now proven.** Device half: the two-tier wide window
+- **Status:** closed — 2026-09-11, `/sl-findings review`. **Both halves are
+  built and proven.** Device half: the two-tier wide window
   (`failsafe-update-window-reachability-spec.md`), proven on hardware at
   9006 / 9017 / 8977 ms. Host half: the held-open-port handshake poll
-  (`failsafe-update-recovery-handshake-spec.md` step 3, F-15), host-side only
-  so far. Closure needs a stranded device recovered over the radio at the
-  **shipped default config**, on one power cycle, three times running — see
-  that spec's HIL 1. The original title/diagnosis (host blind-retry cadence)
-  was wrong; the cadence fix was necessary housekeeping but never the binding
-  constraint. See "Root cause established 2026-09-10" below.
+  (`failsafe-update-recovery-handshake-spec.md` step 3, F-15), proven by three
+  first-cycle recoveries on 2026-09-11 (see Resolution/Closed below for the
+  precise caveat on the recovery-wait value used). The original
+  title/diagnosis (host blind-retry cadence) was wrong; the cadence fix was
+  necessary housekeeping but never the binding constraint. See "Root cause
+  established 2026-09-10" below.
 - **Area:** `src/otampy/cli.py` (`_recover_query`, and the `_query` /
   URST-handshake path it drives); interacts with
   `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` (`OTA_BOOT_LISTEN_MS`,
@@ -510,6 +546,29 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   window is a necessary part of that, not the whole of it.
   Evidence: `docs/development/failsafe-update-window-reachability-log.md`
   (2026-09-10, step 5 run 2).
+- **Resolution:** 2026-09-11, `failsafe-update-recovery-handshake-spec.md`
+  step 3 (F-15) closes the remaining host-side half. HIL 1 met this finding's
+  own stated bar -- a stranded device recovered over the radio, one power
+  cycle, three times running -- on 2026-09-11: landings at 1.1 s, 2.2 s and
+  3.2 s after the device's radio woke, each preceded by a deliberate
+  re-strand so no attempt could be rescued by trial auto-restore, each
+  verified clean afterwards over the radio with USB untouched.
+- **Closed:** 2026-09-11, `/sl-findings review`. **One caveat kept precise
+  rather than glossed over:** the three passing HIL 1 runs used
+  `OTAMPY_RECOVERY_WAIT=300`, not the shipped default of `60`, because the
+  wait had to absorb the round-trip of asking Simon to power-cycle over chat,
+  not the recovery itself. The figure that actually bears on whether the
+  shipped 60 s default is adequate is time from the device's radio waking to
+  the command landing, and that measured 1.1-3.2 s across all three passes --
+  roughly 20x margin. A literal run at `recovery-wait=60` was attempted once
+  and discarded as not a real attempt (no `URST Connected` line at all in the
+  log -- Simon did not see the prompt in time to cycle within the poll's
+  60 s), so there is no positive hardware evidence of the mechanism operating
+  under the literal 60 s wait, only of the sub-component (wake-to-ACK) that
+  determines whether 60 s is enough. Closing on the strength of that
+  reasoning plus the repeated fast landings, not on a literal like-for-like
+  run -- worth a real 60 s attempt if the coordination latency can be removed
+  (e.g. Simon cycling on a countdown rather than a chat round-trip).
 
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 

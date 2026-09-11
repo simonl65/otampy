@@ -616,3 +616,62 @@ git checkout -- src/otampy/device/examples/main.py     # restore immediately
 The `source:target` form is required — a bare `main.py` resolves against the
 project root and writes `/src/otampy/device/examples/main.py` on the device
 instead of `/main.py`, which looks like a clean update and is a silent no-op.
+
+### Test 6 — COULD NOT BE EXECUTED (second attempt), and it exposes a gap
+
+2026-09-11, retried deliberately after the first inconclusive run. Precondition
+built cleanly this time by a fresh USB deploy of the fatal `main.py`, which
+provisions the tree from scratch: stranded, **no `.bck`, no journal, no
+marker** on the first boot. Confirmed stranded by a failed `ping`.
+
+The refusal never happened, because **no command reached the window**. The poll
+ran ~152 s at 1.06 s/CONNECT with zero `URST Connected` lines.
+
+**Device-side ground truth** (`/ota.log`, read over USB after the poll, device
+already stranded so nothing was interrupted that was running):
+
+| Boot | `Checking for update flag-file...` -> `not found` | Duration | Tier |
+| --- | --- | --- | --- |
+| 1 (deploy's reset) | 1547 -> 3374 | **1827 ms** | short -- marker absent, correct |
+| 2 (Simon's cycle) | 1507 -> 10415 | **8908 ms** | **wide -- marker present, correct** |
+
+So the device selected the right tier and held a full ~8.9 s window open on the
+power cycle, while the host was polling. The radio was then proven healthy
+immediately afterwards: 3/3 `PONG` over the same link after restoring a good
+`main.py`.
+
+**What the log cannot tell us:** it brackets the window but records nothing
+about what the device's transport *received*. A window whose `read()` never
+sees a byte and a window nobody transmitted into are indistinguishable in it.
+That is the gap to close, and it needs on-device instrumentation (a count of
+bytes/frames seen inside the window, logged on exit).
+
+#### The correlation, stated as correlation
+
+| Stranded how | Journal state | Wide window via | `--recover` landings |
+| --- | --- | --- | --- |
+| `upd --no-confirm` (HIL 1 x3, HIL 2, test 5 x2) | unconfirmed candidate | journal **and** marker | **6 / 6** |
+| fresh deploy, or a rollback that consumed the `.bck` (test 6 x2) | stable, none | **marker only** | **0 / 2** |
+
+This is striking and it is *not* proof. Against it: the window body is
+identical in both cases, the measured duration is the same ~8.9 s, and
+`had_boot_mark` short-circuits the `state(core)` call in both (the marker is
+present either way, so the journal never even gets read on the recovery boot).
+There is no mechanism in the selection code that could make these differ. A
+plainer confound also survives: operator cycle timing relative to the poll,
+which we cannot timestamp from the host and which has already produced one
+falsely-recorded miss in this session.
+
+Six versus two is also not many trials.
+
+**Why it matters anyway.** The marker exists precisely for the case the
+journal cannot see -- a **confirmed** generation that later proves fatal, which
+is the `rollback --recover` scenario in F-10's own words. Every landing we have
+is from the other path, the one where the journal alone would have sufficed. So
+the marker's own reason for existing has never been demonstrated end to end.
+
+**Next step if this is picked up:** add temporary device-side instrumentation
+to `_run_boot_listen` logging bytes/frames seen and iteration count on exit,
+deploy, and run the marker-only strand three times. That distinguishes "the
+window never heard anything" from "the window heard and did not answer" in one
+run, and neither can be inferred from what we have.

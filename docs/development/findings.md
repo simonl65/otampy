@@ -9,6 +9,56 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 
 ## Open / fixed
 
+### F-18 — every proven radio recovery went through the journal path; the marker-only path has never landed a command
+
+- **Severity:** P2
+- **Status:** open
+- **Area:** `src/otampy/device/lib/otampy/boot.py` `_run_boot_listen` and the
+  marker half of `run()`'s tier selection; possibly `src/otampy/cli.py`
+  `_recover_query`; possibly neither -- the cause is not established.
+- **Found:** 2026-09-11, two attempts at test 6 of
+  `failsafe-update-boot-listen-spec.md`.
+- **Evidence:** test 6 needs a device stranded with **nothing retained**, so
+  the wide window is selected off the **boot marker alone** (no journal). Built
+  cleanly the second time by a fresh USB deploy of the fatal `main.py`.
+  Device-side `/ota.log` shows the tier selection working perfectly --
+  boot 1 (deploy's reset, marker absent) a **1827 ms** short window, boot 2
+  (the power cycle, marker present) a **8908 ms** wide window. The host polled
+  ~152 s at 1.06 s/CONNECT across that window and logged **zero** `URST
+  Connected` lines. The radio was proven healthy minutes later on the same
+  link: 3/3 `PONG`. First attempt, on the same precondition reached by a
+  different route (a rollback that consumed the `.bck`), failed identically
+  across two power cycles.
+  Tally by how the device was stranded: `upd --no-confirm` (journal present)
+  **6 landings in 6 attempts** -- HIL 1 x3, HIL 2, test 5 x2; marker-only
+  (no journal) **0 landings in 2 attempts**.
+- **Impact:** The boot marker exists for exactly the case the journal cannot
+  see -- a **confirmed** generation that later proves fatal, which is the
+  `rollback --recover` scenario. Every landing on record comes from the other
+  path, where an unconfirmed candidate meant the journal alone would have
+  selected the wide window anyway. So the marker's reason for existing is
+  undemonstrated, and F-10's closure evidence, while real, does not cover this
+  branch. If the branch turns out to be genuinely unreachable this is P1 and
+  F-10 should reopen; on present evidence that is not established.
+- **Against the obvious reading:** the window body is identical for both tiers,
+  the measured duration is the same ~8.9 s, and `had_boot_mark` short-circuits
+  the `state(core)` call in both cases (the marker is present either way on a
+  recovery boot, so the journal is never read there). No mechanism in the
+  selection code could make these two differ. A plainer confound is also alive:
+  operator cycle timing relative to the poll cannot be timestamped from the
+  host, and has already produced one falsely-recorded miss this session. Six
+  versus two is a small sample.
+- **Resolution:** _(not yet fixed. The next step is diagnostic, not a patch:
+  add temporary instrumentation to `_run_boot_listen` logging bytes/frames seen
+  and iteration count on exit, deploy, and run the marker-only strand three
+  times. That separates "the window never heard anything" (radio/host) from
+  "the window heard and did not answer" (device) in a single run. Neither can
+  be inferred from the current evidence, and no code should change until it
+  is.)_
+- **Closed:** _(pending)_
+
+---
+
 ### F-17 — `--recover` against a *healthy* device silently bypasses the window and rolls back the running application
 
 - **Severity:** P2
@@ -569,6 +619,16 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   reasoning plus the repeated fast landings, not on a literal like-for-like
   run -- worth a real 60 s attempt if the coordination latency can be removed
   (e.g. Simon cycling on a countdown rather than a chat round-trip).
+- **Scope limit found after closing (2026-09-11, see F-18):** all six landings
+  behind this closure -- HIL 1 x3, HIL 2, test 5 x2 -- stranded the device with
+  `upd --no-confirm`, which leaves an **unconfirmed candidate**, so the wide
+  window was selected by the journal test. The **marker-only** path, which is
+  the branch the marker was added for (a *confirmed* generation that later
+  proves fatal), has **never landed a command**: 0 for 2. The fix and its
+  evidence are real for the path they cover; this one is unproven rather than
+  proven broken. If F-18's instrumentation shows the marker-only window is
+  genuinely unreachable, **reopen this finding** -- that would be the original
+  defect surviving in the branch that matters most for `rollback --recover`.
 
 ### F-09 — `OTA.boot()` teardown crashes on every no-auth boot: MicroPython `delattr` raises `KeyError`, not `AttributeError`
 

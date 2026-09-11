@@ -387,3 +387,44 @@ protocol removes the latency race.
 **Incidental confirmation:** trial auto-restore works. Before this run the
 device had spent its 3 trial boots while stranded, and the next boot restored
 the good `main.py` by itself, unprompted — observed, not tested for.
+
+### HIL 1 — PASSED (three first-cycle recoveries)
+
+All three at `OTAMPY_RECOVERY_WAIT=300`, poll started and verified live before
+the cycle was requested. Timestamps are seconds into the poll; "CONNECT #" is
+which attempt within the `connect()` call answered.
+
+| Attempt | Device answered | CONNECT # | Wake→ACK | `Rollback complete` | Tree after |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 36.92 s | 3rd | ~2.2 s | 49.94 s | clean |
+| 3 | 40.20 s | 2nd | ~1.1 s | 55.31 s | clean |
+| 4 | 33.65 s | 4th | ~3.2 s | 46.81 s | clean |
+
+"Clean" means, verified over the radio with USB never touched: `ping` → `PONG`,
+`otampy state` → "Running a confirmed (stable) build", `otampy cat /main.py` is
+the good example version, and `otampy ls /` shows no `main.py.bck`, no
+`otampy-update.journal`, no `otampy-boot.mark`. Each attempt was preceded by a
+deliberate re-strand (`otampy upd --no-confirm ...:main.py` with the fatal
+`main.py`) so every run started with a full trial-boot budget and no attempt
+could be rescued by auto-restore.
+
+**The landing is fast once the device is reachable: 1.1 s, 2.2 s, 3.2 s.** All
+three landed within a single `connect()` call of the device's radio waking. The
+whole recovery — power-on through `Rollback complete`, including the CLI's
+post-reboot health wait — fits inside ~15 s.
+
+**On the raised `recovery-wait`.** 300 s was used to absorb the Claude↔Simon
+round-trip, not the recovery. The figure that matters for the shipped 60 s
+default is wake→ACK, and at 1–3 s it has ~20× margin. An operator standing at
+the device, who cycles on reading the prompt, has the whole 60 s available;
+our constraint was that a request had to travel to a human reading chat.
+A run attempted at the true 60 s default (attempt "3" in the earlier table)
+timed out with **no CONNECT_ACK in the log at all** — Simon did not see the
+prompt in time and never cycled. That is a harness artifact and is recorded as
+discarded, not as a failure of the default.
+
+**Method note worth keeping.** A `--recover` run that logs no `URST Connected`
+line anywhere did not miss the window — the device never woke inside the poll
+at all. That single line cleanly separates "operator/coordination problem" from
+"the mechanism missed", and it is the check that should have been applied to
+the 2026-09-10 session before its conclusions were drawn.

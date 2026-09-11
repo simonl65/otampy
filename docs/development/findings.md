@@ -12,7 +12,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-15 — `--recover`'s fail-fast handshake cannot land in a window that is demonstrably open, so radio recovery still fails
 
 - **Severity:** P1
-- **Status:** open
+- **Status:** fixed — awaiting HIL evidence and re-review
 - **Area:** `src/otampy/cli.py` — `_fast_recovery_handshake` (`cli.py:1061`),
   `_RECOVERY_ACK_TIMEOUT_MS`/`_RECOVERY_MAX_RETRIES`/`_RECOVERY_SERIAL_TIMEOUT`
   (`cli.py:1055-1057`), `_query(fast=True)` (`cli.py:1160-1168`),
@@ -44,17 +44,24 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   (commit `172d93c`), adopted when the cadence theory looked right. It made
   the host retry fast; it also made each retry too fragile to complete a
   handshake over an XBee.
-- **Resolution:** _(not yet fixed — needs design, not a constant tweak. The
-  tension is real: retries must be frequent enough to hit a window, yet each
-  attempt must survive a link whose handshake routinely needs a retry. With a
-  ~9 s window the original justification for fail-fast is largely gone —
-  a normal-profile attempt takes ~1-2 s and several fit inside 9 s. Candidate
-  shapes: drop `fast=True` back to something near the normal profile now that
-  the window is wide; keep one CONNECT attempt but raise the serial read
-  timeout to ~1 s; or reinstate a device-side beacon so the host synchronises
-  instead of guessing (revisits Protocol decision D2 again). Whichever is
-  chosen, HIL test 1's "three first-cycle passes" bar is what proves it.)_
-- **Closed:** _(pending)_
+- **Resolution:** 2026-09-11, step 3 of
+  `failsafe-update-recovery-handshake-spec.md`. `_recover_query` now opens the
+  port **once** and holds it for the whole poll, retrying
+  `transport.protocol.connect()` on that single transport at stock URST
+  timings (~1 CONNECT/s, a full 1 s listen each), with a
+  `_RECOVERY_HANDSHAKE_GAP_S` quiet gap between attempts and an explicit
+  `_RECOVERY_SERIAL_TIMEOUT` of 0.2 s so `ACK_TIMEOUT_MS` remains the real
+  per-attempt deadline. `urst.constants` is no longer mutated.
+  `_fast_recovery_handshake`, `_RECOVERY_ACK_TIMEOUT_MS`,
+  `_RECOVERY_MAX_RETRIES` and `_query(fast=...)` are deleted. A handshake that
+  completes as the window shuts is treated as a miss (session cleared, poll
+  continues), and an `OSError` mid-poll reopens the port rather than ending
+  the attempt. Covered by 10 tests in `tests/test_cli.py`, including the
+  `_RECOVERY_SERIAL_TIMEOUT <= ACK_TIMEOUT_MS / 1000` invariant asserted
+  directly. **Host-side only so far — no hardware evidence yet.** This finding
+  cannot close until step 7's HIL run lands a command in a real window on the
+  shipped default config, repeatably.
+- **Closed:** _(pending HIL evidence and re-review)_
 
 ---
 

@@ -98,3 +98,54 @@ that message anyway — recorded so it is a decision rather than an oversight.
 and **deleted in step 3**, which removes the fast-handshake profile it guards.
 Fixing it first is deliberate: it means the restore-on-timeout behaviour was
 genuinely exercised at least once before it was removed.
+
+---
+
+## Step 3 — hold the port open and retry the handshake (F-15)
+
+2026-09-11. The fix itself. `_recover_query` now opens the port **once**,
+holds it for the whole poll, and retries `transport.protocol.connect()` on
+that single transport at stock URST timings. `urst.constants` is no longer
+mutated at all.
+
+The body decomposes into three small pieces rather than one long loop:
+
+- `_recovery_attempt(transport, command, expected_prefix, signer)` — one
+  handshake-then-command exchange. Every "the window wasn't there" outcome
+  raises `_RecoveryMiss`; `DeviceError` passes straight through.
+- `_reset_recovery_session(transport)` — clears `is_connected` and drains
+  `_recv_queue` after a miss.
+- `_close_quietly(ser)` — used by both the `finally` and the reopen path.
+
+Three decisions worth recording, because none is forced by the spec text:
+
+1. **`except OSError` covers `serial.SerialException` too** — pyserial's
+   exception is an `OSError` subclass, so one clause handles both rather than
+   importing `serial` into this function just to name it.
+2. **A reopen that itself fails is not fatal.** On `OSError` the port is
+   closed and `transport` set to `None`; the *next* cycle reopens. If that
+   reopen also raises, it is caught by the same handler and retried, so a port
+   that vanishes for a few seconds (a device resetting its USB) is absorbed
+   rather than ending the poll. The initial open stays outside the loop, so a
+   genuinely wrong `--port` still fails immediately instead of after 60 s.
+3. **A prefix mismatch is treated as a miss, not an error.** `_interpret_reply`
+   raises `ClickException` for a reply that doesn't carry the expected prefix;
+   `_recovery_attempt` converts that to `_RecoveryMiss`. This preserves the old
+   blind-retry behaviour exactly — `_query` raised, `_recover_query` caught
+   `ClickException` and retried — and during a recovery poll a non-matching
+   frame is far more likely to be a stale frame than a protocol fault.
+
+`_RECOVERY_SERIAL_TIMEOUT` moves 0.1 → 0.2, `_RECOVERY_HANDSHAKE_GAP_S` is new
+at 0.05. Deleted: `_fast_recovery_handshake`, `_RECOVERY_ACK_TIMEOUT_MS`,
+`_RECOVERY_MAX_RETRIES`, `_query`'s `fast=` parameter and its
+`fast_serial_timeout` plumbing, and the now-unused `contextmanager` import.
+
+**Evidence:** 8 of the 10 tests in the rewritten `_recover_query` block were
+red before the change (the invariant test and the default-serial-timeout test
+were green either way, which is what a guard test should do). After:
+`155 passed`, `pre_flight_check.py` exit 0, `grep -c 'fast=' src/otampy/cli.py`
+→ **0**.
+
+**Not yet proven on hardware.** Every claim above is host-side reasoning and
+unit tests. Whether this actually lands a command in a real window is step 7,
+and until that runs F-15 is `fixed`, not `closed`.

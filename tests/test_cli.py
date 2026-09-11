@@ -3019,31 +3019,197 @@ def test_outgoing_bytes_wraps_the_command_when_a_signer_is_configured():
 
 
 # =============================================================================
-# _recover_query -- the boot-window retry loop (docs/protocol.md 2.4)
+# _recover_query -- the boot-window handshake poll (docs/protocol.md 2.4)
+#
+# F-15: the poll holds ONE port open for its whole duration and retries
+# protocol.connect() on it at stock URST timings. It does not reopen the
+# port per cycle, and it does not mutate urst.constants.
 # =============================================================================
 
 
-def test_recover_query_returns_the_payload_once_the_device_answers(monkeypatch):
-    """The window is ~1s per boot, so the host blind-retries until one lands."""
+def _recovery_transport(connect, reply=b"", send=True):
+    """A stand-in URST transport for the recovery poll.
+
+    ``connect`` is the side_effect for ``protocol.connect()`` -- a list of
+    False/True models a window that is shut until it isn't. ``reply`` is what
+    ``read()`` hands back; ``b""`` is the window shutting mid-exchange.
+    """
+    transport = mock.Mock()
+    transport.protocol.connect.side_effect = connect
+    transport.protocol.is_connected = True
+    transport.send.return_value = send
+    transport.read.return_value = reply
+    # _read_full_reply compares this with `is True`, so a bare Mock would
+    # spin; pin it False.
+    transport.reassembly_in_progress = False
+    return transport
+
+
+def test_recover_query_opens_the_port_once_and_holds_it(monkeypatch):
+    """F-15: reopening per cycle toggled DTR/RTS on the FTDI->XBee roughly
+    once a second, at exactly the moment a freshly-booted device needs the
+    link quietest. One open, many handshakes on it."""
     from otampy.cli import _recover_query
 
-    attempts = []
-
-    def fake_query(_ctx, command, _expected, *, fast=False):
-        attempts.append(command)
-        if len(attempts) < 3:
-            raise click.ClickException("Timeout waiting for response")
-        return b"", None
-
-    monkeypatch.setattr("otampy.cli._query", fake_query)
+    transport = _recovery_transport(
+        connect=[False] * 5 + [True], reply=b"ROLLBACK_OK"
+    )
+    ser = mock.Mock()
+    opens = mock.Mock(return_value=(ser, transport))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
-    payload = _recover_query(
-        click.Context(cli), b"UPDATE_REQUEST", b"REBOOTING"
-    )
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
 
-    assert payload == b""
-    assert attempts == [b"UPDATE_REQUEST"] * 3
+    assert payload == b"OK"
+    assert opens.call_count == 1
+    assert transport.protocol.connect.call_count == 6
+    ser.close.assert_called_once()
+
+
+def test_recover_query_opens_with_the_recovery_serial_timeout(monkeypatch):
+    from otampy.cli import _RECOVERY_SERIAL_TIMEOUT, _recover_query
+
+    transport = _recovery_transport(connect=[True], reply=b"ROLLBACK_OK")
+    opens = mock.Mock(return_value=(mock.Mock(), transport))
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert opens.call_args.kwargs["serial_timeout"] == _RECOVERY_SERIAL_TIMEOUT
+
+
+def test_recovery_serial_timeout_stays_inside_the_ack_deadline():
+    """The invariant, asserted rather than merely documented.
+
+    read_frame() blocks for the *pyserial* timeout on each iteration against
+    a silent port, so a serial timeout larger than ACK_TIMEOUT_MS makes the
+    ACK deadline unenforceable and each handshake attempt takes as long as
+    the serial timeout instead. Changing either number without the other
+    silently un-does F-15's fix.
+    """
+    from urst import constants as c
+
+    from otampy.cli import _RECOVERY_SERIAL_TIMEOUT
+
+    assert _RECOVERY_SERIAL_TIMEOUT <= c.ACK_TIMEOUT_MS / 1000
+
+
+def test_recover_query_does_not_mutate_urst_constants(monkeypatch):
+    """The old poll shrank ACK_TIMEOUT_MS/MAX_RETRIES globally and restored
+    them afterwards. The poll now runs at stock timings, so a concurrent
+    reader of urst.constants sees the same values throughout."""
+    from urst import constants as c
+
+    from otampy.cli import _recover_query
+
+    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+    observed = {}
+
+    def connect():
+        observed["during"] = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+        return True
+
+    transport = _recovery_transport(connect=connect, reply=b"ROLLBACK_OK")
+    monkeypatch.setattr(
+        "otampy.cli._open_transport",
+        mock.Mock(return_value=(mock.Mock(), transport)),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert observed["during"] == original
+    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
+
+
+def test_recover_query_no_longer_has_a_fast_handshake():
+    """The fail-fast profile and its plumbing are gone, not merely unused."""
+    import otampy.cli as cli_mod
+
+    assert not hasattr(cli_mod, "_fast_recovery_handshake")
+    assert not hasattr(cli_mod, "_RECOVERY_ACK_TIMEOUT_MS")
+    assert not hasattr(cli_mod, "_RECOVERY_MAX_RETRIES")
+
+
+def test_recover_query_retries_when_the_window_shuts_mid_exchange(monkeypatch):
+    """A handshake can complete just as the window closes. The reply then
+    never arrives -- that is a miss, not a failure, so the poll clears the
+    half-open session and tries again rather than raising."""
+    from otampy.cli import _recover_query
+
+    transport = _recovery_transport(connect=[True, True])
+    transport.read.side_effect = [b"", b"ROLLBACK_OK"]
+
+    signer = mock.Mock()
+    signer.wrap.side_effect = [b"SIGNED1", b"SIGNED2"]
+    monkeypatch.setattr("otampy.cli._command_signer", lambda: signer)
+    monkeypatch.setattr(
+        "otampy.cli._open_transport",
+        mock.Mock(return_value=(mock.Mock(), transport)),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert payload == b"OK"
+    assert transport.protocol.connect.call_count == 2
+    # The half-open session is forgotten, or the second attempt would send
+    # into a device that is no longer listening.
+    assert transport.protocol.is_connected is False
+    transport.protocol._recv_queue.clear.assert_called()
+    # Each send re-wraps: a retry carrying a stale counter looks like a replay.
+    sent = [call.args[0] for call in transport.send.call_args_list]
+    assert sent == [b"SIGNED1", b"SIGNED2"]
+
+
+def test_recover_query_reopens_the_port_after_a_serial_error(monkeypatch):
+    """Two OSError [Errno 5] events hit the HIL host during the 2026-09-10
+    run. Reopening per cycle absorbed those implicitly; a held-open port has
+    to do it explicitly or one glitch ends the whole poll."""
+    import serial
+
+    from otampy.cli import _recover_query
+
+    dead = _recovery_transport(
+        connect=serial.SerialException(
+            "device reports readiness but returned no data"
+        )
+    )
+    good = _recovery_transport(connect=[True], reply=b"ROLLBACK_OK")
+    ser_dead, ser_good = mock.Mock(), mock.Mock()
+    opens = mock.Mock(side_effect=[(ser_dead, dead), (ser_good, good)])
+    monkeypatch.setattr("otampy.cli._open_transport", opens)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    payload = _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert payload == b"OK"
+    assert opens.call_count == 2
+    ser_dead.close.assert_called()
+    ser_good.close.assert_called()
+
+
+def test_recover_query_lets_a_device_error_through(monkeypatch):
+    """A DeviceError means the device *answered* -- stop polling. This is
+    the auth-rejection and 'nothing to roll back' path."""
+    from otampy.cli import _recover_query
+
+    transport = _recovery_transport(
+        connect=[True], reply=b"ERROR:Unauthenticated"
+    )
+    ser = mock.Mock()
+    monkeypatch.setattr(
+        "otampy.cli._open_transport", mock.Mock(return_value=(ser, transport))
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    with pytest.raises(DeviceError) as excinfo:
+        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
+
+    assert excinfo.value.error_msg == "Unauthenticated"
+    ser.close.assert_called_once()
 
 
 def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
@@ -3052,9 +3218,10 @@ def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
     from otampy.cli import _recover_query
 
     monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
+    transport = _recovery_transport(connect=lambda: False)
+    ser = mock.Mock()
     monkeypatch.setattr(
-        "otampy.cli._query",
-        mock.Mock(side_effect=click.ClickException("Timeout")),
+        "otampy.cli._open_transport", mock.Mock(return_value=(ser, transport))
     )
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
@@ -3065,98 +3232,12 @@ def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
     assert "No recovery window answered" in message
     assert "ROLLBACK" in message
     assert "recovery-wait" in message
+    ser.close.assert_called_once()
 
 
-def test_recover_query_lets_a_device_error_through(monkeypatch):
-    """A DeviceError means the device *answered* -- stop retrying."""
-    from otampy.cli import _recover_query
-
-    monkeypatch.setattr(
-        "otampy.cli._query",
-        mock.Mock(side_effect=DeviceError("Unauthenticated", b"ROLLBACK")),
-    )
-    monkeypatch.setattr("time.sleep", lambda _s: None)
-
-    with pytest.raises(DeviceError):
-        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
-
-
-def test_recover_query_polls_with_a_fail_fast_handshake_and_restores_it(
-    monkeypatch,
-):
-    """F-10: a normal CONNECT against an absent device is ~4s
-    (MAX_RETRIES+1 x ACK_TIMEOUT_MS), far slower than the ~1s boot window.
-    _recover_query must shrink URST's handshake timing while it polls -- and
-    put it back afterwards, since the wider timings are right everywhere else.
-    """
-    from urst import constants as c
-
-    from otampy.cli import _recover_query
-
-    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
-    observed = {}
-
-    def fake_query(_ctx, command, _expected, *, fast=False):
-        observed["fast"] = fast
-        observed["ack_ms"] = c.ACK_TIMEOUT_MS
-        observed["max_retries"] = c.MAX_RETRIES
-        return b"", None
-
-    monkeypatch.setattr("otampy.cli._query", fake_query)
-    monkeypatch.setattr("time.sleep", lambda _s: None)
-
-    _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
-
-    assert observed["fast"] is True
-    assert observed["ack_ms"] < original[0]
-    assert observed["max_retries"] < original[1]
-    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
-
-
-def test_recover_query_restores_handshake_timing_even_on_timeout(monkeypatch):
-    from urst import constants as c
-
-    from otampy.cli import _recover_query
-
-    original = (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
-    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
-    monkeypatch.setattr(
-        "otampy.cli._query",
-        mock.Mock(side_effect=click.ClickException("Timeout")),
-    )
-    monkeypatch.setattr("time.sleep", lambda _s: None)
-
-    with pytest.raises(click.ClickException) as excinfo:
-        _recover_query(click.Context(cli), b"ROLLBACK", b"ROLLBACK_")
-
-    assert "No recovery window answered" in str(excinfo.value)
-    assert original == (c.ACK_TIMEOUT_MS, c.MAX_RETRIES)
-
-
-def test_query_fast_mode_makes_one_attempt_with_no_backoff(monkeypatch):
-    """fast=True: a single connection attempt, no query_retries loop, no
-    backoff sleep -- so _recover_query can re-issue CONNECT several times a
-    second against the boot window."""
-    from otampy.cli import _query
-
-    opens = mock.Mock(side_effect=click.ClickException("no device"))
-    slept = []
-    monkeypatch.setattr("otampy.cli._open_transport", opens)
-    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
-
-    ctx = click.Context(cli)
-    ctx.obj = {"port": "/dev/ttyFake", "baud": 57600, "mux": False}
-    with pytest.raises(click.ClickException):
-        _query(ctx, b"PING", b"PONG", fast=True)
-
-    assert opens.call_count == 1
-    assert slept == []
-    # a small serial read timeout too, so an absent port returns in ~ms
-    _, kwargs = opens.call_args
-    assert 0 < kwargs["serial_timeout"] <= 0.25
-
-
-def test_query_without_fast_uses_the_default_serial_timeout(monkeypatch):
+def test_query_uses_the_default_serial_timeout(monkeypatch):
+    """_query has no recovery-specific mode any more: it always opens at the
+    configured serial_timeout_seconds."""
     from otampy.cli import _query
 
     opens = mock.Mock(side_effect=click.ClickException("no device"))

@@ -6,7 +6,7 @@ import importlib.resources
 import logging
 import tempfile
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1042,37 +1042,82 @@ def _open_transport(
     return ser, transport
 
 
-# The boot window is ~1s. A normal CONNECT against an absent device costs
-# MAX_RETRIES+1 (=4) handshake attempts, and each attempt's read blocks up to
-# serial_timeout_seconds (=2s) on the empty port -- ~8s, and _query retries
-# that 3x, so the host puts a CONNECT on the wire only every ~12s and almost
-# never lands inside a window (F-10). The profile below makes one CONNECT
-# attempt that gives up after ACK_TIMEOUT_MS, backed by a small serial read
-# timeout so an absent port (between windows) also returns in ~that time. So
-# the blind retry fires ~2x/s, and any attempt that starts inside the window
-# still waits long enough for a real CONNECT_ACK / reply to come back over the
-# radio link (which is well under a second but not instant).
-_RECOVERY_ACK_TIMEOUT_MS = 500
-_RECOVERY_MAX_RETRIES = 0
-_RECOVERY_SERIAL_TIMEOUT = 0.1
+# The recovery poll's serial read timeout. LOAD-BEARING, not a taste knob:
+# urst's read_frame() loops `ser.read(max(1, in_waiting))`, and against a
+# silent port `in_waiting` is 0, so each iteration blocks for the *pyserial*
+# timeout. A pyserial timeout larger than ACK_TIMEOUT_MS therefore makes the
+# ACK deadline unenforceable -- at the default 2.0s a nominal 1000ms handshake
+# attempt really takes ~2s and connect()'s four attempts take ~8s. The
+# invariant, asserted by a test so a later edit to either number cannot
+# silently undo it:
+#
+#     _RECOVERY_SERIAL_TIMEOUT <= urst.constants.ACK_TIMEOUT_MS / 1000
+_RECOVERY_SERIAL_TIMEOUT = 0.2
+
+# Quiet gap between handshake attempts. XBees drop or buffer back-to-back
+# frames without a ~30ms gap.
+_RECOVERY_HANDSHAKE_GAP_S = 0.05
 
 
-@contextmanager
-def _fast_recovery_handshake():
-    """Shrink URST's handshake/ACK timing to a fail-fast profile, restored on
-    exit. Scoped to the ``_recover_query`` poll only -- the wider timings are
-    correct for every other command, which talks to a device that is up. The
-    matching serial read timeout is passed through ``_query(fast=True)`` ->
-    ``_open_transport``."""
-    from urst import constants as urst_constants
+class _RecoveryMiss(Exception):
+    """The recovery window was shut, or shut mid-exchange -- poll again.
 
-    saved = (urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES)
-    urst_constants.ACK_TIMEOUT_MS = _RECOVERY_ACK_TIMEOUT_MS
-    urst_constants.MAX_RETRIES = _RECOVERY_MAX_RETRIES
+    Not an error: missing a window is the normal case for most of a poll,
+    and is exactly what the loop exists to absorb.
+    """
+
+
+def _close_quietly(ser) -> None:
+    """Close a serial port, ignoring a port that is already gone."""
+    if ser is None:
+        return
     try:
-        yield
-    finally:
-        urst_constants.ACK_TIMEOUT_MS, urst_constants.MAX_RETRIES = saved
+        ser.close()
+    except Exception:
+        pass
+
+
+def _reset_recovery_session(transport) -> None:
+    """Forget a half-finished URST session so the next attempt starts clean.
+
+    A handshake that completed just as the window shut leaves
+    ``is_connected`` True and may leave frames queued. Without this the next
+    attempt would skip CONNECT entirely and send into a device that is no
+    longer listening.
+    """
+    try:
+        transport.protocol.is_connected = False
+        transport.protocol._recv_queue.clear()
+    except Exception:
+        pass
+
+
+def _recovery_attempt(
+    transport, command: bytes, expected_prefix: bytes, signer
+) -> bytes:
+    """One handshake-then-command exchange against a possibly-absent window.
+
+    Raises ``_RecoveryMiss`` for every outcome that means "the window was not
+    there, try again", and lets ``DeviceError`` through untouched -- that one
+    means the device *answered*.
+    """
+    if not transport.protocol.connect():
+        raise _RecoveryMiss("no handshake")
+
+    if not transport.send(_outgoing_bytes(command, signer)):
+        raise _RecoveryMiss("command not delivered")
+
+    response = _read_full_reply(transport)
+    if not response:
+        raise _RecoveryMiss("no reply")
+
+    try:
+        return _interpret_reply(response, command, expected_prefix)
+    except click.ClickException as e:
+        # A reply that doesn't match the prefix is a stale frame or a
+        # half-open window, not a protocol error worth aborting the whole
+        # recovery for. The old blind-retry design retried these too.
+        raise _RecoveryMiss(str(e)) from None
 
 
 def _interpret_reply(
@@ -1126,18 +1171,12 @@ def _query(
     command: bytes,
     expected_prefix: bytes,
     transport: Urst | None = None,
-    *,
-    fast: bool = False,
 ) -> tuple[bytes, Urst | None]:
     """Query device. If transport is provided, reuse it; otherwise create new.
 
     Returns: (response_data, transport_to_close_or_none)
     If transport was provided, returns (data, None) - caller manages connection.
     If transport was created, returns (data, transport) - caller should close it.
-
-    ``fast=True`` makes a single connection attempt with no ``query_retries``
-    loop and no backoff, so ``_recover_query`` can re-issue the command several
-    times a second against the ~1s boot window (F-10).
     """
     if not ctx.obj.get("port"):
         raise click.ClickException(
@@ -1167,16 +1206,13 @@ def _query(
 
     # Create new transport with retry logic
     last_err = None
-    query_retries = 1 if fast else int(get_config_value("query_retries"))
+    query_retries = int(get_config_value("query_retries"))
     retry_backoff = float(get_config_value("query_retry_backoff_seconds"))
 
-    fast_serial_timeout = _RECOVERY_SERIAL_TIMEOUT if fast else None
     for attempt in range(query_retries):
         ser = None
         try:
-            ser, new_transport = _open_transport(
-                ctx, serial_timeout=fast_serial_timeout
-            )
+            ser, new_transport = _open_transport(ctx)
 
             # Attempt transmission & handshake inside retry loop to handle slow wireless connection wakeups
             if not new_transport.send(_outgoing_bytes(command, signer)):
@@ -1270,18 +1306,24 @@ def _recover_query(
 ) -> bytes:
     """Land ``command`` in the device's boot-time recovery window.
 
-    The window is silent and short (``OTA_BOOT_LISTEN_MS``, ~1s per boot, see
-    docs/protocol.md 2.4), so there is nothing to synchronise on: the host
-    prompts for a power cycle and then blind-retries ``_query`` -- with a
-    fail-fast handshake (F-10) so it fires several times a second -- until one
-    attempt lands inside a window or ``recovery_wait_seconds`` expires. A
-    missed window is benign -- the operator power-cycles again.
+    The window is silent (see docs/protocol.md 2.4), so there is nothing to
+    synchronise on: the host prompts for a power cycle, then handshakes into
+    the dark until one attempt lands inside a window or
+    ``recovery_wait_seconds`` expires. A missed window is benign -- the
+    operator power-cycles again.
+
+    The port is opened **once** and held for the whole poll (F-15). Reopening
+    per cycle toggled DTR/RTS on the FTDI->XBee roughly once a second, at
+    exactly the moment a freshly-booted device needs the link quietest, and
+    the fail-fast profile it carried made each attempt too fragile to finish a
+    handshake over the radio. With a ~9s window, cadence is cheap and
+    per-attempt robustness is what matters: one ``connect()`` at stock URST
+    timings takes ~1s and several still fit inside a window.
 
     ``DeviceError`` is deliberately *not* caught: it means the device answered
     (a refusal, or an auth rejection), so retrying would be wrong.
     """
     wait = float(get_config_value("recovery_wait_seconds"))
-    backoff = float(get_config_value("query_retry_backoff_seconds"))
     _console().print(
         f"[yellow]Power-cycle the device now. Retrying for {wait:.0f}s...[/yellow]\n"
         "A device that failed before reaching its application opens a wide "
@@ -1291,21 +1333,49 @@ def _recover_query(
         "may be needed. If this times out, run the command again and "
         "power-cycle when prompted."
     )
+
+    # Resolved once, before the loop, so a misconfigured key is reported
+    # immediately rather than after a minute of polling.
+    try:
+        signer = _command_signer()
+    except auth.CommandAuthError as e:
+        raise click.ClickException(str(e)) from e
+
     start = time.time()
-    with _fast_recovery_handshake():
+    ser, transport = _open_transport(
+        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+    )
+    try:
         while True:
             try:
-                payload, _ = _query(ctx, command, expected_prefix, fast=True)
-                return payload
-            except click.ClickException:
-                if time.time() - start >= wait:
-                    raise click.ClickException(
-                        f"No recovery window answered '{command.decode()}' "
-                        f"within {wait:.0f}s. Power-cycle the device and try "
-                        "again, or raise the wait with 'otampy config --set "
-                        "recovery-wait <seconds>'."
-                    ) from None
-                time.sleep(backoff)
+                if transport is None:
+                    ser, transport = _open_transport(
+                        ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT
+                    )
+                return _recovery_attempt(
+                    transport, command, expected_prefix, signer
+                )
+            except _RecoveryMiss:
+                _reset_recovery_session(transport)
+            except OSError:
+                # serial.SerialException is an OSError subclass. Two
+                # `OSError: [Errno 5]` events hit the HIL host mid-poll on
+                # 2026-09-10; the old reopen-per-cycle design absorbed those
+                # implicitly, so a held-open port must do it explicitly or a
+                # single glitch ends the whole recovery attempt.
+                _close_quietly(ser)
+                ser, transport = None, None
+
+            if time.time() - start >= wait:
+                raise click.ClickException(
+                    f"No recovery window answered '{command.decode()}' "
+                    f"within {wait:.0f}s. Power-cycle the device and try "
+                    "again, or raise the wait with 'otampy config --set "
+                    "recovery-wait <seconds>'."
+                )
+            time.sleep(_RECOVERY_HANDSHAKE_GAP_S)
+    finally:
+        _close_quietly(ser)
 
 
 def _stage_rtc_update(ctx: click.Context) -> None:

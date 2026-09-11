@@ -209,7 +209,7 @@ as removing the short window from the one boot most likely to need it.
     message, show the reds, revert. Record both outputs in the dev log — that
     is the evidence F-13 was actually a false pass and is now not.
 
-- [ ] **3. Hold the port open and retry the handshake (F-15) — the fix**
+- [x] **3. Hold the port open and retry the handshake (F-15) — the fix**
   - What changes: `src/otampy/cli.py`. Rewrite `_recover_query`:
     - Open once with `_open_transport(ctx, serial_timeout=_RECOVERY_SERIAL_TIMEOUT)`,
       close it in a `finally`.

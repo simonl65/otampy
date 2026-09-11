@@ -3393,6 +3393,57 @@ def test_upd_without_recover_prints_no_power_cycle_prompt():
     assert "Power-cycle the device now" not in result.output
 
 
+def test_upd_recover_skips_the_bytecode_shadow_preflight(monkeypatch):
+    """F-16: the bytecode-shadow LS probe assumes the device answers the
+    normal path -- against a device --recover is for, that costs a full
+    ~25s retry budget before falling through to the recover-aware poll
+    anyway. --recover must skip it outright, not merely tolerate it
+    failing."""
+    monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
+    runner = CliRunner()
+
+    class MockFile:
+        def read(self):
+            return b"print('x')"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+        mock.patch("otampy.cli._device_has_bytecode") as mock_has_bytecode,
+        mock.patch(
+            "otampy.cli._get_files_to_send",
+            return_value=[("test.py", Path("/tmp/test.py"))],
+        ),
+        mock.patch("builtins.open", return_value=MockFile()),
+    ):
+        mock_device.return_value.read.side_effect = [
+            b"REBOOTING",
+            b"READY",
+            b"SPACE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"FILE_OK",
+            b"FILE_OK",
+            b"CHUNK_ACK:0",
+            b"CHUNK_ACK:1",
+            b"FILE_OK",
+            b"COMMIT_OK",
+            b"PONG",
+            b"CONFIRM_OK",
+        ]
+        result = runner.invoke(cli, ["-p", "/dev/ttyFake", "upd", "--recover"])
+
+    assert result.exit_code == 0, result.output
+    mock_has_bytecode.assert_not_called()
+
+
 def test_rollback_recover_confirm_yes_succeeds(monkeypatch):
     monkeypatch.setenv("OTAMPY_QUERY_RETRIES", "1")
     runner = CliRunner()

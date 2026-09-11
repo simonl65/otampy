@@ -159,7 +159,7 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
 ### F-16 — `upd --recover` makes the operator wait ~25 s before telling them to power-cycle
 
 - **Severity:** P3
-- **Status:** open
+- **Status:** fixed — awaiting re-review
 - **Area:** `src/otampy/cli.py`, the `upd --recover` path ahead of
   `_recover_query`
 - **Found:** 2026-09-11, HIL 2 of the recovery-handshake spec.
@@ -174,12 +174,20 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   them what to do. It also silently eats a quarter of the default 60 s
   `recovery-wait` budget if the operator has already power-cycled in
   anticipation.
-- **Resolution:** _(not yet fixed — either print the power-cycle prompt before
-  the pre-flight, or skip the normal-path attempt entirely when `--recover` is
-  given, which is what the flag already means. The latter looks right and is
-  small, but it is a behaviour change on a shipped flag and belongs in its own
-  reviewed step.)_
-- **Closed:** _(pending)_
+- **Resolution:** 2026-09-11. The ~25s cost was not inside `_recover_query`
+  itself -- it was `_device_has_bytecode(ctx)` (`cli.py:2449` pre-fix), an
+  unconditional plain `LS` pre-flight in `update()` that runs before
+  `_update_files`/`_recover_query` are ever reached, to warn about a source
+  update shadowing deployed `.mpy` bytecode. Guarded with `not recover`
+  (`cli.py:2453`): `if not bytecode and not recover and
+  _device_has_bytecode(ctx):`. `--recover` now skips the bytecode-shadow
+  probe and its interactive prompts entirely, matching the flag's own
+  premise that the device is not reachable via the normal path. Test
+  `test_upd_recover_skips_the_bytecode_shadow_preflight`
+  (`tests/test_cli.py`) asserts `_device_has_bytecode` is never called when
+  `--recover` is passed; sabotage-confirmed (removing the guard turns it
+  red). `python3 .agents/scripts/pre_flight_check.py` passes.
+- **Closed:** _(pending -- fix not yet re-reviewed)_
 
 ---
 

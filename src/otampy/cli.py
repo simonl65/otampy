@@ -2446,7 +2446,11 @@ def update(
             return
 
     bytecode_cleanup_paths: list[str] = []
-    if not bytecode and _device_has_bytecode(ctx):
+    # --recover means the device is presumed unreachable via the normal
+    # path -- probing it here with a plain LS costs a full ~25s retry
+    # budget (query_retries x 4 attempts x serial_timeout_seconds) before
+    # falling through to the recover-aware path anyway (F-16).
+    if not bytecode and not recover and _device_has_bytecode(ctx):
         shadowing_bytecode_paths = {
             str(
                 Path(target_path.replace("\\", "/").lstrip("/")).with_suffix(

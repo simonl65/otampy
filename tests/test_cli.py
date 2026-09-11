@@ -1902,6 +1902,87 @@ def test_cli_cp_aborts_active_transfer_on_device_error(tmp_path):
     assert sent[-1] == b"CP_ABORT"
 
 
+def test_cli_cp_downloads_file_from_device(tmp_path, monkeypatch):
+    """A ``device:<path>`` argument copies that file back to the host,
+    defaulting the local target to the device path's basename."""
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    with (
+        mock.patch("serial.Serial") as serial,
+        mock.patch("urst.Urst") as urst,
+    ):
+        transport = urst.return_value
+        transport.read.return_value = b"CAT_OK:print('hi')"
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "cp", "device:main.py"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "main.py").read_bytes() == b"print('hi')"
+    assert "Copied device:main.py to main.py successfully" in result.output
+    serial.assert_called_once_with("/dev/ttyFake", baudrate=57600, timeout=2.0)
+    transport.send.assert_called_once_with(b"CAT:main.py")
+
+
+def test_cli_cp_downloads_file_to_explicit_host_target(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+    ):
+        urst.return_value.read.return_value = b"CAT_OK:\x00\x01\x02"
+
+        result = runner.invoke(
+            cli,
+            [
+                "-p",
+                "/dev/ttyFake",
+                "cp",
+                "device:config/settings.json:local/settings.json",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        tmp_path / "local" / "settings.json"
+    ).read_bytes() == b"\x00\x01\x02"
+
+
+def test_cli_cp_download_reports_device_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as urst,
+    ):
+        urst.return_value.read.return_value = b"ERROR:ENOENT"
+
+        result = runner.invoke(
+            cli,
+            ["-p", "/dev/ttyFake", "cp", "device:missing.py"],
+        )
+
+    assert result.exit_code != 0
+    assert "No such file or directory: 'missing.py'" in result.output
+    assert not (tmp_path / "missing.py").exists()
+
+
+def test_cli_cp_minify_rejects_device_download():
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["-p", "/dev/ttyFake", "cp", "--minify", "device:main.py"],
+    )
+    assert result.exit_code != 0
+    assert "--minify only applies to host-to-device copies." in result.output
+
+
 def test_cli_aliases():
     """Test that aliases (e.g. 'update' for 'upd') work correctly."""
     runner = CliRunner(env={"NO_COLOR": "1"})

@@ -8,14 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Copy direction** Enable `cp` to copy from device to host.
-
-  - Model: Sonnet
-    - small, well-bounded CLI feature mirroring the existing host→device path.
-  - Spec : no
-    - but confirm arg/direction syntax first.
-  - Fresh: yes.
-
 [ ] **Ignore caches** `--all-files` should ignore `__pycache__/` folders and `_.example._` files.
 
   - Model: Haiku

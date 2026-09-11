@@ -265,6 +265,15 @@ otampy cp --minify main.py
 Use `--minify` to stage Python files without comments or redundant blank lines;
 it never alters local source files.
 
+Copy a single file from the device back to the host with a `device:` prefix:
+
+```bash
+otampy cp device:main.py
+otampy cp device:config/settings.json ./settings.json
+```
+
+The device path must name a single file (no wildcards or directories); the host target defaults to the file's basename in the current directory. `--minify` does not apply to device-to-host copies.
+
 Local `cp` and `upd` source paths are resolved from the project root: `/device/*:/`
 copies `<project-root>/device/*` to the device filesystem root. The path after
 `:` is always a remote device path.

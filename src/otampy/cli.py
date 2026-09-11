@@ -2035,6 +2035,22 @@ def _split_update_arg(arg: str) -> tuple[str, str | None]:
     return arg[:separator], arg[separator + 1 :]
 
 
+_DEVICE_ARG_PREFIX = "device:"
+
+
+def _parse_download_arg(arg: str) -> tuple[str, str | None] | None:
+    """Split a ``device:<path>[:<host target>]`` cp argument.
+
+    Returns ``None`` for a plain (host-to-device) argument.
+    """
+    if not arg.startswith(_DEVICE_ARG_PREFIX):
+        return None
+    remainder = arg[len(_DEVICE_ARG_PREFIX) :]
+    if not remainder:
+        raise click.ClickException(f"Missing device path in '{arg}'")
+    return _split_update_arg(remainder)
+
+
 def _update_target_path(
     source: Path, target: str | None, multiple_matches: bool
 ) -> str:
@@ -2239,8 +2255,30 @@ def _print_minification_report(
 @click.argument("args", nargs=-1, required=True)
 @click.pass_context
 def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
-    """Copy files or directories without rebooting the device."""
-    files_to_send = _get_files_to_send(args, python_only=False)
+    """Copy files or directories without rebooting the device.
+
+    A ``device:<path>[:<host target>]`` argument copies that file from the
+    device to the host instead, e.g. ``otampy cp device:main.py ./main.py``.
+    """
+    upload_args = []
+    download_specs: list[tuple[str, str | None]] = []
+    for arg in args:
+        parsed = _parse_download_arg(arg)
+        if parsed is None:
+            upload_args.append(arg)
+        else:
+            download_specs.append(parsed)
+
+    if minify and download_specs:
+        raise click.ClickException(
+            "--minify only applies to host-to-device copies."
+        )
+
+    files_to_send = (
+        _get_files_to_send(tuple(upload_args), python_only=False)
+        if upload_args
+        else []
+    )
 
     if not ctx.obj.get("port"):
         raise click.ClickException(
@@ -2326,6 +2364,34 @@ def copy_files(ctx: click.Context, args: tuple[str, ...], minify: bool) -> None:
                         )
                     _console().print(
                         f"[green]Copied {target_path} successfully.[/green]"
+                    )
+
+                for device_path, host_target_str in download_specs:
+                    target = (
+                        Path(host_target_str)
+                        if host_target_str
+                        else Path(Path(device_path).name)
+                    )
+                    _console().print(
+                        f"Copying device:{device_path} to {target}..."
+                    )
+                    response, _ = _query(
+                        ctx,
+                        f"CAT:{device_path}".encode(),
+                        b"CAT_OK",
+                        transport=transport,
+                    )
+                    try:
+                        if target.parent != Path("."):
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(response)
+                    except OSError as e:
+                        raise click.ClickException(
+                            f"Failed to write local file {target}: {e}"
+                        ) from e
+                    _console().print(
+                        f"[green]Copied device:{device_path} to {target} successfully "
+                        f"({len(response)} bytes).[/green]"
                     )
             except DeviceError as e:
                 raise click.ClickException(

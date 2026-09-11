@@ -582,3 +582,37 @@ rather than merely argued from the source:
 So the auth surface sees one unsigned command per `--recover` invocation,
 regardless of `recovery-wait`. That is strictly less exposure than the old
 reopen-per-cycle design, which blind-sent the command on every cycle.
+
+### HIL fixtures — recreate these, do not hunt for them
+
+The scratchpad is session-scoped, so these do not survive a cleared context.
+Both are tiny; recreate rather than search.
+
+**The fatal `main.py`** — strands the device before its runtime OTA surface
+exists, and arms no watchdog so trial auto-restore cannot fire and mask
+whether `--recover` did the work:
+
+```python
+"""
+Deliberately fatal main.py -- HIL 1/2 of the recovery-handshake spec.
+
+Raises on import, so the device never reaches ota.poll() and is stranded
+before its runtime OTA surface exists. Arms NO watchdog, so trial
+auto-restore cannot fire and mask whether --recover did the work.
+"""
+
+raise RuntimeError("HIL: deliberately fatal main.py")
+```
+
+**The good `main.py`** is just `src/otampy/device/examples/main.py` at HEAD —
+it is **tracked**, so the strand/restore cycle is:
+
+```bash
+cp <fatal fixture> src/otampy/device/examples/main.py
+otampy upd --no-confirm src/otampy/device/examples/main.py:main.py
+git checkout -- src/otampy/device/examples/main.py     # restore immediately
+```
+
+The `source:target` form is required — a bare `main.py` resolves against the
+project root and writes `/src/otampy/device/examples/main.py` on the device
+instead of `/main.py`, which looks like a clean update and is a silent no-op.

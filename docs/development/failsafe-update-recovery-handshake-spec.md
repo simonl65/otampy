@@ -280,7 +280,7 @@ as removing the short window from the one boot most likely to need it.
     ("`0` disables the wide window and the marker; an at-risk boot then falls
     back to `OTA_BOOT_LISTEN_MS`, never to no window").
 
-- [ ] **6. Docs and changelog for the host-side recovery path**
+- [x] **6. Docs and changelog for the host-side recovery path**
   - What changes: `docs/protocol.md` §2.4 gains a short "how the host reaches
     the window" note — one held-open port, ~1 CONNECT/s at stock URST timings,
     bounded by `recovery-wait` — and the `_RECOVERY_SERIAL_TIMEOUT` invariant

@@ -268,8 +268,13 @@ is the recovery path for a candidate that was confirmed and then proved fatal,
 or one that hangs before `ota.poll()` is reached. The window is silent (no
 beacon — an unacknowledged `Urst.send()` would cost up to ~8 s per boot), so
 the host blind-retries: `otampy upd --recover` and `otampy rollback --recover`
-prompt the operator to power-cycle and keep retrying for `recovery-wait`
-seconds (default `60`) until a command lands in a window. When
+prompt the operator to power-cycle, then hold one serial port open and
+handshake into the dark at about one CONNECT per second for `recovery-wait`
+seconds (default `60`) until a command lands in a window. That poll takes
+exclusive use of the port for its duration, so in a mux deployment nothing
+else may be contending for `mux.ota_port` while it runs; `docs/protocol.md`
+§2.4 records why the held-open port and the stock handshake timings are both
+load-bearing. When
 `OTA_REQUIRE_AUTH` is set the window enforces the same `AUTH:` envelope as the
 runtime surface — it is not a bypass. It needs `boot.py` itself to run;
 a `boot.py` that crashes earlier, or a wedged UART, still requires USB.

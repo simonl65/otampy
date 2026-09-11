@@ -229,3 +229,33 @@ device suite. `pre_flight_check.py` exit 0.
 No hardware involved — the measured 56 ms no-window boot in F-14's evidence
 already established the behaviour on device; this step changes the selection
 and its tests, not the window itself.
+
+---
+
+## Step 6 — docs and changelog for the host-side recovery path
+
+2026-09-11. Documentation only.
+
+`docs/protocol.md` §2.4 gains a **How the host reaches the window** bullet.
+The spec's bar was "accurate enough that F-15's failure mode could not be
+reintroduced by someone following the doc", so it is written as three
+load-bearing properties with the measurements attached rather than as a
+description of the current code: the port is held open (reopening toggles
+DTR/RTS on the FTDI→XBee at the worst moment), each attempt uses the full
+stock handshake (the fail-fast profile landed 0 in 60 s against a window
+proven open for 9006 / 9017 / 8977 ms), and the serial-timeout inequality
+with the reason `read_frame()` makes it matter. The inequality carries an
+explicit instruction to re-check it when touching `serial_timeout_seconds` or
+`ACK_TIMEOUT_MS`, since those are the two edits that would silently undo it.
+
+A separate **Exclusivity** bullet records the contract decided 2026-09-10:
+`--recover` owns the port for up to `recovery-wait`, so a mux deployment's
+gateway must not be contending for `mux.ota_port`. `docs/architecture.md` gets
+the short version and points at §2.4.
+
+`CHANGELOG.md`: the existing recovery-window entry gains a "How the host
+reaches it" sub-bullet carrying the 0-in-60 s evidence, and the tier bullet's
+"Either key set to `0` disables its own tier" is corrected to state F-14's
+fallback.
+
+`pre_flight_check.py` exit 0 (no code changed).

@@ -335,6 +335,43 @@ boot where no update is already pending.
   `otampy rollback --recover`), prompting the operator to power-cycle and
   retrying for `recovery-wait` seconds (default `60`) until a command lands
   inside a window. A missed window just means power-cycling again.
+- **How the host reaches the window.** The poll opens the serial port **once**
+  and holds it for its whole duration, retrying `protocol.connect()` on that
+  single transport at stock URST timings — roughly one CONNECT per second,
+  each with a full `ACK_TIMEOUT_MS` listen — and sends the command only after
+  a handshake has actually completed. It does not reopen the port per cycle
+  and does not alter `urst.constants`.
+
+  Three properties are load-bearing, and a change to any one of them
+  reintroduces a failure mode that has already cost two HIL sessions:
+
+  1. **The port is held open.** Reopening it toggles DTR/RTS on an
+     FTDI→XBee adapter at exactly the moment a freshly-booted device needs
+     the link quietest.
+  2. **Each attempt uses the full stock handshake.** With a ~9 s window,
+     cadence is cheap and per-attempt robustness is what matters. A fail-fast
+     profile (one CONNECT, a 500 ms ACK deadline, a 0.1 s read timeout) was
+     tried and landed 0 commands in 60 s against a window that device-side
+     ticks proved was open for 9006 / 9017 / 8977 ms.
+  3. **The poll passes an explicit serial read timeout**, and
+
+     > `_RECOVERY_SERIAL_TIMEOUT <= urst.constants.ACK_TIMEOUT_MS / 1000`
+
+     `read_frame()` loops `ser.read(max(1, in_waiting))`, and against a silent
+     port `in_waiting` is `0`, so each iteration blocks for the **pyserial**
+     timeout. A pyserial timeout larger than `ACK_TIMEOUT_MS` therefore makes
+     the ACK deadline unenforceable: at the default
+     `serial_timeout_seconds = 2.0` a nominal 1000 ms handshake attempt really
+     takes ~2 s and `connect()`'s four attempts take ~8 s. **Anyone changing
+     `serial_timeout_seconds` or `ACK_TIMEOUT_MS` must re-check this
+     inequality** — a unit test asserts it directly.
+
+  A handshake that completes just as the window shuts is a miss, not a
+  failure: the half-open session is discarded and the poll continues. A serial
+  error mid-poll reopens the port rather than ending the attempt.
+- **Exclusivity:** `--recover` takes **exclusive use of the port** for its
+  duration (up to `recovery-wait`, default 60 s). In a mux deployment the
+  gateway must not be contending for `mux.ota_port` while it runs.
 - **Channel:** 0 (reliable), the same surface as every other command; in mux
   deployments it reads `mux.ota_port`. No wire-format change — no new verb, no
   new response token, `PROTOCOL_VERSION` does not move.

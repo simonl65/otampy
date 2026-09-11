@@ -383,9 +383,8 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   The margin is worse than first filed — see the logging-overhead correction
   under **Evidence**: the 8899 ms span is clean as measured, not inflated, so
   the configured `8000` really does overrun 8388 on its own.
-- **Status:** fixed — 2026-09-11, `failsafe-update-boot-watchdog-spec.md`,
-  commits `e075496` / `2a3b514` / this step. **Not closed:** a repair is
-  re-reviewed by `/sl-findings review` before it clears.
+- **Status:** closed — 2026-09-11, `/sl-findings review` (independent
+  re-review; commits `e075496` / `2a3b514` / `264c7c7`).
   **Repair:** `OTA.boot(callback=None, heartbeat=None)` threads an optional
   zero-argument callable down through `boot.run()` into both blocking loops —
   `_run_boot_listen` and `_run_default_update_loop`. Each calls it as the
@@ -405,6 +404,22 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   opportunity to feed. Closing it needs a heartbeat hook in `urst`, which the
   parent TODO item explicitly wants to avoid; recorded in the spec's Risks
   and in `docs/protocol.md` §2.4 so it is a known limit, not a surprise.
+  **Independent re-review (2026-09-11):** read the current
+  `_call_heartbeat`/`_run_boot_listen`/`_run_default_update_loop`/`boot.run`/
+  `OTA.boot` code directly rather than trusting the fix's own log. Confirmed:
+  the feed sits unconditionally as the first statement of each loop body
+  (structurally covers every branch, including the auth-failure `continue`
+  the fix's own tests don't name explicitly); `manager.py` has exactly one
+  import and its original two call sites, zero `def _call_heartbeat` left;
+  `test_ota_manager.py`'s diff against the pre-fix commit is empty, so the
+  "unmodified" claim holds literally, not just in spirit; `run()` wires
+  `heartbeat` into both `_run_boot_listen` and `_run_default_update_loop`
+  call sites. Independently re-verified the placement claim by moving the
+  window's feed into the idle branch and re-running:
+  `test_boot_listen_feeds_heartbeat_while_refusing_a_chatty_peer` fails there
+  and passes restored, matching the fix's account exactly. Full suite: 696
+  passed. `grep` for the two obsolete claims in `docs/protocol.md` /
+  `docs/architecture.md`: no matches. No new defect found. Closing.
 - **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_boot_listen`, and the
   window selection in `run()`); `src/otampy/device/examples/configota.example.py`
   (the `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)

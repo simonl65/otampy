@@ -2132,10 +2132,14 @@ def _get_files_to_send(
         project_root = _detect_project_root()
         source_root = Path(get_default_device_dir() or project_root)
         if all_files:
+            from fnmatch import fnmatch
+
             res.extend(
                 (str(file.relative_to(source_root)).replace("\\", "/"), file)
                 for file in sorted(source_root.rglob("*"))
                 if file.is_file()
+                and "__pycache__" not in file.parts
+                and not fnmatch(file.name, "*.example.*")
             )
         else:
             for name in ("boot.py", "main.py", "configota.py"):

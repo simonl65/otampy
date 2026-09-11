@@ -1728,6 +1728,26 @@ def test_get_files_to_send_all_files_uses_saved_device_dir(
     ]
 
 
+def test_get_files_to_send_all_files_ignores_caches_and_examples(
+    tmp_path, monkeypatch
+):
+    from otampy.cli import _get_files_to_send
+
+    device = tmp_path / "device"
+    pycache = device / "lib" / "__pycache__"
+    pycache.mkdir(parents=True)
+    (pycache / "helper.cpython-312.pyc").write_text("junk\n")
+    (device / "main.py").write_text("# main\n")
+    (device / "configota.example.py").write_text("# example\n")
+    monkeypatch.setattr(
+        "otampy.cli.get_default_device_dir", lambda: str(device)
+    )
+
+    files = _get_files_to_send((), all_files=True)
+
+    assert files == [("main.py", device / "main.py")]
+
+
 def test_cli_update_all_files_lists_and_confirms_before_connecting():
     runner = CliRunner()
 

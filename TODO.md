@@ -8,13 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Ignore caches** `--all-files` should ignore `__pycache__/` folders and `_.example._` files.
-
-  - Model: Haiku
-    - one localised filter change to the file-walk with a matching test.
-  - Spec : no.
-  - Fresh: yes.
-
 ## Deferred - do not run these
 
 [ ] **Firmware versioning** Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`

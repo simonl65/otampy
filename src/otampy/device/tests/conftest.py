@@ -4,6 +4,8 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 # 1. Mock MicroPython specific modules for the testing environment
 mock_machine = MagicMock()
 sys.modules["machine"] = mock_machine
@@ -84,8 +86,17 @@ device_otampy = importlib.util.module_from_spec(spec)
 sys.modules["device_otampy"] = device_otampy
 spec.loader.exec_module(device_otampy)  # pyright: ignore[reportOptionalMemberAccess]
 
-# Load all submodules under 'device_otampy'
-for path in PKG_PATH.glob("*.py"):
+# Load all submodules under 'device_otampy'. `core` first: every other
+# submodule does `from .core import ...`, and if `core` hasn't been placed in
+# sys.modules yet that resolves through the normal import machinery instead,
+# executing core.py a second time and binding the submodule's globals to a
+# *different* `core` module instance than the one this loop then registers --
+# silently breaking `monkeypatch.setattr`/`patch` against `device_otampy.core`
+# for any submodule that imported before `core`'s turn (see TODO.md, F-10).
+_submodule_paths = sorted(
+    PKG_PATH.glob("*.py"), key=lambda path: (path.name != "core.py", path.name)
+)
+for path in _submodule_paths:
     if path.name == "__init__.py":
         continue
     mod_name = f"device_otampy.{path.stem}"
@@ -94,3 +105,43 @@ for path in PKG_PATH.glob("*.py"):
     sys.modules[mod_name] = sub_mod
     sub_spec.loader.exec_module(sub_mod)  # pyright: ignore[reportOptionalMemberAccess]
     setattr(device_otampy, path.stem, sub_mod)
+
+
+@pytest.fixture(autouse=True)
+def _restore_device_otampy_submodule_table():
+    """Snapshot and restore `sys.modules`/package attrs for `device_otampy`.
+
+    `OTA.boot()` deliberately deletes `device_otampy.boot` (and `restore`,
+    `authgate`) from `sys.modules` after each call so main.py never inherits a
+    stale copy -- see ota.py. Left unrestored, that leaks across tests: a
+    later test's `from device_otampy import boot` (bound once, at module
+    import time) still points at the now-orphaned module object, while a
+    fresh `device_otampy.boot` gets re-imported underneath it, so
+    `patch("device_otampy.boot._resolve_path", ...)` silently patches a
+    module nothing under test actually uses. Restoring the table after every
+    test -- regardless of which test did the mutating -- makes the suite
+    immune to collection order (TODO.md, found 2026-09-09).
+    """
+    package = sys.modules["device_otampy"]
+    prefix = "device_otampy."
+    modules_before = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "device_otampy" or name.startswith(prefix)
+    }
+    attrs_before = dict(vars(package))
+
+    yield
+
+    for name in list(sys.modules):
+        if (
+            name == "device_otampy" or name.startswith(prefix)
+        ) and name not in modules_before:
+            del sys.modules[name]
+    sys.modules.update(modules_before)
+
+    for name in list(vars(package)):
+        if name not in attrs_before:
+            delattr(package, name)
+    for name, value in attrs_before.items():
+        setattr(package, name, value)

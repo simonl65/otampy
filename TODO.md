@@ -10,13 +10,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 [ ] Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`
 
-[ ] **`test_ota_facade.py` leaks `sys.modules` state and can flake CI.** Found 2026-09-09 during F-09's HIL verification. `test_boot_releases_boot_module_and_can_run_again` calls `ota.boot()` with `boot.run` patched, so the teardown deletes `device_otampy.boot` (and `restore`, `authgate`) from `sys.modules` and never restores them. Under a `pytest-randomly` seed that orders this test before the `test_ota_boot.py` boot tests, those tests then `patch("device_otampy.boot._resolve_path", ...)` against a freshly re-imported module while their own module-level `from device_otampy import boot` still points at the stale one — 5 tests fail (`test_boot_handles_full_update_session`, `test_boot_aborts_active_update_and_cleans_staging`, `test_boot_cleans_orphaned_ota_on_normal_boot`, `test_commit_does_not_retain_the_transient_rtc_helper`, `test_boot_removes_orphan_bck_but_keeps_journalled_one`). Pre-existing, currently masked by alphabetical collection order; `test_boot_teardown_survives_micropython_delattr_keyerror` (added for F-09) already does the save/restore dance locally, which is the pattern to generalise — a `conftest.py` autouse fixture that snapshots and restores the `device_otampy` submodule table, or an explicit restore in the offending test. **Related, found 2026-09-10 during the F-10 window work:** `conftest.py` glob-loads the submodules in arbitrary order, so `boot`'s module-level `from .core import ...` can bind to a `device_otampy.core` instance that the loop then *replaces* in `sys.modules` — there are two live `core` modules during a run. Harmless today (nothing mutates module state) but it makes `monkeypatch.setattr` on a device module silently no-op, which cost real debugging time; `test_ota_boot.py`'s `_boot_mark_in_tmp` fixture works around it by patching the resolver's own `__globals__`. Loading `core` first (or importing submodules through the package rather than by path) would fix both this and the ordering flake above.
-
-  - Model: Sonnet
-    - contained test-infrastructure fix; the failure mode is understood, the fix is a fixture.
-  - Spec : no.
-  - Fresh: yes.
-
 ## Deferred - do not run these
 
 [ ] **Session-based ports** Is session-based port setting being used - seems to fail with "Error: Error: Missing serial port. Specify with --port or -p option"?

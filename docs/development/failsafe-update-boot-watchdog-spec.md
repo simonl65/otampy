@@ -2,7 +2,7 @@
 
 **TODO item:** "Feed a caller-supplied watchdog inside the boot-time recovery
 window." (follow-up to F-12, `docs/development/findings.md`)
-**Status:** approved
+**Status:** built (2026-09-11) — awaiting `/sl-findings review` to close F-12
 **Components:** `src/otampy/device/lib/otampy/` (`boot.py`, `core.py`,
 `ota.py`), `src/otampy/device/examples/`, `docs/protocol.md`,
 `docs/architecture.md`, `CHANGELOG.md`
@@ -232,7 +232,7 @@ from the device" — this touches neither.)
     change. They are assertions about a call signature, not about behaviour;
     no test's *meaning* was weakened. The rest of both suites is untouched.
 
-- [ ] **3. Update the example, `configota.example.py` comment, and docs.**
+- [x] **3. Update the example, `configota.example.py` comment, and docs.**
   - What changes: `docs/protocol.md` §2.4 replaces "Nothing arms a watchdog
     this early... gives up pre-`boot()` RP2040 watchdog compatibility
     entirely" with a description of the `heartbeat` parameter and a note that

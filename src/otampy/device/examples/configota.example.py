@@ -24,10 +24,19 @@ OTA_BOOT_LISTEN_MS = 1000
 # shuts long before -- so this is the tier that makes radio recovery actually
 # work. Only a device that has already failed pays it. `0` disables the wide
 # window and the boot marker below entirely -- an at-risk boot then falls back
-# to `OTA_BOOT_LISTEN_MS`, never to no window at all. Keep this under your
-# watchdog
-# period if a custom `boot.py` arms one before `OTA(...).boot()`: 8000 is just
-# under the RP2040's ~8388 ms cap. See docs/protocol.md 2.4.
+# to `OTA_BOOT_LISTEN_MS`, never to no window at all.
+#
+# If a custom `boot.py` arms a watchdog before `OTA(...).boot()`, pass its
+# feed in as `heartbeat` and this duration stops mattering -- the window and
+# the update loop both feed it while they wait:
+#
+#     wdt = WDT(timeout=8388)
+#     OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+#
+# With no `heartbeat`, nothing feeds the watchdog for the whole window, so
+# keep this under the period: 8000 is just under the RP2040's ~8388 ms cap,
+# though the window's real blocking span measures 8899-9570 ms on hardware,
+# which already exceeds it. Supply the `heartbeat`. See docs/protocol.md 2.4.
 OTA_BOOT_RECOVERY_LISTEN_MS = 8000
 # Marker written once per boot and removed by the first `ota.poll()`. Its
 # presence at boot is what says the previous boot never reached the

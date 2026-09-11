@@ -383,7 +383,28 @@ Gate rule: an **open** or **fixed** P0/P1 blocks a merge. P2/P3 do not.
   The margin is worse than first filed — see the logging-overhead correction
   under **Evidence**: the 8899 ms span is clean as measured, not inflated, so
   the configured `8000` really does overrun 8388 on its own.
-- **Status:** open
+- **Status:** fixed — 2026-09-11, `failsafe-update-boot-watchdog-spec.md`,
+  commits `e075496` / `2a3b514` / this step. **Not closed:** a repair is
+  re-reviewed by `/sl-findings review` before it clears.
+  **Repair:** `OTA.boot(callback=None, heartbeat=None)` threads an optional
+  zero-argument callable down through `boot.run()` into both blocking loops —
+  `_run_boot_listen` and `_run_default_update_loop`. Each calls it as the
+  first statement of its `while` body, before `read()`, so every path round
+  feeds rather than only the idle one (four of the window's five paths skip
+  the idle sleep, so idle-branch placement would leave a chatty peer's
+  refusals unfed — pinned by
+  `test_boot_listen_feeds_heartbeat_while_refusing_a_chatty_peer`, which was
+  verified to fail under that placement). `_call_heartbeat` moved from
+  `manager.py` to `core.py` so both callers share one copy. The
+  `configota.example.py` guidance that prompted this finding now shows a
+  worked `heartbeat=wdt.feed` example instead of an untrue timing promise,
+  and `docs/protocol.md` §2.4 / `docs/architecture.md` no longer claim
+  pre-`boot()` watchdog compatibility is given up.
+  **Residual, deliberately not fixed:** a single `reply()` to a peer that
+  stops acknowledging blocks ~3-4 s inside `urst`'s retry loop with no
+  opportunity to feed. Closing it needs a heartbeat hook in `urst`, which the
+  parent TODO item explicitly wants to avoid; recorded in the spec's Risks
+  and in `docs/protocol.md` §2.4 so it is a known limit, not a surprise.
 - **Area:** `src/otampy/device/lib/otampy/boot.py` (`_run_boot_listen`, and the
   window selection in `run()`); `src/otampy/device/examples/configota.example.py`
   (the `OTA_BOOT_RECOVERY_LISTEN_MS` guidance)

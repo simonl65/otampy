@@ -48,6 +48,11 @@ logger.debug("BOOTING...")
 
 # Check for an update request flag before continuing to the main application.
 OTA(mux.ota_port, config=config, logger=logger).boot()
+# Arming a watchdog before this call? Pass its feed in, or the recovery window
+# resets the device mid-wait. Both blocking stretches of a boot feed it.
+# from machine import WDT
+# wdt = WDT(timeout=8388)
+# OTA(mux.ota_port, config=config, logger=logger).boot(heartbeat=wdt.feed)
 
 
 led.off()

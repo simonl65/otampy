@@ -280,18 +280,30 @@ runtime surface — it is not a bypass. It needs `boot.py` itself to run;
 a `boot.py` that crashes earlier, or a wedged UART, still requires USB.
 `docs/protocol.md` §2.4 has the full dispatch table.
 
-Nothing arms a watchdog this early (`boot.run()` precedes `main.py`). A custom
-`boot.py` that arms one *before* `OTA(...).boot()` must keep **whichever tier
-can apply** under its period — and that is now the wide one. `8000` was chosen
-to sit just under the RP2040's ~8388 ms WDT cap, so the default remains usable
-by such an integrator, but only if their WDT period is at the cap. **Raising
-`OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 gives up compatibility with a
-pre-`boot()` RP2040 watchdog entirely**, since no WDT period can cover it.
+`boot.run()` precedes `main.py`, so a custom `boot.py` that arms a watchdog
+*before* `OTA(...).boot()` passes its feed in as `heartbeat`:
+
+```python
+wdt = WDT(timeout=8388)
+OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+```
+
+Both blocking stretches of a boot — the recovery window and the default
+update loop — feed it once per loop iteration, on every path round rather
+than only while idle. The library never constructs or owns the `WDT`; the
+integrator arms it and chooses its period, exactly as `OTA.poll()`'s
+`heartbeat` already works. **With a `heartbeat` supplied,
+`OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 ms is safe.** With none, nothing
+feeds the watchdog for the window's duration — and since the window's
+measured span is 8899–9570 ms, the `8000` default does not reliably fit
+under the RP2040 cap either. `docs/protocol.md` §2.4 has the detail,
+including the one residual unfed span (a blocking `reply()` inside `urst`'s
+retry loop) that OTAmpy cannot close.
 
 An integrator whose hardware needs attention sooner than the window's duration
-(motor control, say) should note that it runs with no application and no
-watchdog throughout — up to ~8 s on a device that qualifies for the wide tier,
-rather than the ~1 s that used to be the worst case.
+(motor control, say) should note that it runs with no application throughout —
+up to ~8 s on a device that qualifies for the wide tier, rather than the ~1 s
+that used to be the worst case.
 
 Pass the same injected logger to `OTA` in both scripts if the application
 wants logging. Omitting it selects `NullLogger`.

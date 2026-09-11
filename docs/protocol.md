@@ -402,14 +402,37 @@ right after a reset is the signal that recovery is needed.
 
 **Limits.** The window needs `boot.py` itself to run: a `boot.py` that crashes
 before the window falls through to `main.py` (where poll-loop `ROLLBACK`
-applies), and if neither runs, recovery is USB. Nothing arms a watchdog this
-early; a hardware fault that wedges the UART is not recoverable in software. A
-custom `boot.py` that arms a watchdog before `OTA(...).boot()` must keep
-**whichever tier can apply** under its period — now the wide one. `8000` was
-chosen to sit under the RP2040's ~8388 ms WDT cap so the default stays usable
-by such an integrator, provided their WDT period is at that cap; raising
-`OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 gives up pre-`boot()` RP2040 watchdog
-compatibility entirely, as no WDT period can cover it.
+applies), and if neither runs, recovery is USB. A hardware fault that wedges
+the UART is not recoverable in software.
+
+**Watchdogs.** A custom `boot.py` that arms one before `OTA(...).boot()`
+passes its feed in as `heartbeat`:
+
+```python
+wdt = WDT(timeout=8388)
+OTA(uart, config=config, logger=logger).boot(heartbeat=wdt.feed)
+```
+
+Both blocking stretches of a boot — the recovery window and the default
+update loop — call it once per loop iteration, on every path round rather
+than only while idle, so a peer streaming refused or malformed packets does
+not starve it. The library never constructs or owns the `WDT`; the integrator
+arms it and chooses its period, exactly as `OTA.poll()`'s `heartbeat` already
+works. With a `heartbeat` supplied, `OTA_BOOT_RECOVERY_LISTEN_MS` above
+8388 ms is safe.
+
+With **no** `heartbeat`, nothing feeds the watchdog for the window's
+duration. `8000` was chosen to sit under the RP2040's ~8388 ms WDT cap, but
+the window's measured blocking span is 8899–9570 ms on hardware — already
+past the cap before `boot()`'s own ~1.5 s pre-window cost — so an unfed
+watchdog is not reliably survivable at the default either. Supply the
+`heartbeat`.
+
+One residual gap the library cannot close: a single `reply()` is a URST
+reliable send (3 retries at a 1 s ACK timeout), so answering a peer that
+stops acknowledging can block ~3–4 s inside `urst` with no chance to feed.
+That fits inside an 8388 ms period alone, but leaves little margin stacked on
+the pre-window boot cost.
 
 A device whose application crashes only *after* it has already polled costs
 two power cycles rather than one: that boot cleared the marker, the next sets

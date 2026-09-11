@@ -14,9 +14,16 @@ class OTA:
         # Cleared by the first poll() of this process; see poll().
         self._boot_mark_cleared = False
 
-    def boot(self, callback=None):
+    def boot(self, callback=None, heartbeat=None):
         """
         Call from boot.py. Checks for any pending updates and applies them.
+
+        `heartbeat`, if given, is called periodically inside the two blocking
+        stretches of a boot -- the recovery window and the update loop.
+        Distinct from `callback`, which is a one-shot hook called once, right
+        before a reboot (RB/UPDATE_REQUEST): `heartbeat` fires zero or more
+        times per `boot()` call and must be safe to call that way (e.g.
+        feeding a hardware watchdog), not "about to reset" cleanup.
         """
         from .boot import run
 
@@ -24,7 +31,7 @@ class OTA:
         # boot-only module after this call. Removing both import references
         # lets GC reclaim its bytecode; a later boot() call can re-import it.
         try:
-            run(self._core, callback)
+            run(self._core, callback, heartbeat=heartbeat)
         finally:
             import gc
             import sys

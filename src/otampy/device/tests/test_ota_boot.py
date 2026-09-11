@@ -1107,6 +1107,58 @@ def test_boot_listen_heartbeat_is_optional(monkeypatch, tmp_path):
     assert core.transport.sent_messages == [b"ERROR:Recovery window"]
 
 
+def test_default_update_loop_calls_heartbeat_while_idle(monkeypatch, tmp_path):
+    """The update loop is unbounded and can legitimately run far longer than
+    the window, so it needs feeding just as much (F-12)."""
+    core = _window_core(tmp_path, OTA_TIMEOUT_MS=1000)
+    _fake_clock(monkeypatch)
+    feeds = _Feeds()
+    # One malformed opener, then silence. A real session always starts with a
+    # host packet, and FakeUrst.reply() refuses to answer before one arrives,
+    # so the loop could not send its own UPDATE_ABORTED without this.
+    core.transport.incoming_queue.append(b"UPDATE_START:bad")
+
+    boot._run_default_update_loop(core, feeds)
+
+    # Nothing ever arrives, so the session times out and aborts -- having
+    # fed once per idle iteration on the way.
+    assert core.transport.sent_messages == [
+        b"ERROR:Invalid manifest",
+        b"UPDATE_ABORTED",
+    ]
+    assert feeds.count > 50
+
+
+def test_boot_passes_heartbeat_through_to_both_loops(monkeypatch, tmp_path):
+    """run() must reach *both* blocking loops, not just the window.
+
+    Driven end-to-end rather than through a spy: a spy would prove the
+    argument was forwarded but not that either loop actually calls it.
+    """
+    _fake_clock(monkeypatch)
+
+    # (a) the recovery-window path -- no flag file present.
+    window_core = _window_core(tmp_path)
+    window_feeds = _Feeds()
+    boot.run(window_core, callback=None, heartbeat=window_feeds)
+    assert window_feeds.count > 50
+
+    # (b) the update path -- flag file present, no callback, so run() falls
+    # through to _run_default_update_loop.
+    flag = tmp_path / "update_requested.flag"
+    flag.touch()
+    update_core = _window_core(
+        tmp_path,
+        UPDATE_REQUEST_FLAG_FILE=str(flag),
+        OTA_TIMEOUT_MS=1000,
+    )
+    update_feeds = _Feeds()
+    update_core.transport.incoming_queue.append(b"UPDATE_START:bad")
+    boot.run(update_core, callback=None, heartbeat=update_feeds)
+    assert b"UPDATE_ABORTED" in update_core.transport.sent_messages
+    assert update_feeds.count > 50
+
+
 # =============================================================================
 # The window's wiring into boot.run()
 #
@@ -1123,7 +1175,7 @@ def _window_spy(monkeypatch, result=False):
     """
     calls = []
 
-    def spy(core, window_ms):
+    def spy(core, window_ms, heartbeat=None):
         calls.append((core, window_ms))
         return result
 

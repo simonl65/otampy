@@ -191,7 +191,7 @@ from the device" — this touches neither.)
     shows the import plus the two call sites, with no `def _call_heartbeat`
     left in the file.
 
-- [ ] **2. Feed inside `_run_default_update_loop`; thread `heartbeat` through `boot.run()` and `OTA.boot()`.**
+- [x] **2. Feed inside `_run_default_update_loop`; thread `heartbeat` through `boot.run()` and `OTA.boot()`.**
   - What changes: `_run_default_update_loop` gains a `heartbeat=None`
     parameter, calls `_call_heartbeat(heartbeat)` once per loop iteration
     (idle-sleep branch and post-packet-handled branch both covered by placing
@@ -216,11 +216,21 @@ from the device" — this touches neither.)
     `heartbeat=None` — proves the parameter is fully optional and backward
     compatible with every existing call site in `examples/`).
   - Done when: all four new tests pass, and the full existing
-    `test_ota_boot.py` + `test_ota_facade.py` suites still pass unmodified —
+    `test_ota_boot.py` + `test_ota_facade.py` suites still pass —
     proving every current caller of `OTA(...).boot()` (`examples/boot.py`,
     `examples/shared-uart/boot.py`, `footprint_boot.py`, `README.md`,
     `docs/deployment.md`) keeps working with zero changes since `heartbeat`
     defaults to `None`.
+  - **Correction made during the build:** "unmodified" was wrong and could not
+    have been satisfied. Three existing tests assert the *mock call signature*
+    — two `mock_boot_run.assert_called_once_with(ota._core, None)` in
+    `test_ota_facade.py` and `_window_spy`'s two-parameter `spy()` in
+    `test_ota_boot.py`. `OTA.poll()`'s precedent is to pass the keyword
+    always (`manager.poll(core, callback, heartbeat=heartbeat)`), and this
+    step's own `test_ota_boot_heartbeat_defaults_to_none` asserts
+    `heartbeat=None` is passed — so those three assertions necessarily
+    change. They are assertions about a call signature, not about behaviour;
+    no test's *meaning* was weakened. The rest of both suites is untouched.
 
 - [ ] **3. Update the example, `configota.example.py` comment, and docs.**
   - What changes: `docs/protocol.md` §2.4 replaces "Nothing arms a watchdog

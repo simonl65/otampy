@@ -29,6 +29,10 @@ _RTC_HELPER_FILE = "_otampy_set_rtc.py"
 # boot with no host listening. The host blind-retries instead.
 _DEFAULT_BOOT_LISTEN_MS = 1000
 _BOOT_LISTEN_POLL_MS = 10
+# The update loop's idle pause. Same role as _BOOT_LISTEN_POLL_MS above, and
+# it sets the same thing: the worst-case gap between two heartbeat feeds on
+# an idle session.
+_UPDATE_LOOP_POLL_MS = 10
 _RECOVERY_REFUSED = b"ERROR:Recovery window"
 
 
@@ -93,7 +97,12 @@ def _make_dirs(path):
             pass
 
 
-def _run_default_update_loop(core):
+def _run_default_update_loop(core, heartbeat=None):
+    """Serve one update session. ``heartbeat``, if given, is called once per
+    loop iteration -- every path round, as in ``_run_boot_listen`` -- and is
+    never allowed to raise out of the session (F-12). This loop is bounded
+    only by its inactivity timeout, so it can run far longer than the
+    recovery window and needs feeding at least as much."""
     core.logger.debug("Running OTA update loop")
     import binascii
     import gc
@@ -128,6 +137,10 @@ def _run_default_update_loop(core):
     last_activity = _ticks_ms()
 
     while True:
+        # Top of the body, before read(): the packet-handling paths below
+        # `continue` without ever reaching the idle sleep, so feeding there
+        # would leave an active session unfed for its whole duration.
+        _call_heartbeat(heartbeat)
         packet = read()
         if not packet:
             if _ticks_diff(_ticks_ms(), last_activity) >= timeout_ms:
@@ -149,7 +162,7 @@ def _run_default_update_loop(core):
                 _cleanup_orphaned_ota(core)
                 send(b"UPDATE_ABORTED")
                 break
-            _sleep_ms(10)
+            _sleep_ms(_UPDATE_LOOP_POLL_MS)
             continue
 
         last_activity = _ticks_ms()
@@ -572,10 +585,14 @@ def _cleanup_orphaned_ota(core, path=".", kept_backups=None):
         pass
 
 
-def run(core, callback=None):
+def run(core, callback=None, heartbeat=None):
     """
     Check if the update request flag-file exists, execute the callback to
     perform the update, and remove the flag-file.
+
+    ``heartbeat`` is passed to whichever of the two blocking loops this boot
+    enters -- the recovery window or the default update loop -- so a caller
+    that armed a watchdog before ``boot()`` is not reset inside either.
     """
     _apply_staged_rtc_update()
 
@@ -666,7 +683,7 @@ def run(core, callback=None):
             window_ms = _config_int(
                 core.config, "OTA_BOOT_LISTEN_MS", _DEFAULT_BOOT_LISTEN_MS
             )
-        if _run_boot_listen(core, window_ms):
+        if _run_boot_listen(core, window_ms, heartbeat):
             return
 
     if has_flag:
@@ -684,7 +701,7 @@ def run(core, callback=None):
                 )
                 callback()
         else:
-            _run_default_update_loop(core)
+            _run_default_update_loop(core, heartbeat)
 
         # Remove the flag-file
         try:

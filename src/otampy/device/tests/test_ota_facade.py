@@ -48,7 +48,9 @@ def test_boot_releases_boot_module_and_can_run_again():
     for _ in range(2):
         with patch("device_otampy.boot.run") as mock_boot_run:
             ota.boot()
-            mock_boot_run.assert_called_once_with(ota._core, None)
+            mock_boot_run.assert_called_once_with(
+                ota._core, None, heartbeat=None
+            )
 
         assert "device_otampy.boot" not in sys.modules
         assert not hasattr(package, "boot")
@@ -119,7 +121,7 @@ def test_facade_delegates_to_boot_and_manager():
         patch("device_otampy.manager.poll") as mock_manager_poll,
     ):
         ota.boot()
-        mock_boot_run.assert_called_once_with(ota._core, None)
+        mock_boot_run.assert_called_once_with(ota._core, None, heartbeat=None)
 
         ota.poll()
         mock_manager_poll.assert_called_once_with(
@@ -268,3 +270,30 @@ def test_poll_does_no_filesystem_work_when_recovery_window_disabled(tmp_path):
 
     mock_remove.assert_not_called()
     assert mark.exists()
+
+
+def test_ota_boot_accepts_and_forwards_heartbeat():
+    """boot() takes the same heartbeat contract poll() already offers."""
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+    heartbeat = object()
+
+    with patch("device_otampy.boot.run") as mock_boot_run:
+        ota.boot(heartbeat=heartbeat)
+        mock_boot_run.assert_called_once_with(
+            ota._core, None, heartbeat=heartbeat
+        )
+
+
+def test_ota_boot_heartbeat_defaults_to_none():
+    """Fully optional: every existing OTA(...).boot() call site is unchanged.
+
+    examples/boot.py, examples/shared-uart/boot.py, footprint_boot.py,
+    README.md and docs/deployment.md all call .boot() with no heartbeat.
+    """
+    uart = shared.FakeUART()
+    ota = OTA(uart)
+
+    with patch("device_otampy.boot.run") as mock_boot_run:
+        ota.boot()
+        mock_boot_run.assert_called_once_with(ota._core, None, heartbeat=None)

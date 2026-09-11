@@ -3235,6 +3235,31 @@ def test_recover_query_raises_naming_recovery_wait_when_nothing_answers(
     ser.close.assert_called_once()
 
 
+def test_recover_prompt_describes_the_cadence_it_actually_uses(monkeypatch):
+    """The operator waiting with a finger on the power switch is told what
+    the host is doing. After F-15 that is ~1 handshake/s on a held-open port,
+    not a sub-second blind retry, and the port is exclusive for the duration.
+    """
+    monkeypatch.setenv("OTAMPY_RECOVERY_WAIT", "0.001")
+    runner = CliRunner()
+    with (
+        mock.patch("serial.Serial"),
+        mock.patch("urst.Urst") as mock_device,
+        mock.patch("time.sleep"),
+    ):
+        mock_device.return_value.read.return_value = None
+        result = runner.invoke(
+            cli, ["-p", "/dev/ttyFake", "rollback", "--recover"], input="y\n"
+        )
+
+    # Rich wraps at the terminal width, so compare on flattened whitespace.
+    flat = " ".join(result.output.split())
+    assert "Power-cycle the device now" in flat
+    assert "about once a second" in flat
+    assert "needs the port to itself" in flat
+    assert "several times a second" not in flat
+
+
 def test_query_uses_the_default_serial_timeout(monkeypatch):
     """_query has no recovery-specific mode any more: it always opens at the
     configured serial_timeout_seconds."""

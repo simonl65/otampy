@@ -1325,13 +1325,15 @@ def _recover_query(
     """
     wait = float(get_config_value("recovery_wait_seconds"))
     _console().print(
-        f"[yellow]Power-cycle the device now. Retrying for {wait:.0f}s...[/yellow]\n"
+        "[yellow]Power-cycle the device now. Handshaking about once a "
+        f"second for up to {wait:.0f}s...[/yellow]\n"
         "A device that failed before reaching its application opens a wide "
         "recovery window (~8s by default) on the next boot, so one power cycle "
-        "should be enough. If the application had been running and only "
+        "is normally enough. If the application had been running and only "
         "crashed later, that boot cleared the marker -- a second power cycle "
-        "may be needed. If this times out, run the command again and "
-        "power-cycle when prompted."
+        "may be needed. This command needs the port to itself while it waits, "
+        "so nothing else should be talking to the device. If it times out, "
+        "run it again and power-cycle when prompted."
     )
 
     # Resolved once, before the loop, so a misconfigured key is reported

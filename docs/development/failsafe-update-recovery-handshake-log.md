@@ -149,3 +149,33 @@ were green either way, which is what a guard test should do). After:
 **Not yet proven on hardware.** Every claim above is host-side reasoning and
 unit tests. Whether this actually lands a command in a real window is step 7,
 and until that runs F-15 is `fixed`, not `closed`.
+
+---
+
+## Step 4 — re-word the operator prompt
+
+2026-09-11. The prompt an operator reads while standing over the power switch
+now matches what the host does. Before:
+
+> Power-cycle the device now. Retrying for 60s...
+> ... so one power cycle should be enough. ... If this times out, run the
+> command again and power-cycle when prompted.
+
+After:
+
+> Power-cycle the device now. Handshaking about once a second for up to 60s...
+> ... so one power cycle is normally enough. ... This command needs the port
+> to itself while it waits, so nothing else should be talking to the device.
+> If it times out, run it again and power-cycle when prompted.
+
+The exclusivity sentence is the substantive addition — it is the contract
+decided 2026-09-10 and written up properly in step 6, and it is the one thing
+an operator on a mux deployment can get wrong from the terminal.
+
+**Evidence:** `test_recover_prompt_describes_the_cadence_it_actually_uses`
+asserts on flattened whitespace (Rich wraps at the terminal width). I wrote the
+wording before the test here, so redness was proven afterwards by restoring the
+old prompt: `1 failed`, `AssertionError` at the `about once a second` line.
+Restoring that sabotage with `git checkout` also reverted the real change and
+it had to be reapplied — noted so the commit's provenance is clear.
+`156 passed`, `pre_flight_check.py` exit 0.

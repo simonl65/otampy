@@ -247,7 +247,7 @@ as removing the short window from the one boot most likely to need it.
   - Done when: all of the above pass, `grep -c fast= src/otampy/cli.py` is 0,
     and `python3 .agents/scripts/pre_flight_check.py` is green.
 
-- [ ] **4. Re-word the operator prompt and the timeout message**
+- [x] **4. Re-word the operator prompt and the timeout message**
   - What changes: `src/otampy/cli.py` `_recover_query`'s two messages. The
     prompt still says the host "blind-retries several times a second", which
     stops being true. It should say: power-cycle now; the host is handshaking

@@ -22,6 +22,9 @@ View the latest version at [https://otampy.codeability.co.uk/](https://otampy.co
 - **Interactive file management** — upload (`cp`, `upd`), view (`cat`), or remove (`rm`) files on the device.
 - **Recovery protection** — `rm` refuses to delete boot, main, configuration, OTAmpy, or URST files needed for future wireless maintenance; no force option exists.
 - **Remote reboot and reset** — trigger a hard reboot (`rb`) or MicroPython soft reset (`sr`) over the air.
+- **Trial-boot updates with automatic rollback** — a committed update stays on trial until confirmed; a reboot within `OTA_TRIAL_BOOTS` boots (a crash, panic, or watchdog) restores the previous generation automatically, with no host involvement. `otampy upd` auto-confirms once the device answers healthy; `otampy confirm`/`otampy state` manage or query trial state directly.
+- **Radio rollback** — `otampy rollback` reverts a confirmed (or trialling) update to the one retained previous generation, over the radio, no USB required.
+- **Boot-time recovery window** — `otampy upd --recover` / `otampy rollback --recover` can reach a device stranded before `ota.poll()` — one that never made it back after a bad update — by retrying into a brief window `boot.py` opens on every boot. Widens automatically after a boot that looks risky.
 - **Diagnostic commands** — `ping` health checks and `mem` RAM/flash queries.
 - **Port management** — `ports` lists and selects adapters; `OTAMPY_PORT` and persistent `~/.config/otampy/config.json` settings avoid repeating `--port` on every command.
 - **Shared-UART (channel-mux) mode** — `--mux` (or `otampy mux --enable`) wraps every URST frame in a channel-mux outer frame so one UART can carry OTAmpy traffic alongside the device's own stream. Off by default; must match the device's `SerialMux` (scaffold it with `otampy init --mux`). See `docs/protocol.md` §1.3.
@@ -165,15 +168,19 @@ selections apply to the active Windows logon session. `OTAMPY_PORT` and
 `OTAMPY_LOG_LEVEL` environment variables override saved settings. Advanced
 settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 `OTAMPY_QUERY_RETRIES`, `OTAMPY_QUERY_RETRY_BACKOFF`,
-`OTAMPY_UPDATE_READY_TIMEOUT`, `OTAMPY_TRANSFER_CHUNK_SIZE`, and `OTAMPY_MUX`.
+`OTAMPY_UPDATE_READY_TIMEOUT`, `OTAMPY_TRANSFER_CHUNK_SIZE`, `OTAMPY_MUX`,
+`OTAMPY_POST_COMMIT_READY_TIMEOUT` (health-check timeout after a commit or
+rollback), and `OTAMPY_RECOVERY_WAIT` (how long `--recover` keeps retrying
+into the boot-time recovery window while you power-cycle the device).
 
 ### Commands
 
 | Command      | Arguments                                        | Description                                                         |
 | ------------ | ------------------------------------------------ | ------------------------------------------------------------------- |
 | `cat`        | `file`                                           | Print a file from the device.                                       |
+| `confirm`    | —                                                | Take the running update candidate off trial.                        |
 | `config`     | —                                                | Show or manage advanced host configuration.                         |
-| `cp`         | `source[:dest] [...]`                            | Copy files or folders to the device without rebooting.              |
+| `cp`         | `source[:dest] [...]` / `device:path[:dest]`     | Copy files or folders to the device without rebooting, or a single file back from it. |
 | `deploy`     | _(see below)_                                    | Erase and deploy the full device library over USB.                  |
 | `device-dir` | —                                                | Show or manage the saved project directory for deploy and updates.  |
 | `init`       | `[directory] [--mux]`                            | Scaffold `boot.py`, `main.py`, `configota.py` (`--mux` = shared-UART set). |
@@ -184,11 +191,14 @@ settings have matching overrides: `OTAMPY_SERIAL_TIMEOUT`,
 | `ports`      | —                                                | List available serial adapters; mark and store a selection.         |
 | `rb`         | `[--no-rtc]`                                     | Hard reboot the device (with confirmation).                         |
 | `rm`         | `path [...]`                                     | Remove paths from the device (with confirmation - not recoverable). |
+| `rollback`   | `[--recover]`                                    | Revert to the retained previous version over the radio (with confirmation).<sup>2</sup> |
 | `rtc`        | —                                                | Display the current device RTC timestamp without rebooting.         |
 | `sr`         | `[--no-rtc]`                                     | MicroPython soft reset (with confirmation).                         |
-| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--no-rtc] [--no-progress] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
+| `state`      | —                                                | Report whether the running build is on trial or confirmed (stable). |
+| `upd`        | `[--bytecode] [--keep-user-source] [--mpy-cross COMMAND] [--minify] [--no-rtc] [--no-progress] [--no-confirm] [--recover] [--all-files] [source[:dest] ...]` | Transactional OTA firmware update.<sup>1</sup>                      |
 
-<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory.
+<sup>1</sup> Updates take place after the device has rebooted; the update process is handled by `boot.py`. With no sources specified, `upd` selects `boot.py`, `main.py`, `configota.py`, and all Python files under `lib/` in the saved device directory. The update stays on trial until confirmed unless `--no-confirm` is passed; `--recover` blind-retries into the boot-time recovery window for a device stranded before `ota.poll()`.<br>
+<sup>2</sup> One-shot — only one previous generation is retained. `--recover` targets the boot-time recovery window and refuses outright if the device is already reachable via a plain `PING`.
 
 ### Deployment Options
 
@@ -319,6 +329,24 @@ Enable **host-side** diagnostics for a single command:
 
 ```bash
 otampy --log-level DEBUG ping
+```
+
+Confirm a trial update, check its state, or roll back to the previous version:
+
+```bash
+otampy upd --no-confirm main.py   # leave the candidate on trial
+otampy state                      # STATE_OK:trial:1 (or :stable)
+otampy confirm                    # take it off trial
+otampy rollback                   # revert to the retained previous generation
+```
+
+Recover a device that never made it back to `ota.poll()` (e.g. after a bad
+update), by retrying into the brief window `boot.py` opens on every boot —
+you will be prompted to power-cycle the device:
+
+```bash
+otampy upd --recover
+otampy rollback --recover
 ```
 
 ---

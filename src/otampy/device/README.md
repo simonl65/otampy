@@ -59,6 +59,37 @@ MicroPython code to be placed on the device to enable OTA functionality.
 See the repository [deployment guide](../../docs/deployment.md) for all deploy
 options.
 
+## Trial-boot updates, rollback, and boot-time recovery
+
+A committed update is on trial until confirmed: `boot.py` counts every boot
+into an unconfirmed candidate, and if the device reboots (crash, panic,
+watchdog, or manual power cycle) before `OTA_TRIAL_BOOTS` boots pass (default
+`3`), it restores the previous generation from its retained `.bck` files and
+reboots onto it automatically, with no host involvement. `otampy upd`
+auto-confirms once the new build answers a healthy `PING`; pass `--no-confirm`
+to leave it on trial, and call `ota.confirm()` from the application to gate
+confirmation on your own health check instead:
+
+```python
+if self_test_passed:
+    ota.confirm()
+```
+
+`otampy rollback` reverts a confirmed (or still-trialling) update to the one
+retained previous generation, over the radio. It is one-shot — after it there
+is nothing left to roll back to.
+
+Both `otampy upd --recover` and `otampy rollback --recover` can reach a device
+that never made it back to `ota.poll()`, by retrying into a brief window
+`boot.py` opens on every boot (widening automatically after a boot that looks
+risky) — see `docs/protocol.md` §2.4. If a custom `boot.py` arms a watchdog,
+pass its feed function into `OTA(...).boot()` so both blocking stretches of
+boot (the recovery window and the default update loop) keep it fed:
+
+```python
+ota.boot(heartbeat=wdt.feed)
+```
+
 ## Runtime file copies
 
 Once the application calls `ota.poll()`, the host can stream files and folders

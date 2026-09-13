@@ -4,7 +4,27 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
-## [Unreleased]
+## [4.9.0] - 2026-09-13
+
+### Added
+
+- **`OTA.mark_application_alive()` — clear the boot marker without polling.** The marker `boot.run()` writes was removed only by the first `OTA.poll()`. `poll()` can block up to `ACK_TIMEOUT_MS` on an idle link, so an application with a real loop-rate budget or an armed watchdog gates it on `frame_ready()` — and in a boot where no OTA command arrives it never reached `poll()`, so the next boot paid the wide `OTA_BOOT_RECOVERY_LISTEN_MS` window, which does not answer `PING`. On such a device that was every boot, and it made `otampy rollback` miss its `post-commit-ready-timeout`. Call it once, immediately before the main loop: it shares `poll()`'s once-per-process guard, never touches the transport and never raises. Applications that poll unconditionally, including both shipped scaffolds, need no change. `docs/protocol.md` §2.4 and `docs/architecture.md` now name it alongside `poll()` as proof the application is alive.
+
+## [4.8.0] - 2026-09-11
+
+### Added
+
+- **`otampy cp` copies a file from the device back to the host.** A `device:<path>[:<host target>]` argument downloads a single file (no wildcards or directories); the host target defaults to the file's basename in the current directory, e.g. `otampy cp device:main.py` or `otampy cp device:config/settings.json ./settings.json`. It reuses the existing channel-0 `CAT` command's byte-exact streaming response, so there is no device-side change and `PROTOCOL_VERSION` does not move. `--minify` applies only to host-to-device copies and is refused alongside a `device:` argument.
+
+### Changed
+
+- **`otampy upd --all-files` no longer uploads `__pycache__` directories or `*.example.*` templates.** The file walk previously sent every file under the device directory verbatim, including build artifacts and example files never meant to be flashed.
+
+### Fixed
+
+- **Session-scoped settings (`ports`/`log-level`/`config`/`device-dir`/`mux` "session" choice) silently reverted to stale values under automation that forks a fresh subprocess per command.** `_session_id()` keyed the session file on the immediate parent process's PID, which is stable for an interactive shell but changes on every invocation when there is no persistent parent (e.g. Claude Code's Bash tool). A later command then missed the session file an earlier one wrote and fell back to the project/global config or a "Missing serial port" error, even though the session setting had reported success. `OTAMPY_SESSION_ID` now lets such callers opt into a fixed, explicit session identifier instead of relying on process ancestry. Root cause of the `TODO.md` session-ports bug already observed in `docs/development/failsafe-update-window-reachability-log.md`.
+
+## [4.7.0] - 2026-09-11
 
 ### Added
 
@@ -46,8 +66,6 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   - Recovery is best-effort and converges over reboots; it is not a power-loss-atomic filesystem transaction.
 
 ### Fixed
-
-- **Session-scoped settings (`ports`/`log-level`/`config`/`device-dir`/`mux` "session" choice) silently reverted to stale values under automation that forks a fresh subprocess per command.** `_session_id()` keyed the session file on the immediate parent process's PID, which is stable for an interactive shell but changes on every invocation when there is no persistent parent (e.g. Claude Code's Bash tool). A later command then missed the session file an earlier one wrote and fell back to the project/global config or a "Missing serial port" error, even though the session setting had reported success. `OTAMPY_SESSION_ID` now lets such callers opt into a fixed, explicit session identifier instead of relying on process ancestry. Root cause of the `TODO.md` session-ports bug already observed in `docs/development/failsafe-update-window-reachability-log.md`.
 
 - **Every successful `otampy upd` reported failure, because the post-commit health check was racing the recovery window.** A post-commit boot still carries a `trial` journal, so it takes the *wide* boot-time recovery window by design — putting the device's polling main loop about 11 s out, against the 10 s `update-ready-timeout` the confirm wait used to share. The result: `Update committed but the device did not come back healthy (no PONG within 10s)` on a device that was perfectly healthy, with the candidate left unconfirmed and an operator invited to re-deploy against a device already on trial boot 2 of 3. The post-commit and `rollback` waits now use their own **`post-commit-ready-timeout`** config key (default `30`, env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); the READY-broadcast wait keeps `update-ready-timeout`, since a boot with the update flag set opens no window at all. Found on hardware during the recovery-window HIL verification.
 

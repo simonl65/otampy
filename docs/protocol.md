@@ -320,9 +320,16 @@ boot where no update is already pending.
   and falls back to that key's default rather than disabling recovery.
 - **The boot marker:** `OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is
   written by `boot.run()` once per boot, only when absent — so a device in a
-  boot loop does zero writes — and removed by the first `OTA.poll()` of a
-  process. Reaching `poll()` is the only proof the runtime OTA surface is
-  alive, which is why `ota.recover()` deliberately does **not** clear it. A
+  boot loop does zero writes — and removed by the first `OTA.poll()` or
+  `OTA.mark_application_alive()` of a process. Reaching `poll()` proves the
+  runtime OTA surface is alive; so does the explicit call, which exists for an
+  application that cannot afford `poll()`'s blocking read (up to
+  `ACK_TIMEOUT_MS` on an idle link) and gates it on `frame_ready()`. Such an
+  application reaches `poll()` only when a command arrives, so it must call
+  `mark_application_alive()` once, immediately before its main loop, or every
+  boot inherits the wide window. The call never touches the transport. Neither
+  runs before the application has proved anything, which is why
+  `ota.recover()` deliberately does **not** clear the marker. A
   failed write or remove is swallowed: a boot is never stranded by the marker,
   though a full or read-only filesystem then silently degrades that device to
   the short window. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` disables the wide window

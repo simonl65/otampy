@@ -100,7 +100,13 @@ def main():
 
             do_app()
 
-            # Poll OTA commands from the host CLI over UART.
+            # Poll OTA commands from the host CLI over UART. Blocking: on an
+            # idle link poll() waits up to ACK_TIMEOUT_MS, which this slow
+            # loop can afford. A real-time loop should instead call it only
+            # when mux.ota_port.frame_ready() is true, and call
+            # OTA.mark_application_alive() once before the loop -- otherwise
+            # the boot marker is never cleared and every boot pays the wide
+            # recovery window.
             ota_poll(callback=prepare_for_shutdown)
 
             blink_func(1)

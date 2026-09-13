@@ -11,7 +11,8 @@ class OTA:
 
     def __init__(self, uart, config=None, logger=None):
         self._core = OTACore(uart, config, logger)
-        # Cleared by the first poll() of this process; see poll().
+        # Cleared by the first poll() or mark_application_alive() of this
+        # process; see poll().
         self._boot_mark_cleared = False
 
     def boot(self, callback=None, heartbeat=None):
@@ -110,10 +111,12 @@ class OTA:
         `manager.poll`'s own docstring for how it differs from `callback`.
 
         The first call also clears the boot marker ``boot.run()`` wrote.
-        Reaching here is the only proof the runtime OTA surface is alive --
+        Reaching here proves the runtime OTA surface is alive --
         ``recover()`` deliberately does not clear it, running before the
         application has proved anything -- so its absence on the next boot is
-        what says that boot got as far as the application.
+        what says that boot got as far as the application. An application
+        that gates this call on ``frame_ready()`` must also call
+        ``mark_application_alive()``; see there.
         """
         if not self._boot_mark_cleared:
             self._clear_boot_mark()
@@ -121,6 +124,20 @@ class OTA:
         from .manager import poll
 
         poll(self._core, callback, heartbeat=heartbeat)
+
+    def mark_application_alive(self):
+        """Clear the boot marker without touching the transport. Never raises.
+
+        Call once from main.py, immediately before the main loop, if that
+        loop only calls ``poll()`` when ``frame_ready()`` says a frame is
+        buffered. ``poll()`` can block up to ``ACK_TIMEOUT_MS`` on an idle
+        link, so a real-time loop gates it -- and then, in a boot where no
+        OTA command arrives, never reaches it, leaving the marker so the next
+        boot pays the wide recovery window. Idempotent, and shares
+        ``poll()``'s once-per-process guard.
+        """
+        if not self._boot_mark_cleared:
+            self._clear_boot_mark()
 
     def _clear_boot_mark(self):
         """Remove the boot marker, once per process. Never raises.

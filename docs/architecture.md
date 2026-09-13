@@ -144,7 +144,8 @@ instantiation. `0` disables the short window. A non-integer value falls back to
 the default; `<= 0` disables. See "Trial boot" below.
 
 `OTA_BOOT_RECOVERY_LISTEN_MS` (default `8000`) is the window on a boot that
-follows a boot which never reached `OTA.poll()`, or that still carries an
+follows a boot which never reached the application (neither `OTA.poll()` nor
+`OTA.mark_application_alive()`), or that still carries an
 unconfirmed candidate. A power-cycled XBee does not deliver its first frame to
 the device UART until somewhere between t+3.6 s and t+8.7 s, while the short
 window opens at t≈2.05 s and shuts at t≈3.15 s — so the ~1 s window can never
@@ -158,11 +159,19 @@ of the window altogether. A non-integer value is treated as a typo and falls
 back to the default rather than disabling recovery.
 
 `OTA_BOOT_MARK_FILE` (default `otampy-boot.mark`) is the marker `boot.run()`
-writes once per boot and the first `OTA.poll()` removes. Its presence at boot
-means the *previous* boot never reached the application, which is what selects
-the wide window. Two consequences worth knowing:
+writes once per boot and the first `OTA.poll()` or
+`OTA.mark_application_alive()` removes. Its presence at boot means the
+*previous* boot never reached the application, which is what selects the wide
+window. Three consequences worth knowing:
 
-- **An application that never calls `OTA.poll()`** never clears the marker and
+- **An application that gates `OTA.poll()` on `frame_ready()`** — because a
+  real-time loop cannot wear `poll()`'s up-to-`ACK_TIMEOUT_MS` block on an idle
+  link — reaches `poll()` only when a command arrives, so a boot with nothing
+  inbound leaves the marker and the next boot pays the wide window. Call
+  `OTA.mark_application_alive()` once, immediately before the main loop: it
+  clears the marker without touching the transport. Calling it any earlier
+  (in setup) would clear the marker for a boot that then strands in setup.
+- **An application that calls neither** never clears the marker and
   so pays the wide window on every boot. Such a device has no runtime OTA
   surface at all, so a wide boot window is arguably right for it — but it is a
   behaviour change. `OTA_BOOT_RECOVERY_LISTEN_MS = 0` opts out.

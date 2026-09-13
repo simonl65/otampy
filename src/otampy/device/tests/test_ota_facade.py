@@ -272,6 +272,77 @@ def test_poll_does_no_filesystem_work_when_recovery_window_disabled(tmp_path):
     assert mark.exists()
 
 
+# An application that cannot afford a blocking poll() -- one that gates it
+# on frame_ready() -- may never reach poll() in a boot where no OTA command
+# arrives. mark_application_alive() is its explicit proof of life instead.
+
+
+class _RecordingUART(shared.FakeUART):
+    def __init__(self):
+        self.reads = 0
+
+    def read(self, n=None):
+        self.reads += 1
+        return super().read(n)
+
+    def any(self):
+        self.reads += 1
+        return super().any()
+
+
+def test_mark_application_alive_clears_the_boot_marker(tmp_path):
+    mark = tmp_path / "otampy-boot.mark"
+    mark.write_text("1")
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    ota.mark_application_alive()
+
+    assert not mark.exists()
+
+
+def test_mark_application_alive_does_not_touch_the_transport(tmp_path):
+    """The whole point: poll() can block up to ACK_TIMEOUT_MS on an idle
+    link, which a gated real-time loop cannot wear."""
+    uart = _RecordingUART()
+    ota = OTA(uart, config=_mark_config(tmp_path))
+
+    with patch("device_otampy.manager.poll") as mock_manager_poll:
+        ota.mark_application_alive()
+
+    mock_manager_poll.assert_not_called()
+    assert uart.reads == 0
+
+
+def test_mark_application_alive_is_once_per_process(tmp_path):
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    ota.mark_application_alive()
+    with patch("os.remove") as mock_remove:
+        ota.mark_application_alive()
+
+    mock_remove.assert_not_called()
+
+
+def test_mark_application_alive_survives_a_marker_remove_failure(tmp_path):
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    with patch("os.remove", side_effect=OSError(30, "Read-only file system")):
+        ota.mark_application_alive()  # must not raise
+
+
+def test_poll_after_mark_application_alive_does_no_filesystem_work(tmp_path):
+    ota = OTA(shared.FakeUART(), config=_mark_config(tmp_path))
+
+    ota.mark_application_alive()
+    with (
+        patch("os.remove") as mock_remove,
+        patch("device_otampy.manager.poll"),
+    ):
+        ota.poll()
+
+    mock_remove.assert_not_called()
+
+
 def test_ota_boot_accepts_and_forwards_heartbeat():
     """boot() takes the same heartbeat contract poll() already offers."""
     uart = shared.FakeUART()

@@ -151,6 +151,30 @@ commit_version_bump() {
     git commit -m "chore(release): bump version to v${version}"
 }
 
+promote_unreleased_changelog() {
+    local version="$1"
+    local file="CHANGELOG.md"
+    local today
+    local unreleased_body
+
+    today=$(date +%F)
+
+    if ! grep -q '^## \[Unreleased\]$' "$file"; then
+        if confirm "${file} has no [Unreleased] section. Continue without a changelog entry for v${version}?"; then
+            return 0
+        fi
+        abort "add a CHANGELOG.md [Unreleased] entry, then rerun this script."
+    fi
+
+    unreleased_body=$(awk '/^## \[Unreleased\]$/{flag=1; next} /^## \[/{flag=0} flag' "$file")
+    if [[ -z "$(sed '/^[[:space:]]*$/d' <<< "$unreleased_body")" ]]; then
+        abort "${file}'s [Unreleased] section is empty; add an entry before releasing."
+    fi
+
+    sed -i "s/^## \[Unreleased\]\$/## [${version}] - ${today}/" "$file"
+    echo "Promoted ${file}'s [Unreleased] section to [${version}] - ${today}."
+}
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -253,6 +277,9 @@ commit_version_bump "$NEW_VERSION"
 # --- 2. Prepare release notes and docs --------------------------------------
 echo
 echo "Review docs/README/release notes and the diff before continuing."
+
+promote_unreleased_changelog "$NEW_VERSION"
+
 git diff --check
 git status --short
 
@@ -263,7 +290,7 @@ elif ! confirm "README.md is unchanged. Have docs/release notes been updated?"; 
 fi
 
 DOC_FILES=()
-for file in docs README.md; do
+for file in docs README.md CHANGELOG.md; do
     if [[ -n "$(git status --porcelain=v1 -- "$file")" ]]; then
         DOC_FILES+=("$file")
     fi

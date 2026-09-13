@@ -8,14 +8,6 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
-[ ] **Minifier breaks MicroPython f-strings with a conversion (`!r`/`!s`/`!a`).** Found 2026-09-13 during `diff-drive-robot`'s heap-attribution task while A/B-testing `--minify` on hardware (`docs/development/heap-attribution-log.md` there). `minify_python_source` (`src/otampy/minify.py`) rebuilds source via `tokenize.untokenize` on `(type, string)` pairs ("compat mode"), which pads every token with a space. Python 3.12+ tokenizes an f-string's parts separately, so `f"...{time_tuple!r})\n"` (in `src/otampy/device/lib/otampy/manager.py`, the RTC-update helper) becomes `f"...{time_tuple !r })\n"`. CPython still parses the padded form, but MicroPython's f-string parser rejects whitespace between a conversion and `}`, so the minified `manager.py` fails `mpy-cross` outright — `otampy upd/cp/deploy --minify` would ship a file that cannot compile on the device, only discovered on the next boot. Confirmed on hardware: 36 of 37 device files minify and compile cleanly; only the one f-string conversion in `manager.py` fails. Also found while at it, unrelated to correctness: minification's own heap payoff is negligible (<0.1 KB of steady-state device heap in the same A/B — MicroPython compiles to bytecode at import and keeps no source/comments/docstrings, so only line-number tables can shrink) even though it cuts on-flash/transfer size ~21%; not a reason to change the default either way once fixed.
-
-  - Model: Sonnet
-    - a tokenizer/formatting bug with a clear repro; fix is either switching untokenize away from compat-pair mode or special-casing conversion tokens.
-  - Spec : no
-    - bounded bugfix with a known repro file (`manager.py`'s RTC helper) and a clear test (mpy-cross on the minified output).
-  - Fresh: yes.
-
 ## Deferred - do not run these
 
 [ ] **Firmware versioning** Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`

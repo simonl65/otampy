@@ -153,8 +153,10 @@ class SerialMux:
                 remaining = self.min_tx_gap_ms - elapsed
                 if remaining > 0:
                     _sleep_ms(remaining)
-            frame = cobs_encode(bytes([channel_id]) + payload) + b"\x00"
-            self._uart.write(frame)
+            unframed = bytearray(len(payload) + 1)
+            unframed[0] = channel_id
+            unframed[1:] = payload
+            self._uart.write(cobs_encode(unframed) + _FRAME_DELIM_BYTES)
             self._last_write_done_ms = _ticks_ms()
 
         return _write

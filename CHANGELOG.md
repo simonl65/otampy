@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [4.9.2] - 2026-09-13
+
+### Fixed
+
+- Fixed `mux._write()` allocating two extra bytes objects (~256 B) on every channel-1 send by building the channel-prefixed frame in a pre-sized `bytearray` and writing the COBS-encoded frame and delimiter in a single call.
+
 ## [4.9.1] - 2026-09-13
 
 ### Fixed

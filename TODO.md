@@ -8,6 +8,12 @@ Non-trivial tasks get their own dev log in `docs/development/`, named for the ta
 
 ## Tasks in priority order
 
+[ ] **`mux._write()` allocates ~256 B/call on every channel-1 send.** Found 2026-09-13 in diff-drive-robot's heap-reclaim work (`docs/development/robot-heap-reclaim-log.md`, step 4): `_write()`'s `cobs_encode(bytes([channel_id]) + payload) + b"\x00"` does two bytes concatenations plus the COBS encoder's own output allocation. Isolated directly on hardware (`mux.send_app()` alone vs `channel1_codec`'s own encoders alone): of `report_health`/`report_loop_health`'s measured 304 B/call each, 256 B is this vendored write path and only 48 B is the caller's own message payload. Not actionable from diff-drive-robot (vendored, overwritten by `deploy`/`sync-otampy-device-lib`). Worth a look if `mux.py` is revisited for other reasons — e.g. building the frame in a pre-sized `bytearray` instead of two `+`-concatenations.
+
+  - Model: Sonnet
+  - Spec: No — small, well-scoped once picked up
+  - Fresh start: Yes
+
 ## Deferred - do not run these
 
 [ ] **Firmware versioning** Add some way to version firmware so we know which version is actually running at any time. The version should be available via a `otampy ver`

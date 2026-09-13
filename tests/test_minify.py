@@ -1,9 +1,33 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 import otampy.deploy as deploy
 from otampy.minify import minify_python_source, staged_minified_files
+
+DEPLOYED_ROOTS = (deploy.LIB_DIR, deploy.DEVICE_ROOT / "examples")
+
+needs_mpy_cross = pytest.mark.skipif(
+    shutil.which("mpy-cross") is None,
+    reason="mpy-cross is not installed",
+)
+
+
+def _compile_with_mpy_cross(source: bytes, tmp_path: Path, name: str) -> None:
+    """Compile *source* with mpy-cross, failing the test on a compile error."""
+    candidate = tmp_path / name
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(source)
+    result = subprocess.run(
+        ["mpy-cross", str(candidate)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"{name}: {result.stderr.strip()}"
 
 
 def test_minify_python_source_preserves_execution_and_docstrings():
@@ -18,6 +42,41 @@ def test_minify_python_source_preserves_execution_and_docstrings():
     assert namespace["__doc__"] == "kept documentation"
     assert namespace["add"](2, 3) == 5  # type: ignore[operator]
     assert namespace["value"] == "# not a comment"
+
+
+def test_minify_python_source_preserves_fstring_conversions():
+    source = (
+        b"value = (2026, 9, 13)\n"
+        b'rendered = f" machine.RTC().datetime({value!r})\\n"\n'
+        b'padded = f"{value!s:>40}"\n'
+        b"nested = f\"{f'{value!a}'}\"\n"
+    )
+
+    minified = minify_python_source(source)
+    namespace: dict[str, object] = {}
+    exec(minified, namespace)
+
+    assert b"!r }" not in minified
+    assert b"{value !r" not in minified
+    assert namespace["rendered"] == " machine.RTC().datetime((2026, 9, 13))\n"
+    assert namespace["padded"] == f"{(2026, 9, 13)!s:>40}"
+    assert namespace["nested"] == f"{(2026, 9, 13)!a}"
+
+
+@needs_mpy_cross
+def test_minified_device_sources_compile_for_micropython(tmp_path):
+    sources = [
+        (root, source)
+        for root in DEPLOYED_ROOTS
+        for source in sorted(root.rglob("*.py"))
+    ]
+    assert sources, f"no device sources found under {DEPLOYED_ROOTS}"
+
+    for root, source in sources:
+        relative = source.relative_to(root.parent)
+        _compile_with_mpy_cross(
+            minify_python_source(source.read_bytes()), tmp_path, str(relative)
+        )
 
 
 def test_staged_minified_files_keeps_original_source_unchanged(tmp_path):

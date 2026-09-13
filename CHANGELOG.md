@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [Unreleased]
+
+### Fixed
+
+- **`--minify` shipped an f-string with a conversion that MicroPython cannot compile.** `minify_python_source` rebuilt source through `tokenize.untokenize` in two-tuple "compat" mode, which pads every `NAME`/`NUMBER` token with a space. Since Python 3.12 an f-string tokenizes as a run of parts rather than one `STRING`, so the padding landed *inside* replacement fields: `f"...{time_tuple!r})\n"` became `f"...{time_tuple !r })\n"`. CPython parses that; MicroPython's f-string parser rejects whitespace around a conversion, so `mpy-cross` refused the file outright. `otampy upd/cp/deploy --minify` therefore shipped a `lib/otampy/manager.py` that could not compile on the device, and the failure only surfaced on the next boot. Each f-string run is now re-emitted verbatim from the original source, so nothing can be inserted inside it (PEP 701 nested f-strings included). A new test minifies every deployed device source and compiles it with `mpy-cross`, so a regression fails on the host instead of on hardware. Minification's size win is unchanged (~22%).
+
 ## [4.9.0] - 2026-09-13
 
 ### Added

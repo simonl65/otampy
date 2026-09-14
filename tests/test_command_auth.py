@@ -151,7 +151,9 @@ def test_signer_from_env_is_none_when_no_key_is_set():
 
 def test_signer_from_env_uses_the_env_key(monkeypatch):
     monkeypatch.setenv(auth.KEY_ENV, KEY_HEX)
-    assert auth.signer_from_env().next_counter() >= 1
+    signer = auth.signer_from_env()
+    assert signer is not None
+    assert signer.next_counter() >= 1
 
 
 # --- the CLI wiring -----------------------------------------------------

@@ -65,9 +65,12 @@ class _Transport:
         if free < self.minimum_free:
             self.minimum_free = free
 
-    def send(self, response):
+    def send(self, response) -> int | None:
         # Sample before inspecting the response, while production temporaries
         # and the complete response are still live on the caller's stack.
+        # Subclasses (e.g. _ManagerTransport) return the byte count, matching
+        # a real UART.write() -- this base implementation has no caller that
+        # needs it.
         self._sample()
         if response == b"FILE_OK":
             self.file_ok += 1
@@ -150,12 +153,16 @@ class _ManagerTransport(_Transport):
         if self._stream_validator is not None:
             self._stream_validator.feed(fragment)
         else:
+            # __init__ only leaves _fragment_response as None when
+            # stream_validator was given, so it's a bytearray here.
+            assert self._fragment_response is not None
             self._fragment_response.extend(fragment)
 
     def _finish_fragments(self):
         if self._stream_validator is not None:
             self._stream_validator.finish()
         else:
+            assert self._fragment_response is not None
             self._validator(bytes(self._fragment_response))
             self._fragment_response = None
         self.response_seen = True
@@ -309,7 +316,7 @@ def main():
     import os
     import sys
 
-    from src.otampy import boot, manager
+    from otampy import boot, manager  # type: ignore[import-not-found]
 
     for path in (_CAT_PATH, _LS_PATH, _UPDATE_PATH):
         _assert_absent(os, path)

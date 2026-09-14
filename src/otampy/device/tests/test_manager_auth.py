@@ -28,7 +28,7 @@ FLAG_FILE = "update_requested.flag"
 
 
 def _config(tmp_path, require_auth=True, key_hex=KEY_HEX):
-    config = {
+    config: dict[str, str | bool] = {
         "LOG_LEVEL": "DEBUG",
         "UPDATE_REQUEST_FLAG_FILE": str(tmp_path / FLAG_FILE),
         "OTA_REPLAY_FLOOR_FILE": str(tmp_path / "otampy-replay-floor"),

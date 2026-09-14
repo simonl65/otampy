@@ -198,7 +198,9 @@ def _file_parts(source, size):
 
 def _directory_entries(path):
     try:
-        entries = _os.ilistdir(path)
+        # ilistdir is MicroPython-only; the stub overlay doesn't declare it
+        # since CPython's os module genuinely lacks it (hence the fallback).
+        entries = _os.ilistdir(path)  # type: ignore[attr-defined]
         detailed = True
     except AttributeError:
         entries = _os.listdir(path)

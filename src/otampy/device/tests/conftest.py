@@ -82,7 +82,7 @@ PKG_PATH = LIB_PATH / "otampy"
 spec = importlib.util.spec_from_file_location(
     "device_otampy", PKG_PATH / "__init__.py"
 )
-device_otampy = importlib.util.module_from_spec(spec)
+device_otampy = importlib.util.module_from_spec(spec)  # pyright: ignore[reportArgumentType]
 sys.modules["device_otampy"] = device_otampy
 spec.loader.exec_module(device_otampy)  # pyright: ignore[reportOptionalMemberAccess]
 
@@ -101,7 +101,7 @@ for path in _submodule_paths:
         continue
     mod_name = f"device_otampy.{path.stem}"
     sub_spec = importlib.util.spec_from_file_location(mod_name, path)
-    sub_mod = importlib.util.module_from_spec(sub_spec)
+    sub_mod = importlib.util.module_from_spec(sub_spec)  # pyright: ignore[reportArgumentType]
     sys.modules[mod_name] = sub_mod
     sub_spec.loader.exec_module(sub_mod)  # pyright: ignore[reportOptionalMemberAccess]
     setattr(device_otampy, path.stem, sub_mod)

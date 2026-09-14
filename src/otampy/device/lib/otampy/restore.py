@@ -314,6 +314,8 @@ def trial(core):
         return None
     attempt += 1
     limit = _get_config(core.config, "OTA_TRIAL_BOOTS", _DEFAULT_TRIAL_BOOTS)
+    if limit is None:
+        limit = _DEFAULT_TRIAL_BOOTS
     if attempt > limit:
         core.logger.warning(
             f"trial: candidate failed {attempt - 1} boots, restoring previous"

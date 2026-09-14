@@ -87,7 +87,7 @@ members = ["cli"]
 [tool.pyright]
 include = ["."]
 extraPaths = ["./lib", "./src/otampy/deploy.py", "./src/otampy/device/examples"]
-ignore = ["**/typings", "**/test/**", "**/tests/**"]
+ignore = ["**/typings"]
 exclude = [
     ".*",
     "__*",
@@ -95,18 +95,42 @@ exclude = [
     "**/node_modules",
     "**/__pycache__",
     ".venv",
-    "**/test/**",
-    "**/tests/**",
 ]
 
 typeCheckingMode = "standard"
-stubPath = "typings"
-typeshedPath = "typings"
 pythonPlatform = "Linux"
+# Pin this repo's own venv explicitly rather than relying on VIRTUAL_ENV
+# being set -- without this, pyright silently falls back to whatever
+# "python3" is on PATH when run outside an activated venv.
+venvPath = "."
+venv = ".venv"
+# stubPath overlays typings/ on top of the bundled typeshed (pyright
+# prefers a matching stub over the bundled module), giving the
+# MicroPython-only device/ code (machine, time.ticks_ms, etc.) its real
+# signatures without discarding the bundled stdlib -- cli.py/deploy.py/
+# tests/ run on the host under CPython and need real dataclasses,
+# pathlib, os.environ, etc. This previously used typeshedPath = "typings"
+# too, which replaces the typeshed wholesale and silently broke those
+# (e.g. every DeployArgs(...) call misreported "No parameter named ...").
+stubPath = "typings"
 
 reportMissingModuleSource = "none"
 
-stubs = ["micropython-rp2-rpi_pico_w-stubs==1.28.0.*"]
+[[tool.pyright.executionEnvironments]]
+# conftest.py dynamically constructs a virtual "device_otampy" package
+# (importlib.util.spec_from_file_location, registered only in
+# sys.modules) to avoid colliding with the host CLI's own "otampy"
+# package -- there's no real "device_otampy" folder on disk for pyright
+# to resolve, by design. Likewise conftest.py replaces sys.modules
+# entries (machine, etc.) with unittest.mock doubles at runtime, which
+# pyright statically resolves against the real modules instead, so
+# every .reset_mock()/.assert_called_once()/etc. call reports as
+# missing on a "FunctionType". Both are inherent to this test
+# architecture, not real gaps -- silence them for this directory only.
+root = "src/otampy/device/tests"
+extraPaths = ["../lib", "."]
+reportMissingImports = "none"
+reportFunctionMemberAccess = "none"
 
 [tool.semantic_release]
 version_variable = "pyproject.toml:version"

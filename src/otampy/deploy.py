@@ -221,8 +221,9 @@ def run_mpremote(args: DeployArgs, command: list[str]) -> None:
         bufsize=1,
     )
     assert process.stdout is not None
+    stdout = process.stdout
     output = ""
-    for character in iter(lambda: process.stdout.read(1), ""):
+    for character in iter(lambda: stdout.read(1), ""):
         if args.verbose:
             print(character, end="", flush=True)
         output += character
@@ -974,8 +975,6 @@ def _preflight_mip_package(
         )
 
     try:
-        import json
-
         manifest = json.loads(
             _read_mip_url(_rewrite_mip_url(manifest_url, version))
         )

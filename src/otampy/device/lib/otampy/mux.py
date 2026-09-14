@@ -48,9 +48,11 @@ def _ticks_ms():
 
         return utime.ticks_ms()
     except ImportError:
+        # Reached only on a host lacking utime (CPython), where time.monotonic
+        # is real; the MicroPython stub overlay doesn't declare it.
         import time
 
-        return int(time.monotonic() * 1000)
+        return int(time.monotonic() * 1000)  # type: ignore[attr-defined]
 
 
 def _ticks_diff(new, old):

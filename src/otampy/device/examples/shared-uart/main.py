@@ -128,10 +128,7 @@ def main():
         import sys
 
         s = io.StringIO()
-        sys.print_exception(
-            ex,
-            s,  # type: ignore
-        )
+        sys.print_exception(ex, s)  # type: ignore[attr-defined]
         shutdown_reason = type(ex).__name__
         logger.error("Application exception:\n%s", s.getvalue())  # type: ignore
 

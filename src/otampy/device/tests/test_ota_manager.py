@@ -44,7 +44,9 @@ def test_manager_returns_rtc_without_reset():
     uart = shared.FakeUART()
     logger = shared.FakeLogger()
     core = OTACore(uart, logger=logger)
-    machine.RTC.return_value.datetime.return_value = (
+    # machine is a MagicMock double (conftest.py); pyright resolves it
+    # against the real machine.RTC class, which has no .return_value.
+    machine.RTC.return_value.datetime.return_value = (  # pyright: ignore[reportAttributeAccessIssue]
         2026,
         7,
         21,

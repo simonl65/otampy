@@ -71,11 +71,11 @@ def main():
 
     _checkpoint(gc)
 
-    from src.otampy import OTA
+    from otampy import OTA  # type: ignore[import-not-found]
 
     _checkpoint(gc)
 
-    import src.otampy.device.examples.config as config
+    import configota as config  # type: ignore[import-not-found]
     from machine import UART, Pin
 
     _assert_update_flag_absent(config)

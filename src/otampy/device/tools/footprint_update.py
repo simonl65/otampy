@@ -110,7 +110,7 @@ def main():
     import os
     import sys
 
-    from src.otampy import boot
+    from otampy import boot  # type: ignore[import-not-found]
 
     payload = b"probe"
     digest = binascii.hexlify(hashlib.sha256(payload).digest()).decode()
@@ -132,7 +132,7 @@ def main():
 
     machine = sys.modules.get("machine")
     try:
-        sys.modules["machine"] = _Machine()
+        sys.modules["machine"] = _Machine()  # type: ignore[reportArgumentType]
         boot.run(core)
     finally:
         if machine is None:

@@ -9,7 +9,7 @@ import time
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import click
 from rich.console import Console
@@ -25,7 +25,9 @@ if TYPE_CHECKING:
     from urst import Urst
 
 logger = logging.getLogger(__name__)
-MONOTONIC = time.perf_counter
+# stubPath's MicroPython time.pyi overlay (see pyproject.toml) doesn't
+# declare perf_counter -- it's real on the CPython host this CLI runs on.
+MONOTONIC = time.perf_counter  # type: ignore[attr-defined]
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -1300,7 +1302,7 @@ def _command_signer() -> auth.CommandSigner | None:
     return auth.signer_from_env()
 
 
-def _handle_device_error(device_error: DeviceError) -> None:
+def _handle_device_error(device_error: DeviceError) -> NoReturn:
     """Display a friendly error message and exit."""
     friendly = _friendly_error(device_error.error_msg, device_error.command)
     _console().print(f"[red]Error: {friendly}[/red]")
@@ -3624,10 +3626,10 @@ def init(
             "Project directory",
             default=default_display,
         ).strip()
-        path = _resolve_project_path_input(raw)  # type: ignore
+        project_path = _resolve_project_path_input(raw)
     else:
-        path = _resolve_project_path_input(path)  # type: ignore
-    path.mkdir(parents=True, exist_ok=True)  # type: ignore
+        project_path = _resolve_project_path_input(path)
+    project_path.mkdir(parents=True, exist_ok=True)
 
     # Example files to copy
     examples = ["boot.py", "main.py", "configota.example.py"]
@@ -3646,10 +3648,10 @@ def init(
         for example_file in examples:
             src = pkg_files.joinpath(example_file)
             dst = (
-                path / "configota.py"
+                project_path / "configota.py"
                 if example_file == "configota.example.py"
-                else path / example_file
-            )  # type: ignore
+                else project_path / example_file
+            )
 
             # Check if file exists
             if (
@@ -3667,15 +3669,17 @@ def init(
             dst.write_text(content)
             console.print(f"[green]✓[/green] Created {dst.name}")
 
-        console.print(f"\n[green]✓[/green] Project initialized at {path}")
+        console.print(
+            f"\n[green]✓[/green] Project initialized at {project_path}"
+        )
 
         # Remember this directory for the current shell session so
         # 'otampy deploy' works immediately without --device-dir.
         # Not saved permanently — use 'otampy device-dir --set .' for that.
-        set_default_device_dir(str(path), session=True)
+        set_default_device_dir(str(project_path), session=True)
         console.print(
-            f"[dim]Device directory set to {_to_display_path(str(path))} for this session. "
-            f"Run 'otampy device-dir --set {_to_display_path(str(path))}' to make it permanent.[/dim]"
+            f"[dim]Device directory set to {_to_display_path(str(project_path))} for this session. "
+            f"Run 'otampy device-dir --set {_to_display_path(str(project_path))}' to make it permanent.[/dim]"
         )
 
     except Exception as e:

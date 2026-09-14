@@ -1328,7 +1328,7 @@ def test_a_trial_boot_with_the_wide_key_zero_keeps_the_short_window(
             monkeypatch,
             tmp_path,
             journal=0,
-            **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0},
+            OTA_BOOT_RECOVERY_LISTEN_MS=0,
         )
         == SHORT_MS
     )
@@ -1362,7 +1362,8 @@ def test_both_keys_zero_still_opens_no_window(monkeypatch, tmp_path):
             monkeypatch,
             tmp_path,
             journal=0,
-            **{"OTA_BOOT_RECOVERY_LISTEN_MS": 0, "OTA_BOOT_LISTEN_MS": 0},
+            OTA_BOOT_RECOVERY_LISTEN_MS=0,
+            OTA_BOOT_LISTEN_MS=0,
         )
         == 0
     )

@@ -254,22 +254,25 @@ def _cross_pipe():
             self._buf = bytearray()
             self._lock = threading.Lock()
 
+        # The MicroPython stub overlay (see pyproject.toml) replaces
+        # _thread.LockType with one lacking __enter__/__exit__, even
+        # though this is host-side CPython threading.Lock.
         def push(self, data):
-            with self._lock:
+            with self._lock:  # pyright: ignore[reportGeneralTypeIssues]
                 self._buf.extend(data)
 
         def pull(self, n):
-            with self._lock:
+            with self._lock:  # pyright: ignore[reportGeneralTypeIssues]
                 out = bytes(self._buf[:n])
                 self._buf = self._buf[n:]
                 return out
 
         def clear(self):
-            with self._lock:
+            with self._lock:  # pyright: ignore[reportGeneralTypeIssues]
                 self._buf = bytearray()
 
         def pending(self):
-            with self._lock:
+            with self._lock:  # pyright: ignore[reportGeneralTypeIssues]
                 return len(self._buf)
 
     class _End:

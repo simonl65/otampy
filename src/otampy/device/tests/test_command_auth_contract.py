@@ -29,7 +29,10 @@ MOD_IDS = ["host", "device"]
 
 
 def _stdlib_tag(key, payload):
-    return hmac.new(key, payload, hashlib.sha256).digest()[:8]
+    # hashlib.sha256 is a valid digestmod at runtime; typeshed's hmac.new
+    # overloads don't structurally match its constructor signature.
+    mac = hmac.new(key, payload, hashlib.sha256)  # pyright: ignore[reportArgumentType]
+    return mac.digest()[:8]
 
 
 # --- The signed-bytes contract -----------------------------------------

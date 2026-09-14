@@ -6,9 +6,12 @@ This file lists only what remains open. Update it in the same change as newly di
 
 Non-trivial tasks get their own dev log in `docs/development/`, named for the task (e.g. `docs/development/<task slug>>-log.md`), not one shared file.
 
-## Tasks in priority order (Never delete this heading!)
+Never delete a 2nd-level heading. If there are no remaining tasks just add a `[ ] None.` entry.
 
-- None.
+
+## Tasks in priority order
+
+[ ] None.
 
 ## Deferred - do not run these
 

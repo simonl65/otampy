@@ -4,6 +4,14 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 correspond to PyPI releases of `otampy` (see `release.sh`).
 
+## [4.9.3] - 2026-09-14
+
+### Fixed
+
+- Fixed `footprint_boot.py`, `footprint_update.py`, and `footprint_stress.py` (device RAM-footprint probes under `src/otampy/device/tools/`) importing `OTA`/`boot`/`manager` from a non-existent on-device path (`src.otampy...`) instead of the real deployed package (`otampy`) — these would have failed immediately if actually run on a device.
+- Fixed the project's Pyright configuration replacing the entire standard-library typeshed with the MicroPython stub set instead of overlaying it, which silently broke type-checking for host-only code (`dataclasses`, `pathlib`, `os.environ`, etc.) and had caused every `DeployArgs(...)` construction to misreport as invalid.
+- Fixed `cli.py`'s `init` command reusing one variable (`path`) across two incompatible types (the raw `str | None` argument and the resolved `Path`), which the previous `# type: ignore` comments were silently papering over.
+
 ## [4.9.2] - 2026-09-13
 
 ### Fixed
@@ -14,7 +22,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ### Fixed
 
-- **`--minify` shipped an f-string with a conversion that MicroPython cannot compile.** `minify_python_source` rebuilt source through `tokenize.untokenize` in two-tuple "compat" mode, which pads every `NAME`/`NUMBER` token with a space. Since Python 3.12 an f-string tokenizes as a run of parts rather than one `STRING`, so the padding landed *inside* replacement fields: `f"...{time_tuple!r})\n"` became `f"...{time_tuple !r })\n"`. CPython parses that; MicroPython's f-string parser rejects whitespace around a conversion, so `mpy-cross` refused the file outright. `otampy upd/cp/deploy --minify` therefore shipped a `lib/otampy/manager.py` that could not compile on the device, and the failure only surfaced on the next boot. Each f-string run is now re-emitted verbatim from the original source, so nothing can be inserted inside it (PEP 701 nested f-strings included). A new test minifies every deployed device source and compiles it with `mpy-cross`, so a regression fails on the host instead of on hardware. Minification's size win is unchanged (~22%).
+- **`--minify` shipped an f-string with a conversion that MicroPython cannot compile.** `minify_python_source` rebuilt source through `tokenize.untokenize` in two-tuple "compat" mode, which pads every `NAME`/`NUMBER` token with a space. Since Python 3.12 an f-string tokenizes as a run of parts rather than one `STRING`, so the padding landed _inside_ replacement fields: `f"...{time_tuple!r})\n"` became `f"...{time_tuple !r })\n"`. CPython parses that; MicroPython's f-string parser rejects whitespace around a conversion, so `mpy-cross` refused the file outright. `otampy upd/cp/deploy --minify` therefore shipped a `lib/otampy/manager.py` that could not compile on the device, and the failure only surfaced on the next boot. Each f-string run is now re-emitted verbatim from the original source, so nothing can be inserted inside it (PEP 701 nested f-strings included). A new test minifies every deployed device source and compiles it with `mpy-cross`, so a regression fails on the host instead of on hardware. Minification's size win is unchanged (~22%).
 
 ## [4.9.0] - 2026-09-13
 
@@ -41,7 +49,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 ### Added
 
 - **Shared-UART (channel-mux) mode, end to end.** A project whose own code needs the same physical UART as OTAmpy can now wrap it in `otampy.mux.SerialMux` on the device and have the host CLI speak the matching framing, so one radio link carries OTAmpy traffic alongside the application's own stream.
-  - **Wire contract.** An optional outer frame *below* URST: `COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`. Channel `0x00` = OTA/URST (reliable), `0x01` = application (best-effort), other ids dropped on receive. URST itself is unchanged and stays point-to-point and channel-unaware; `PROTOCOL_VERSION` does not move. Byte-identical to what the device `mux.py` already emitted, so existing mux users are unaffected. Documented in `docs/protocol.md` §1.3.
+  - **Wire contract.** An optional outer frame _below_ URST: `COBS(channel_id ‖ inner_URST_frame) ‖ 0x00`. Channel `0x00` = OTA/URST (reliable), `0x01` = application (best-effort), other ids dropped on receive. URST itself is unchanged and stays point-to-point and channel-unaware; `PROTOCOL_VERSION` does not move. Byte-identical to what the device `mux.py` already emitted, so existing mux users are unaffected. Documented in `docs/protocol.md` §1.3.
   - **Host codec.** `otampy.channel.ChannelCodec` / `ChannelSerial` encode and decode the outer frame; `tests/test_channel.py` and `tests/test_channel_conformance.py` pin them against the device frame bytes.
   - **CLI opt-in.** `--mux` / `--no-mux` global flag, `OTAMPY_MUX` env var, and a persistent `mux` config key (`otampy mux --enable` / `--disable` / `--clear` / interactive). Resolution order: `OTAMPY_MUX` → session → project → global config → direct. `otampy mux --show` reports the resolved value and its source. All four `Urst(ser)` call sites route through `_open_transport`, which wraps the port in `ChannelSerial` only when mux mode is on. `deploy` ignores all of it (raw-port provisioning stays direct).
   - **Scaffolds.** `otampy init` scaffolds **direct mode** by default (OTA owns the UART). `otampy init --mux` scaffolds the separate `examples/shared-uart/` set (`SerialMux` pattern); it prompts when neither flag is given interactively.
@@ -53,7 +61,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   - It is silent (no beacon — an unacknowledged `Urst.send()` would cost up to ~8 s per boot). The host blind-retries: **`otampy upd --recover`** and **`otampy rollback --recover`** prompt the operator to power-cycle and keep retrying for `recovery-wait` seconds (new host config key, default `60`, env `OTAMPY_RECOVERY_WAIT`) until a command lands in a window. A missed window just means power-cycling again.
   - **How the host reaches it:** the poll opens the serial port once and holds it for the whole wait, retrying the URST handshake on that single transport at stock timings (~1 CONNECT/s, a full ACK listen each) and sending the command only once a handshake has completed. It takes exclusive use of the port for its duration, so in a mux deployment nothing else may be contending for `mux.ota_port` while it runs. An earlier fail-fast profile — one CONNECT, a 500 ms ACK deadline, a 0.1 s read timeout, the port reopened every cycle — landed **0 commands in 60 s** against a window that device-side ticks proved was open for 9006 / 9017 / 8977 ms; reopening the port toggles DTR/RTS on an FTDI→XBee at exactly the wrong moment, and one fail-fast attempt is close to a coin flip on a real radio link. `docs/protocol.md` §2.4 records the `_RECOVERY_SERIAL_TIMEOUT <= ACK_TIMEOUT_MS / 1000` invariant that keeps the ACK deadline enforceable.
   - When `OTA_REQUIRE_AUTH` is set the window enforces the same `AUTH:` envelope and replay guard as the runtime command surface — it is not a bypass.
-  - **Cost:** a healthy device's boot is ~1 s longer (plus one `Urst` transport instantiation) — unchanged, and the reason the wide tier is conditional. A device that has actually failed, or that carries an unconfirmed candidate, pays ~8 s on the boots that qualify. Two consequences: an application that never calls `OTA.poll()` pays the wide window on every boot (`OTA_BOOT_RECOVERY_LISTEN_MS = 0` opts out), and an application that crashes only *after* it has polled costs two power cycles rather than one.
+  - **Cost:** a healthy device's boot is ~1 s longer (plus one `Urst` transport instantiation) — unchanged, and the reason the wide tier is conditional. A device that has actually failed, or that carries an unconfirmed candidate, pays ~8 s on the boots that qualify. Two consequences: an application that never calls `OTA.poll()` pays the wide window on every boot (`OTA_BOOT_RECOVERY_LISTEN_MS = 0` opts out), and an application that crashes only _after_ it has polled costs two power cycles rather than one.
   - **Watchdog — `OTA(...).boot(heartbeat=wdt.feed)`.** A custom `boot.py` arming a watchdog before `OTA(...).boot()` now passes its feed in, and both blocking stretches of a boot — the recovery window and the default update loop — call it once per loop iteration, on every path round rather than only while idle (so a peer streaming refused or malformed packets cannot starve it). Same contract as `OTA.poll()`'s existing `heartbeat`, reused verbatim; the library never constructs or owns the `WDT`. Fully optional and backward compatible — it defaults to `None` and every existing `.boot()` call site is unchanged. With a `heartbeat` supplied, `OTA_BOOT_RECOVERY_LISTEN_MS` above 8388 ms is safe. **Without one, the previous guidance did not hold:** `8000` was chosen to sit under the RP2040's ~8388 ms WDT cap, but the window's measured blocking span is 8899–9570 ms on hardware, so an unfed watchdog was already over the cap at the default (F-12). One residual gap remains outside OTAmpy's reach: a `reply()` to a peer that stops acknowledging blocks ~3–4 s inside `urst`'s retry loop with no chance to feed. Documented in `docs/protocol.md` §2.4 and `docs/architecture.md`.
   - Internal refactor: `restore.rollback_result()` now holds the `ROLLBACK` reply/refusal mapping shared by the poll loop and the window; the `AUTH:` envelope logic moved to a new `authgate.py` imported lazily only when auth is configured.
 
@@ -79,7 +87,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 ### Fixed
 
-- **Every successful `otampy upd` reported failure, because the post-commit health check was racing the recovery window.** A post-commit boot still carries a `trial` journal, so it takes the *wide* boot-time recovery window by design — putting the device's polling main loop about 11 s out, against the 10 s `update-ready-timeout` the confirm wait used to share. The result: `Update committed but the device did not come back healthy (no PONG within 10s)` on a device that was perfectly healthy, with the candidate left unconfirmed and an operator invited to re-deploy against a device already on trial boot 2 of 3. The post-commit and `rollback` waits now use their own **`post-commit-ready-timeout`** config key (default `30`, env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); the READY-broadcast wait keeps `update-ready-timeout`, since a boot with the update flag set opens no window at all. Found on hardware during the recovery-window HIL verification.
+- **Every successful `otampy upd` reported failure, because the post-commit health check was racing the recovery window.** A post-commit boot still carries a `trial` journal, so it takes the _wide_ boot-time recovery window by design — putting the device's polling main loop about 11 s out, against the 10 s `update-ready-timeout` the confirm wait used to share. The result: `Update committed but the device did not come back healthy (no PONG within 10s)` on a device that was perfectly healthy, with the candidate left unconfirmed and an operator invited to re-deploy against a device already on trial boot 2 of 3. The post-commit and `rollback` waits now use their own **`post-commit-ready-timeout`** config key (default `30`, env `OTAMPY_POST_COMMIT_READY_TIMEOUT`); the READY-broadcast wait keeps `update-ready-timeout`, since a boot with the update flag set opens no window at all. Found on hardware during the recovery-window HIL verification.
 
 ### Compatibility
 
@@ -93,7 +101,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 - **Optional command authentication.** The command surface (`RB`, `SR`, `UPDATE_REQUEST`, `RM`, `CAT`, `LS`, `MEM`, `RTC*`, `CP_*`) was reachable by anything that could reach the device's UART. On a wired link that is the same trust boundary as physical access; on a radio link -- where OTAmpy is most useful -- it means any station in range can read, overwrite, delete or reboot the device with no credential.
   - Setting `OTA_REQUIRE_AUTH = True` on the device makes it require every command to arrive as `AUTH:<counter>:<hex-mac>:<command>`, where the MAC is HMAC-SHA256 truncated to 8 bytes over a domain-separated, counter-prefixed copy of the command. The host signs when `OTAMPY_COMMAND_AUTH_KEY` is set. See `docs/protocol.md` section 1.2.
   - The counter is strictly increasing and seeded from the wall clock, so a command captured off the air cannot be replayed -- including after a reboot, since an accepted `RB`/`SR`/`UPDATE_REQUEST` saves the counter as a boot floor first.
-  - A fresh counter is issued per *send attempt*, so the CLI's own retries are never mistaken for replays. Reusing one would have failed commands permanently on exactly the marginal links that retries exist for.
+  - A fresh counter is issued per _send attempt_, so the CLI's own retries are never mistaken for replays. Reusing one would have failed commands permanently on exactly the marginal links that retries exist for.
   - The MAC is applied above URST, so URST's retransmission is unchanged and unaware of it.
   - New settings: `OTA_REQUIRE_AUTH`, `COMMAND_AUTH_KEY`, `OTA_REPLAY_FLOOR_FILE` (device); `OTAMPY_COMMAND_AUTH_KEY`, `OTAMPY_COUNTER_FILE` (host).
 
@@ -141,7 +149,6 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   Bench testing on `diff-drive-robot` (old MaxStream XBee Pro 802.15.4 radios, transparent/AP=0 mode) found that a device transmitting frames back-to-back with no inter-frame gap reliably corrupts reception at the other end -- confirmed fixed by pacing transmissions at >=20ms, and confirmed not explainable by payload size or `RO` (packetization timeout). Mirrors `urst-mpy` 3.2.0's `CodecLayer(min_tx_gap_ms=...)`, but at the mux layer, since a mux user's channel-1 (app) traffic sits entirely outside URST and shares the same physical UART -- only enforcing the gap in `urst-mpy` couldn't protect against an app-channel write landing right after an OTA-channel write.
 
   `SerialMux._write_channel()`'s inner `_write()` closure is the single point both channels' physical `uart.write()` calls already go through, so the gap is tracked once on the mux instance and applies uniformly regardless of which channel wrote last. Default `0` -- zero behaviour change for existing users/hardware.
-
   - `src/otampy/device/tests/test_mux.py::TestMinTxGap` covers the default no-op case, sleeping for the remaining gap across a channel-0-then-channel-1 write pair, and not sleeping once the gap has naturally elapsed.
 
 ## [4.2.4] - 2026-08-13
@@ -174,7 +181,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 
 - **`mux.py`'s `SerialMux.service()` crashed on the very first frame it ever
   parsed on real MicroPython hardware**, with `TypeError: 'bytearray'
-  object doesn't support item deletion`. It trimmed consumed bytes off the
+object doesn't support item deletion`. It trimmed consumed bytes off the
   front of `_rx_buffer` with `del self._rx_buffer[: idx + 1]`; MicroPython's
   `bytearray` doesn't support item/slice deletion at all (only CPython's
   does), so this raised on every device, unconditionally, the moment any
@@ -188,7 +195,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   pattern already used elsewhere in `mux.py` (e.g. `_VirtualPort._feed`).
   The existing `test_service_trims_rx_buffer_in_place_without_reallocating`
   test had asserted the old `del`-based behaviour as a desired
-  optimization; it passed because CPython's `bytearray` *does* support
+  optimization; it passed because CPython's `bytearray` _does_ support
   slice deletion, masking the MicroPython incompatibility entirely from
   the test suite. Renamed to
   `test_service_trims_rx_buffer_via_slice_reassignment` and rewritten to
@@ -214,7 +221,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
   progressed far further than before but still failed outright on what
   the device-side log showed was a purely late `CHUNK_ACK`.
 
-  New `_read_reply()` retries the *read* (never resends the command) up
+  New `_read_reply()` retries the _read_ (never resends the command) up
   to `transfer_reply_retries` (new config, default 3) times when the read
   comes back empty; an explicit reply, even a rejection, is returned
   immediately and never retried, since only silence is ambiguous.
@@ -235,7 +242,7 @@ correspond to PyPI releases of `otampy` (see `release.sh`).
 ### Notes
 
 - **A second, deterministic root cause of `Error: Fragment transfer
-  failed` / stuck `upd` transfers was in `urst-mpy`, not otampy: a NAK
+failed` / stuck `upd` transfers was in `urst-mpy`, not otampy: a NAK
   triggered a blind retransmit of the identical frame instead of
   connection re-establishment.** Per the URST spec, a NAK means the peer's
   sequence state has desynchronized and MUST be resolved via `CONNECT`,
